@@ -1,0 +1,10 @@
+# live data — never commit (contains customer info)
+data.json
+
+# secrets — never commit (web query URL, email, API tokens)
+config.local.json
+
+# logs
+*.log
+
+node_modules/

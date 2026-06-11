@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recycling Returns — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1c1f23;--ink-soft:#4d545c;--ink-faint:#8a919a;--paper:#f4f2ed;--card:#fff;--line:#e2ded6;
+    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
+    --red-soft:#fbe7e3;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Archivo',sans-serif;
+    --shadow:0 1px 2px rgba(28,31,35,.06),0 4px 14px rgba(28,31,35,.07)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh;
+    background-image:radial-gradient(circle at 1px 1px,rgba(28,31,35,.05) 1px,transparent 0);background-size:26px 26px}
+  header{background:var(--ink);color:#fff;border-bottom:4px solid var(--red)}
+  .head-inner{max-width:1280px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .logo-mark{width:42px;height:42px;background:var(--red);display:flex;align-items:center;justify-content:center;
+    font-family:var(--display);font-weight:800;font-size:21px;color:#fff}
+  h1{font-family:var(--display);font-weight:800;font-size:21px;text-transform:uppercase;letter-spacing:-.02em}
+  .head-sub{font-family:var(--mono);font-size:11px;color:#9aa2ab;margin-top:2px}
+  .head-stats{margin-left:auto;display:flex;gap:26px}
+  .hstat{text-align:right}
+  .hstat .num{font-family:var(--mono);font-size:24px;font-weight:600;line-height:1}
+  .hstat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9aa2ab;margin-top:4px}
+  .hstat.outst .num{color:#ffb36b}.hstat.done .num{color:#7fd6a6}
+  .wrap{max-width:1280px;margin:0 auto;padding:22px 28px 80px}
+  .syncbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line-dark);
+    box-shadow:var(--shadow);padding:12px 16px;margin-bottom:22px}
+  .sync-dot{width:10px;height:10px;border-radius:99px;background:var(--ink-faint)}
+  .sync-dot.ok{background:var(--green)}.sync-dot.bad{background:var(--red)}
+  .sync-msg{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+  .btn{font-family:var(--display);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
+    padding:9px 16px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+  .btn:hover{background:var(--red);border-color:var(--red)}
+  .btn.secondary{background:transparent;color:var(--ink)}
+  .btn.secondary:hover{background:var(--ink);color:#fff}
+  .btn.small{padding:6px 12px;font-size:11px}
+  .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+  h3.colhead{font-family:var(--display);font-size:14px;text-transform:uppercase;letter-spacing:.06em;margin:26px 0 12px;
+    display:flex;align-items:center;gap:10px}
+  h3.colhead .pill{font-family:var(--mono);font-size:11px;background:var(--red);color:#fff;padding:1px 8px;border-radius:99px}
+  .so-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:16px}
+  .so-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
+  .so-top{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
+  .so-num{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--red)}
+  .so-cust{font-family:var(--display);font-weight:700;font-size:16px;margin-top:2px}
+  .so-meta{font-size:11.5px;color:var(--ink-faint);margin-top:4px;font-family:var(--mono)}
+  .crate-frac{text-align:right}
+  .crate-frac .big{font-family:var(--mono);font-size:28px;font-weight:600;line-height:1}
+  .crate-frac .big .of{color:var(--ink-faint);font-size:17px}
+  .crate-frac .sub{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);margin-top:3px}
+  .prog{height:8px;background:var(--line);margin:12px 16px 0}
+  .prog .fill{height:100%;background:var(--amber);transition:width .4s}
+  .prog .fill.full{background:var(--green)}
+  .ticks{display:flex;gap:4px;padding:7px 16px 0}
+  .tick{flex:1;height:6px;background:var(--line)}.tick.in{background:var(--green)}
+  .so-body{padding:10px 16px 14px;font-size:12px}
+  .so-body table{width:100%;border-collapse:collapse;font-family:var(--mono)}
+  .so-body td{padding:3px 0;border-bottom:1px dashed var(--line)}
+  .so-body td:last-child{text-align:right;font-weight:600}
+  .nocounts{color:var(--ink-faint);font-style:italic;font-size:12px;padding:4px 0}
+  .status-tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;padding:3px 8px;font-weight:600}
+  .status-tag.awaiting{background:var(--red-soft);color:#a8200f}
+  .status-tag.partial{background:var(--amber-soft);color:#9c6206}
+  .status-tag.complete{background:var(--green-soft);color:var(--green)}
+  .comp-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);margin-bottom:13px}
+  .comp-head{display:flex;align-items:center;gap:14px;padding:13px 16px;cursor:pointer;flex-wrap:wrap}
+  .chev{font-family:var(--mono);color:var(--ink-faint);transition:transform .2s}
+  .comp-card.open .chev{transform:rotate(90deg)}
+  .ref-block{font-family:var(--mono);font-size:12px;margin-left:auto;text-align:right;line-height:1.7}
+  .ref-block .pending{color:var(--amber);font-weight:600}
+  .ref-block .set{color:var(--green);font-weight:600}
+  .comp-detail{display:none;border-top:1px solid var(--line);padding:14px 16px;background:#fbfaf7}
+  .comp-card.open .comp-detail{display:block}
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+  @media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
+  .detail-grid h4{font-family:var(--display);font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-bottom:7px}
+  .detail-grid table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+  .detail-grid td{padding:3px 0;border-bottom:1px dashed var(--line)}
+  .detail-grid td:last-child{text-align:right;font-weight:600}
+  .crate-log{font-family:var(--mono);font-size:11.5px}
+  .crate-log .entry{padding:5px 0;border-bottom:1px dashed var(--line)}
+  .actions{display:flex;gap:10px;margin-top:14px;align-items:flex-end;flex-wrap:wrap}
+  .actions label{display:block;font-family:var(--display);font-size:10px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--ink-soft);margin-bottom:4px}
+  .actions input{padding:8px 10px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;width:200px}
+  .empty{text-align:center;padding:50px 20px;color:var(--ink-faint)}
+  .empty .big{font-family:var(--display);font-size:18px;font-weight:700;color:var(--ink-soft);margin-bottom:6px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
+    padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--green)}
+</style>
+</head>
+<body>
+<header>
+  <div class="head-inner">
+    <div class="logo-mark">R</div>
+    <div>
+      <h1>Recycling Returns — Dashboard</h1>
+      <div class="head-sub">Live from NetSuite "Just Crate SO's" &middot; counts from the Rec team form</div>
+    </div>
+    <div class="head-stats">
+      <div class="hstat outst"><div class="num" id="stOut">0</div><div class="lbl">Outstanding</div></div>
+      <div class="hstat"><div class="num" id="stCrates">0</div><div class="lbl">Crates awaited</div></div>
+      <div class="hstat done"><div class="num" id="stDone">0</div><div class="lbl">Completed</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="syncbar">
+    <div class="sync-dot" id="syncDot"></div>
+    <span class="sync-msg" id="syncMsg">Not synced yet</span>
+    <div class="right">
+      <button class="btn small" onclick="syncNow()">Sync from NetSuite</button>
+      <button class="btn small secondary" onclick="document.getElementById('csvFile').click()">CSV fallback</button>
+      <input type="file" id="csvFile" accept=".csv,.txt" style="display:none" onchange="importCSV(this)">
+      <a class="btn small secondary" href="/count" style="text-decoration:none">Open Counter Form &rarr;</a>
+    </div>
+  </div>
+
+  <h3 class="colhead">Outstanding <span class="pill" id="pillOut">0</span></h3>
+  <div class="so-grid" id="outGrid"></div>
+  <div class="empty" id="outEmpty" style="display:none">
+    <div class="big">Nothing outstanding</div>All collection SOs have been counted, or none have synced yet.
+  </div>
+
+  <h3 class="colhead">Completed <span class="pill" id="pillDone">0</span></h3>
+  <div id="doneList"></div>
+  <div class="empty" id="doneEmpty" style="display:none">
+    <div class="big">Nothing completed yet</div>Orders land here automatically when the final crate is counted.
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let STATE=null;
+const openCards=new Set();
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
+
+async function refresh(){
+  try{
+    const r=await fetch('/api/state');STATE=await r.json();render();
+  }catch(e){document.getElementById('syncMsg').textContent='Server unreachable';}
+}
+function render(){
+  const open=STATE.orders.filter(o=>o.status==='open');
+  const done=STATE.orders.filter(o=>o.status==='done');
+  stOut.textContent=open.length;stDone.textContent=done.length;
+  stCrates.textContent=open.reduce((a,o)=>a+(o.crates-o.counts.length),0);
+  pillOut.textContent=open.length;pillDone.textContent=done.length;
+  const ls=STATE.lastSync;
+  const dot=document.getElementById('syncDot');
+  dot.className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
+  document.getElementById('syncMsg').textContent=ls?`Last sync ${ls.when} — ${ls.msg}`:'Not synced yet — press "Sync from NetSuite"';
+
+  const grid=document.getElementById('outGrid');grid.innerHTML='';
+  outEmpty.style.display=open.length?'none':'block';
+  open.forEach(o=>{
+    const rec=o.counts.length,pct=Math.round(rec/o.crates*100);
+    const tag=rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>';
+    const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
+    const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
+      :'<div class="nocounts">No crates counted yet</div>';
+    grid.insertAdjacentHTML('beforeend',`
+      <div class="so-card">
+        <div class="so-top">
+          <div>
+            <div class="so-num">${esc(o.so)}</div>
+            <div class="so-cust">${esc(o.cust)}</div>
+            <div class="so-meta">Created ${esc(ukDate(o.date))} &middot; ${esc(o.by)}</div>
+          </div>
+          <div class="crate-frac"><div class="big">${rec}<span class="of"> / ${o.crates}</span></div><div class="sub">crates counted</div></div>
+        </div>
+        <div class="prog"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div>
+        <div class="ticks">${ticks}</div>
+        <div class="so-body">${tbl}</div>
+        <div class="so-body" style="padding-top:0">${tag}</div>
+      </div>`);
+  });
+
+  const list=document.getElementById('doneList');list.innerHTML='';
+  doneEmpty.style.display=done.length?'none':'block';
+  done.forEach(o=>{
+    const totalUnits=o.totals.reduce((a,t)=>a+t.q,0);
+    const isOpen=openCards.has(o.id)?'open':'';
+    list.insertAdjacentHTML('beforeend',`
+      <div class="comp-card ${isOpen}" id="comp${o.id}">
+        <div class="comp-head" onclick="toggleCard(${o.id})">
+          <span class="chev">&#9656;</span>
+          <div>
+            <div class="so-num">${esc(o.so)}</div>
+            <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
+          </div>
+          <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
+          <div class="ref-block">
+            WTN: <span class="set">${esc(o.wtn||'')}</span><br>
+            SO (against count): <span class="${o.finalSo?'set':'pending'}">${esc(o.finalSo||'pending API')}</span>
+          </div>
+        </div>
+        <div class="comp-detail">
+          <div class="detail-grid">
+            <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
+            <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
+            <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry">Crate ${c.crate} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
+          </div>
+          <div class="actions">
+            <div><label>SO created against count (manual until API)</label>
+              <input value="${esc(o.finalSo||'')}" placeholder="pending API" onchange="setFinalSO(${o.id},this.value)"></div>
+            <a class="btn small" style="text-decoration:none" href="/wtn/${o.id}" target="_blank">Open WTN</a>
+          </div>
+        </div>
+      </div>`);
+  });
+}
+function toggleCard(id){
+  openCards.has(id)?openCards.delete(id):openCards.add(id);
+  document.getElementById('comp'+id).classList.toggle('open');
+}
+async function syncNow(){
+  toast('Syncing from NetSuite…');
+  const r=await fetch('/api/sync',{method:'POST'});const j=await r.json();
+  toast(j.msg||'Sync finished');refresh();
+}
+function importCSV(input){
+  const f=input.files[0];if(!f)return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const r=await fetch('/api/import-csv',{method:'POST',body:e.target.result});
+    const j=await r.json();toast(j.msg||'Imported');input.value='';refresh();
+  };
+  reader.readAsText(f);
+}
+async function setFinalSO(id,v){
+  await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});
+  toast('SO number saved');refresh();
+}
+refresh();
+setInterval(refresh,30000);
+</script>
+</body>
+</html>

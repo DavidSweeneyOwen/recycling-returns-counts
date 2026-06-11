@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy this file to config.local.json and fill in the real values. config.local.json is gitignored and must NEVER be committed.",
+  "netsuite": {
+    "webQueryUrl": "https://<account>.app.netsuite.com/app/reporting/webquery.nl?compid=...&entity=...&email=[EMAIL]&role=...&cr=...&hash=...",
+    "email": "your.netsuite.login@checkfire.co.uk",
+    "api": {
+      "enabled": false,
+      "consumerKey": "",
+      "consumerSecret": "",
+      "tokenId": "",
+      "tokenSecret": ""
+    }
+  }
+}

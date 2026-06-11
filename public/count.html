@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recycling Count — Rec Team</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1c1f23;--ink-soft:#4d545c;--ink-faint:#8a919a;--paper:#f4f2ed;--card:#fff;--line:#e2ded6;
+    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
+    --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Archivo',sans-serif;
+    --shadow:0 1px 2px rgba(28,31,35,.06),0 4px 14px rgba(28,31,35,.07)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh}
+  header{background:var(--ink);color:#fff;border-bottom:4px solid var(--red);padding:16px 20px;display:flex;align-items:center;gap:14px}
+  .logo-mark{width:40px;height:40px;background:var(--red);display:flex;align-items:center;justify-content:center;
+    font-family:var(--display);font-weight:800;font-size:20px}
+  h1{font-family:var(--display);font-weight:800;font-size:19px;text-transform:uppercase}
+  .head-sub{font-family:var(--mono);font-size:11px;color:#9aa2ab;margin-top:2px}
+  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 90px}
+  .step-title{font-family:var(--display);font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 14px}
+  .pick{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:16px;margin-bottom:12px;
+    cursor:pointer;display:flex;align-items:center;gap:14px;transition:border-color .15s}
+  .pick:active,.pick:hover{border-color:var(--red)}
+  .pick .so{font-family:var(--mono);font-weight:600;color:var(--red);font-size:14px}
+  .pick .cust{font-family:var(--display);font-weight:700;font-size:17px;margin-top:2px}
+  .pick .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin-top:4px}
+  .pick .frac{margin-left:auto;text-align:right}
+  .pick .frac .big{font-family:var(--mono);font-size:26px;font-weight:600}
+  .pick .frac .big small{color:var(--ink-faint);font-size:16px}
+  .pick .frac .sub{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint)}
+  .empty{text-align:center;padding:60px 16px;color:var(--ink-faint)}
+  .empty .big{font-family:var(--display);font-size:19px;font-weight:700;color:var(--ink-soft);margin-bottom:8px}
+  .crate-banner{background:var(--ink);color:#fff;padding:14px 18px;font-family:var(--display);font-weight:700;
+    font-size:16px;text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .crate-banner .back{margin-left:auto;background:none;border:1px solid #555;color:#bbb;padding:6px 12px;
+    font-family:var(--display);font-size:11px;text-transform:uppercase;cursor:pointer}
+  label{display:block;font-family:var(--display);font-size:11px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--ink-soft);margin:12px 0 5px}
+  input{width:100%;padding:12px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:16px}
+  input:focus{outline:2px solid var(--red);outline-offset:-1px}
+  .cgroup{margin-top:14px;border:1px solid var(--line-dark);background:var(--card)}
+  .ghead{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;padding:8px 14px}
+  .water .ghead{background:#b02318}.foam .ghead{background:#b29a6b}.powder .ghead{background:#3a536b}
+  .co2steel .ghead{background:#1c1f23}.alu .ghead{background:#5e6670}.otherg .ghead{background:#6b6f75}
+  .gcells{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}
+  .gcell{border-right:1px solid var(--line);border-top:1px solid var(--line);padding:10px;text-align:center}
+  .gcell .sz{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;display:block}
+  .gcell input{text-align:center;font-size:18px;padding:10px 4px}
+  .other-line{display:grid;grid-template-columns:1fr 86px 40px;gap:8px;padding:10px;align-items:center;border-top:1px solid var(--line)}
+  .other-line .rm{border:1px solid var(--line-dark);background:#fff;cursor:pointer;height:44px;color:var(--red);font-weight:700;font-size:18px}
+  .addother{margin:10px;padding:9px 14px;font-family:var(--display);font-size:11px;font-weight:700;text-transform:uppercase;
+    background:transparent;border:1px solid var(--ink);cursor:pointer}
+  .hint{font-size:13px;color:var(--ink-faint);margin-top:12px;line-height:1.5}
+  .hint.final{color:#9c6206;background:var(--amber-soft);padding:10px 14px;border:1px solid #ecc98a}
+  .submit{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line-dark);
+    padding:12px 16px;display:flex;gap:10px;justify-content:center;box-shadow:0 -4px 14px rgba(28,31,35,.08)}
+  .btn{font-family:var(--display);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.05em;
+    padding:14px 28px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+  .btn:hover{background:var(--red);border-color:var(--red)}
+  .btn.secondary{background:transparent;color:var(--ink)}
+  .done-screen{text-align:center;padding:60px 16px}
+  .done-screen .tick{width:80px;height:80px;border-radius:99px;background:var(--green-soft);color:var(--green);
+    font-size:42px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
+  .done-screen h2{font-family:var(--display);font-size:22px;text-transform:uppercase;margin-bottom:8px}
+  .done-screen p{font-family:var(--mono);font-size:13px;color:var(--ink-soft);margin-bottom:24px;line-height:1.7}
+  .toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
+    padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--red)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo-mark">R</div>
+  <div>
+    <h1>Recycling Count</h1>
+    <div class="head-sub">Rec team crate counting &middot; counts feed the office dashboard live</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- STEP 1: pick an order -->
+  <div id="stepPick">
+    <div class="step-title">Select the collection you're counting</div>
+    <div id="pickList"></div>
+    <div class="empty" id="pickEmpty" style="display:none">
+      <div class="big">Nothing waiting to be counted</div>
+      New collection SOs appear here automatically when they sync from NetSuite.
+    </div>
+  </div>
+
+  <!-- STEP 2: count form -->
+  <div id="stepCount" style="display:none">
+    <div class="crate-banner"><span id="crateLabel"></span><button class="back" onclick="backToPick()">&larr; Back</button></div>
+    <label>Counted by</label>
+    <input id="cBy" placeholder="Your name" autocomplete="name">
+    <div id="grid"></div>
+    <div class="cgroup otherg">
+      <div class="ghead">Other (Size / Container / Contents)</div>
+      <div id="otherLines"></div>
+      <button class="addother" onclick="addOther()">+ Add other item</button>
+    </div>
+    <p class="hint" id="hint"></p>
+    <div style="height:80px"></div>
+  </div>
+
+  <!-- STEP 3: confirmation -->
+  <div id="stepDone" style="display:none" class="done-screen">
+    <div class="tick">&#10003;</div>
+    <h2 id="doneTitle"></h2>
+    <p id="doneMsg"></p>
+    <button class="btn" onclick="backToPick()">Count another crate</button>
+  </div>
+</div>
+
+<div class="submit" id="submitBar" style="display:none">
+  <button class="btn secondary" onclick="backToPick()">Cancel</button>
+  <button class="btn" onclick="submitCount()">Save Crate Count</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let STATE=null,active=null;
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
+
+async function refresh(){
+  const r=await fetch('/api/state');STATE=await r.json();renderPick();
+}
+function renderPick(){
+  const open=STATE.orders.filter(o=>o.status==='open');
+  const list=document.getElementById('pickList');list.innerHTML='';
+  document.getElementById('pickEmpty').style.display=open.length?'none':'block';
+  open.forEach(o=>{
+    list.insertAdjacentHTML('beforeend',`
+      <div class="pick" onclick="startCount(${o.id})">
+        <div>
+          <div class="so">${esc(o.so)}</div>
+          <div class="cust">${esc(o.cust)}</div>
+          <div class="meta">Created ${esc(ukDate(o.date))} &middot; ${esc(o.by)}</div>
+        </div>
+        <div class="frac">
+          <div class="big">${o.counts.length}<small> / ${o.crates}</small></div>
+          <div class="sub">crates counted</div>
+        </div>
+      </div>`);
+  });
+}
+function groupsFromProducts(){
+  const order=[],map={};
+  STATE.products.forEach(pr=>{
+    if(!map[pr.group]){map[pr.group]={g:pr.group,items:[]};order.push(map[pr.group]);}
+    map[pr.group].items.push(pr);
+  });
+  return order;
+}
+const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
+function startCount(id){
+  active=STATE.orders.find(o=>o.id===id);
+  const next=active.counts.length+1;
+  document.getElementById('crateLabel').textContent=`${active.so} — ${active.cust} — Crate ${next} of ${active.crates}`;
+  document.getElementById('cBy').value='';
+  const grid=document.getElementById('grid');grid.innerHTML='';
+  groupsFromProducts().forEach(grp=>{
+    grid.insertAdjacentHTML('beforeend',`
+      <div class="cgroup ${GCLS[grp.g]||'otherg'}">
+        <div class="ghead">${esc(grp.g)}</div>
+        <div class="gcells">${grp.items.map(pr=>`
+          <div class="gcell"><span class="sz">${esc(pr.size)}</span>
+          <input type="number" min="0" inputmode="numeric" placeholder="0" data-prod="${esc(pr.p)}"></div>`).join('')}
+        </div>
+      </div>`);
+  });
+  document.getElementById('otherLines').innerHTML='';
+  const hint=document.getElementById('hint');
+  if(next===active.crates){hint.className='hint final';hint.textContent='FINAL CRATE — saving this count completes the order, generates the WTN reference and notifies the office dashboard.';}
+  else{hint.className='hint';hint.textContent=`${active.crates-next} crate(s) will still be outstanding after this one.`;}
+  show('stepCount');document.getElementById('submitBar').style.display='flex';
+  window.scrollTo(0,0);
+}
+function addOther(){
+  document.getElementById('otherLines').insertAdjacentHTML('beforeend',`
+    <div class="other-line">
+      <input placeholder="Size / container / contents">
+      <input type="number" min="1" value="1" inputmode="numeric">
+      <button class="rm" onclick="this.parentElement.remove()">&times;</button>
+    </div>`);
+}
+async function submitCount(){
+  const by=document.getElementById('cBy').value.trim();
+  if(!by){toast('Enter your name first');return;}
+  const lines=[];
+  document.querySelectorAll('#grid input[data-prod]').forEach(inp=>{
+    const q=parseInt(inp.value,10);if(q>0)lines.push({p:inp.dataset.prod,q});
+  });
+  document.querySelectorAll('#otherLines .other-line').forEach(r=>{
+    const d=r.querySelector('input').value.trim();
+    const q=parseInt(r.querySelectorAll('input')[1].value,10)||0;
+    if(d&&q>0)lines.push({p:'Other: '+d,q,other:true});
+  });
+  if(!lines.length){toast('Enter at least one count');return;}
+  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by,lines})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  document.getElementById('submitBar').style.display='none';
+  if(j.completed){
+    document.getElementById('doneTitle').textContent='Order Complete';
+    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — all ${j.of} crates counted.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office dashboard has been updated.`;
+  }else{
+    document.getElementById('doneTitle').textContent=`Crate ${j.crate} of ${j.of} saved`;
+    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — ${j.of-j.crate} crate(s) still to come.<br>The dashboard now shows the running total.`;
+  }
+  show('stepDone');
+  refresh();
+}
+function backToPick(){
+  document.getElementById('submitBar').style.display='none';
+  show('stepPick');refresh();window.scrollTo(0,0);
+}
+function show(id){
+  ['stepPick','stepCount','stepDone'].forEach(x=>document.getElementById(x).style.display=x===id?'block':'none');
+}
+refresh();
+setInterval(()=>{if(document.getElementById('stepPick').style.display!=='none')refresh();},30000);
+</script>
+</body>
+</html>
