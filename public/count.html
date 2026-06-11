@@ -7,38 +7,51 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{--ink:#1c1f23;--ink-soft:#4d545c;--ink-faint:#8a919a;--paper:#f4f2ed;--card:#fff;--line:#e2ded6;
-    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
+    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;--red-soft:#fbe7e3;
     --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Archivo',sans-serif;
     --shadow:0 1px 2px rgba(28,31,35,.06),0 4px 14px rgba(28,31,35,.07)}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh}
-  header{background:var(--ink);color:#fff;border-bottom:4px solid var(--red);padding:16px 20px;display:flex;align-items:center;gap:14px}
+  header{background:var(--ink);color:#fff;border-bottom:4px solid var(--red);padding:14px 18px;display:flex;align-items:center;gap:14px}
   .logo-mark{width:40px;height:40px;background:var(--red);display:flex;align-items:center;justify-content:center;
     font-family:var(--display);font-weight:800;font-size:20px}
-  h1{font-family:var(--display);font-weight:800;font-size:19px;text-transform:uppercase}
+  h1{font-family:var(--display);font-weight:800;font-size:18px;text-transform:uppercase}
   .head-sub{font-family:var(--mono);font-size:11px;color:#9aa2ab;margin-top:2px}
-  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 90px}
+  .who{margin-left:auto;text-align:right;font-family:var(--mono);font-size:12px;color:#9aa2ab}
+  .who b{color:#fff;display:block;font-size:13px}
+  .who a{color:#ffb36b;cursor:pointer;text-decoration:underline;font-size:11px}
+  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 100px}
   .step-title{font-family:var(--display);font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 14px}
-  .pick{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:16px;margin-bottom:12px;
-    cursor:pointer;display:flex;align-items:center;gap:14px;transition:border-color .15s}
-  .pick:active,.pick:hover{border-color:var(--red)}
-  .pick .so{font-family:var(--mono);font-weight:600;color:var(--red);font-size:14px}
-  .pick .cust{font-family:var(--display);font-weight:700;font-size:17px;margin-top:2px}
-  .pick .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin-top:4px}
-  .pick .frac{margin-left:auto;text-align:right}
-  .pick .frac .big{font-family:var(--mono);font-size:26px;font-weight:600}
-  .pick .frac .big small{color:var(--ink-faint);font-size:16px}
-  .pick .frac .sub{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint)}
-  .empty{text-align:center;padding:60px 16px;color:var(--ink-faint)}
-  .empty .big{font-family:var(--display);font-size:19px;font-weight:700;color:var(--ink-soft);margin-bottom:8px}
-  .crate-banner{background:var(--ink);color:#fff;padding:14px 18px;font-family:var(--display);font-weight:700;
-    font-size:16px;text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:14px}
-  .crate-banner .back{margin-left:auto;background:none;border:1px solid #555;color:#bbb;padding:6px 12px;
-    font-family:var(--display);font-size:11px;text-transform:uppercase;cursor:pointer}
   label{display:block;font-family:var(--display);font-size:11px;font-weight:700;text-transform:uppercase;
     letter-spacing:.07em;color:var(--ink-soft);margin:12px 0 5px}
-  input{width:100%;padding:12px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:16px}
+  input{width:100%;padding:13px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:17px}
   input:focus{outline:2px solid var(--red);outline-offset:-1px}
+  .btn{font-family:var(--display);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.05em;
+    padding:14px 28px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+  .btn:hover{background:var(--red);border-color:var(--red)}
+  .btn.secondary{background:transparent;color:var(--ink)}
+  .btn.block{width:100%;margin-top:14px}
+  .err{background:var(--red-soft);border:1px solid #e8a79c;color:#a8200f;padding:12px 14px;font-size:14px;
+    margin-top:14px;display:none;line-height:1.5}
+  /* login */
+  .login-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:26px;max-width:420px;margin:30px auto}
+  .login-card h2{font-family:var(--display);font-size:18px;text-transform:uppercase;margin-bottom:6px}
+  .login-card p{font-size:13px;color:var(--ink-soft);line-height:1.5}
+  .pin{letter-spacing:14px;text-align:center;font-size:26px!important}
+  /* find */
+  .find-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:22px}
+  .find-card .big-in{font-size:22px;text-align:center;text-transform:uppercase}
+  .find-hint{font-size:12.5px;color:var(--ink-faint);margin-top:10px;line-height:1.6}
+  .match{background:var(--card);border:2px solid var(--green);box-shadow:var(--shadow);padding:18px;margin-top:16px;display:none}
+  .match .so{font-family:var(--mono);font-weight:600;color:var(--red);font-size:15px}
+  .match .cust{font-family:var(--display);font-weight:700;font-size:20px;margin:4px 0}
+  .match .meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft);line-height:1.7}
+  .match .frac{font-family:var(--mono);font-size:14px;background:var(--amber-soft);display:inline-block;padding:4px 10px;margin-top:8px;font-weight:600}
+  /* count grid */
+  .crate-banner{background:var(--ink);color:#fff;padding:14px 18px;font-family:var(--display);font-weight:700;
+    font-size:15px;text-transform:uppercase;display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .crate-banner .back{margin-left:auto;background:none;border:1px solid #555;color:#bbb;padding:6px 12px;
+    font-family:var(--display);font-size:11px;text-transform:uppercase;cursor:pointer}
   .cgroup{margin-top:14px;border:1px solid var(--line-dark);background:var(--card)}
   .ghead{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;padding:8px 14px}
   .water .ghead{background:#b02318}.foam .ghead{background:#b29a6b}.powder .ghead{background:#3a536b}
@@ -55,12 +68,8 @@
   .hint.final{color:#9c6206;background:var(--amber-soft);padding:10px 14px;border:1px solid #ecc98a}
   .submit{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line-dark);
     padding:12px 16px;display:flex;gap:10px;justify-content:center;box-shadow:0 -4px 14px rgba(28,31,35,.08)}
-  .btn{font-family:var(--display);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.05em;
-    padding:14px 28px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
-  .btn:hover{background:var(--red);border-color:var(--red)}
-  .btn.secondary{background:transparent;color:var(--ink)}
   .done-screen{text-align:center;padding:60px 16px}
-  .done-screen .tick{width:80px;height:80px;border-radius:99px;background:var(--green-soft);color:var(--green);
+  .done-screen .tickmark{width:80px;height:80px;border-radius:99px;background:var(--green-soft);color:var(--green);
     font-size:42px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
   .done-screen h2{font-family:var(--display);font-size:22px;text-transform:uppercase;margin-bottom:8px}
   .done-screen p{font-family:var(--mono);font-size:13px;color:var(--ink-soft);margin-bottom:24px;line-height:1.7}
@@ -73,26 +82,55 @@
   <div class="logo-mark">R</div>
   <div>
     <h1>Recycling Count</h1>
-    <div class="head-sub">Rec team crate counting &middot; counts feed the office dashboard live</div>
+    <div class="head-sub">Rec team crate counting</div>
+  </div>
+  <div class="who" id="who" style="display:none">
+    Counting as<b id="whoName"></b><a onclick="logout()">switch user</a>
   </div>
 </header>
 
 <div class="wrap">
-  <!-- STEP 1: pick an order -->
-  <div id="stepPick">
-    <div class="step-title">Select the collection you're counting</div>
-    <div id="pickList"></div>
-    <div class="empty" id="pickEmpty" style="display:none">
-      <div class="big">Nothing waiting to be counted</div>
-      New collection SOs appear here automatically when they sync from NetSuite.
+  <!-- STEP 0: login -->
+  <div id="stepLogin" style="display:none">
+    <div class="login-card">
+      <h2>Who's counting?</h2>
+      <p id="loginPrompt">Enter your PIN to start counting. Your name goes on every crate you count.</p>
+      <div id="pinBlock">
+        <label>PIN</label>
+        <input id="pinInput" class="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+      </div>
+      <div id="nameBlock" style="display:none">
+        <label>Your name</label>
+        <input id="nameInput" placeholder="Name" autocomplete="name">
+      </div>
+      <button class="btn block" onclick="doLogin()">Start Counting</button>
+      <div class="err" id="loginErr"></div>
     </div>
   </div>
 
-  <!-- STEP 2: count form -->
+  <!-- STEP 1: find the collection -->
+  <div id="stepFind" style="display:none">
+    <div class="step-title">Enter the collection number</div>
+    <div class="find-card">
+      <input id="soInput" class="big-in" placeholder="e.g. SO824039" autocomplete="off"
+        onkeydown="if(event.key==='Enter')findOrder()">
+      <button class="btn block" onclick="findOrder()">Find Collection</button>
+      <div class="err" id="findErr"></div>
+      <p class="find-hint">Type the Sales Order number from the paperwork that came with the crate.
+      The C is added automatically. Counting is only possible against a live collection — if it doesn't match, check the number and try again.</p>
+    </div>
+    <div class="match" id="matchCard">
+      <div class="so" id="mSo"></div>
+      <div class="cust" id="mCust"></div>
+      <div class="meta" id="mMeta"></div>
+      <div class="frac" id="mFrac"></div>
+      <button class="btn block" onclick="startCount()">Count Crate <span id="mNext"></span></button>
+    </div>
+  </div>
+
+  <!-- STEP 2: count grid -->
   <div id="stepCount" style="display:none">
-    <div class="crate-banner"><span id="crateLabel"></span><button class="back" onclick="backToPick()">&larr; Back</button></div>
-    <label>Counted by</label>
-    <input id="cBy" placeholder="Your name" autocomplete="name">
+    <div class="crate-banner"><span id="crateLabel"></span><button class="back" onclick="backToFind()">&larr; Back</button></div>
     <div id="grid"></div>
     <div class="cgroup otherg">
       <div class="ghead">Other (Size / Container / Contents)</div>
@@ -105,47 +143,87 @@
 
   <!-- STEP 3: confirmation -->
   <div id="stepDone" style="display:none" class="done-screen">
-    <div class="tick">&#10003;</div>
+    <div class="tickmark">&#10003;</div>
     <h2 id="doneTitle"></h2>
     <p id="doneMsg"></p>
-    <button class="btn" onclick="backToPick()">Count another crate</button>
+    <button class="btn" onclick="backToFind()">Count another crate</button>
   </div>
 </div>
 
 <div class="submit" id="submitBar" style="display:none">
-  <button class="btn secondary" onclick="backToPick()">Cancel</button>
+  <button class="btn secondary" onclick="backToFind()">Cancel</button>
   <button class="btn" onclick="submitCount()">Save Crate Count</button>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
-let STATE=null,active=null;
+let STATE=null,active=null,counter=null;
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
+function show(id){
+  ['stepLogin','stepFind','stepCount','stepDone'].forEach(x=>document.getElementById(x).style.display=x===id?'block':'none');
+}
 
-async function refresh(){
-  const r=await fetch('/api/state');STATE=await r.json();renderPick();
+async function init(){
+  const r=await fetch('/api/state');STATE=await r.json();
+  counter=localStorage.getItem('recCounter')||null;
+  if(counter){setWho();show('stepFind');}
+  else{
+    if(!STATE.loginRequired){
+      document.getElementById('pinBlock').style.display='none';
+      document.getElementById('nameBlock').style.display='block';
+      document.getElementById('loginPrompt').textContent='No PINs are set up yet — enter your name to start counting. (PINs can be added in config.local.json.)';
+    }
+    show('stepLogin');
+  }
 }
-function renderPick(){
-  const open=STATE.orders.filter(o=>o.status==='open');
-  const list=document.getElementById('pickList');list.innerHTML='';
-  document.getElementById('pickEmpty').style.display=open.length?'none':'block';
-  open.forEach(o=>{
-    list.insertAdjacentHTML('beforeend',`
-      <div class="pick" onclick="startCount(${o.id})">
-        <div>
-          <div class="so">${esc(o.so)}</div>
-          <div class="cust">${esc(o.cust)}</div>
-          <div class="meta">Created ${esc(ukDate(o.date))} &middot; ${esc(o.by)}</div>
-        </div>
-        <div class="frac">
-          <div class="big">${o.counts.length}<small> / ${o.crates}</small></div>
-          <div class="sub">crates counted</div>
-        </div>
-      </div>`);
-  });
+function setWho(){
+  document.getElementById('who').style.display='block';
+  document.getElementById('whoName').textContent=counter;
 }
+async function doLogin(){
+  const err=document.getElementById('loginErr');err.style.display='none';
+  if(STATE.loginRequired){
+    const pin=document.getElementById('pinInput').value.trim();
+    if(!pin){err.textContent='Enter your PIN';err.style.display='block';return;}
+    const r=await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
+    const j=await r.json();
+    if(!j.ok){err.textContent=j.error||'PIN not recognised — ask the office to check config.local.json';err.style.display='block';return;}
+    counter=j.name;
+  }else{
+    const name=document.getElementById('nameInput').value.trim();
+    if(!name){err.textContent='Enter your name';err.style.display='block';return;}
+    counter=name;
+  }
+  localStorage.setItem('recCounter',counter);
+  setWho();show('stepFind');
+  setTimeout(()=>document.getElementById('soInput').focus(),100);
+}
+function logout(){
+  localStorage.removeItem('recCounter');counter=null;
+  document.getElementById('who').style.display='none';
+  document.getElementById('pinInput').value='';
+  show('stepLogin');
+}
+
+async function findOrder(){
+  const err=document.getElementById('findErr');err.style.display='none';
+  document.getElementById('matchCard').style.display='none';
+  const number=document.getElementById('soInput').value.trim();
+  if(!number){err.textContent='Enter the collection number from the paperwork';err.style.display='block';return;}
+  const r=await fetch('/api/find-order',{method:'POST',body:JSON.stringify({number})});
+  const j=await r.json();
+  if(!j.ok){err.textContent=j.error;err.style.display='block';return;}
+  active=j.order;
+  document.getElementById('mSo').textContent=active.so;
+  document.getElementById('mCust').textContent=active.cust;
+  document.getElementById('mMeta').innerHTML=`Created ${esc(ukDate(active.date))} &middot; ${esc(active.by)}`;
+  document.getElementById('mFrac').textContent=`${active.counted} of ${active.crates} crates counted so far`;
+  document.getElementById('mNext').textContent=`${active.counted+1} of ${active.crates}`;
+  document.getElementById('matchCard').style.display='block';
+}
+
 function groupsFromProducts(){
   const order=[],map={};
   STATE.products.forEach(pr=>{
@@ -155,11 +233,10 @@ function groupsFromProducts(){
   return order;
 }
 const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
-function startCount(id){
-  active=STATE.orders.find(o=>o.id===id);
-  const next=active.counts.length+1;
+
+function startCount(){
+  const next=active.counted+1;
   document.getElementById('crateLabel').textContent=`${active.so} — ${active.cust} — Crate ${next} of ${active.crates}`;
-  document.getElementById('cBy').value='';
   const grid=document.getElementById('grid');grid.innerHTML='';
   groupsFromProducts().forEach(grp=>{
     grid.insertAdjacentHTML('beforeend',`
@@ -173,7 +250,7 @@ function startCount(id){
   });
   document.getElementById('otherLines').innerHTML='';
   const hint=document.getElementById('hint');
-  if(next===active.crates){hint.className='hint final';hint.textContent='FINAL CRATE — saving this count completes the order, generates the WTN reference and notifies the office dashboard.';}
+  if(next===active.crates){hint.className='hint final';hint.textContent='FINAL CRATE — saving this count completes the order, generates the WTN reference and updates the office dashboard.';}
   else{hint.className='hint';hint.textContent=`${active.crates-next} crate(s) will still be outstanding after this one.`;}
   show('stepCount');document.getElementById('submitBar').style.display='flex';
   window.scrollTo(0,0);
@@ -187,8 +264,6 @@ function addOther(){
     </div>`);
 }
 async function submitCount(){
-  const by=document.getElementById('cBy').value.trim();
-  if(!by){toast('Enter your name first');return;}
   const lines=[];
   document.querySelectorAll('#grid input[data-prod]').forEach(inp=>{
     const q=parseInt(inp.value,10);if(q>0)lines.push({p:inp.dataset.prod,q});
@@ -199,29 +274,28 @@ async function submitCount(){
     if(d&&q>0)lines.push({p:'Other: '+d,q,other:true});
   });
   if(!lines.length){toast('Enter at least one count');return;}
-  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by,lines})});
+  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
   document.getElementById('submitBar').style.display='none';
   if(j.completed){
     document.getElementById('doneTitle').textContent='Order Complete';
-    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — all ${j.of} crates counted.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office dashboard has been updated.`;
+    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — all ${j.of} crates counted by ${esc(counter)}.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office dashboard has been updated.`;
   }else{
     document.getElementById('doneTitle').textContent=`Crate ${j.crate} of ${j.of} saved`;
     document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — ${j.of-j.crate} crate(s) still to come.<br>The dashboard now shows the running total.`;
   }
   show('stepDone');
-  refresh();
 }
-function backToPick(){
+function backToFind(){
   document.getElementById('submitBar').style.display='none';
-  show('stepPick');refresh();window.scrollTo(0,0);
+  document.getElementById('soInput').value='';
+  document.getElementById('matchCard').style.display='none';
+  document.getElementById('findErr').style.display='none';
+  show('stepFind');window.scrollTo(0,0);
+  setTimeout(()=>document.getElementById('soInput').focus(),100);
 }
-function show(id){
-  ['stepPick','stepCount','stepDone'].forEach(x=>document.getElementById(x).style.display=x===id?'block':'none');
-}
-refresh();
-setInterval(()=>{if(document.getElementById('stepPick').style.display!=='none')refresh();},30000);
+init();
 </script>
 </body>
 </html>

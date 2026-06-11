@@ -25,21 +25,24 @@
   .hstat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9aa2ab;margin-top:4px}
   .hstat.outst .num{color:#ffb36b}.hstat.done .num{color:#7fd6a6}
   .wrap{max-width:1280px;margin:0 auto;padding:22px 28px 80px}
-  .syncbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line-dark);
-    box-shadow:var(--shadow);padding:12px 16px;margin-bottom:22px}
-  .sync-dot{width:10px;height:10px;border-radius:99px;background:var(--ink-faint)}
+  nav.tabs{display:flex;border:1px solid var(--line-dark);background:var(--card);width:fit-content;box-shadow:var(--shadow)}
+  nav.tabs button{font-family:var(--display);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;
+    padding:13px 26px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--line)}
+  nav.tabs button:last-child{border-right:none}
+  nav.tabs button.active{background:var(--ink);color:#fff}
+  nav.tabs button .pill{font-family:var(--mono);font-size:11px;background:var(--red);color:#fff;padding:1px 7px;margin-left:8px;border-radius:99px}
+  .toolbar{display:flex;gap:12px;margin:18px 0;flex-wrap:wrap;align-items:center}
+  .filter{padding:10px 14px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;width:300px;background:var(--card)}
+  .filter:focus{outline:2px solid var(--red);outline-offset:-1px}
+  .sync-msg{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin-left:auto;display:flex;align-items:center;gap:8px}
+  .sync-dot{width:9px;height:9px;border-radius:99px;background:var(--ink-faint)}
   .sync-dot.ok{background:var(--green)}.sync-dot.bad{background:var(--red)}
-  .sync-msg{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
   .btn{font-family:var(--display);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
-    padding:9px 16px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+    padding:9px 16px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
   .btn:hover{background:var(--red);border-color:var(--red)}
-  .btn.secondary{background:transparent;color:var(--ink)}
-  .btn.secondary:hover{background:var(--ink);color:#fff}
   .btn.small{padding:6px 12px;font-size:11px}
-  .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-  h3.colhead{font-family:var(--display);font-size:14px;text-transform:uppercase;letter-spacing:.06em;margin:26px 0 12px;
-    display:flex;align-items:center;gap:10px}
-  h3.colhead .pill{font-family:var(--mono);font-size:11px;background:var(--red);color:#fff;padding:1px 8px;border-radius:99px}
+  .btn.wtn{background:var(--green);border-color:var(--green)}
+  .btn.wtn:hover{background:var(--red);border-color:var(--red)}
   .so-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:16px}
   .so-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
   .so-top{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
@@ -97,7 +100,7 @@
     <div class="logo-mark">R</div>
     <div>
       <h1>Recycling Returns — Dashboard</h1>
-      <div class="head-sub">Live from NetSuite "Just Crate SO's" &middot; counts from the Rec team form</div>
+      <div class="head-sub">Live from NetSuite &middot; counts from the Rec team form</div>
     </div>
     <div class="head-stats">
       <div class="hstat outst"><div class="num" id="stOut">0</div><div class="lbl">Outstanding</div></div>
@@ -108,28 +111,30 @@
 </header>
 
 <div class="wrap">
-  <div class="syncbar">
-    <div class="sync-dot" id="syncDot"></div>
-    <span class="sync-msg" id="syncMsg">Not synced yet</span>
-    <div class="right">
-      <button class="btn small" onclick="syncNow()">Sync from NetSuite</button>
-      <button class="btn small secondary" onclick="document.getElementById('csvFile').click()">CSV fallback</button>
-      <input type="file" id="csvFile" accept=".csv,.txt" style="display:none" onchange="importCSV(this)">
-      <a class="btn small secondary" href="/count" style="text-decoration:none">Open Counter Form &rarr;</a>
+  <nav class="tabs">
+    <button id="tabOut" class="active" onclick="switchTab('out')">Outstanding <span class="pill" id="pillOut">0</span></button>
+    <button id="tabDone" onclick="switchTab('done')">Completed <span class="pill" id="pillDone">0</span></button>
+  </nav>
+
+  <div class="toolbar">
+    <input class="filter" id="filter" placeholder="Filter by SO number or customer…" oninput="render()">
+    <a class="btn small" href="/count" style="margin-left:4px">Counter Form &rarr;</a>
+    <span class="sync-msg"><span class="sync-dot" id="syncDot"></span><span id="syncMsg">Waiting for first sync…</span></span>
+  </div>
+
+  <section id="viewOut">
+    <div class="so-grid" id="outGrid"></div>
+    <div class="empty" id="outEmpty" style="display:none">
+      <div class="big">Nothing outstanding</div>All collection SOs have been counted, or none match the filter.
     </div>
-  </div>
+  </section>
 
-  <h3 class="colhead">Outstanding <span class="pill" id="pillOut">0</span></h3>
-  <div class="so-grid" id="outGrid"></div>
-  <div class="empty" id="outEmpty" style="display:none">
-    <div class="big">Nothing outstanding</div>All collection SOs have been counted, or none have synced yet.
-  </div>
-
-  <h3 class="colhead">Completed <span class="pill" id="pillDone">0</span></h3>
-  <div id="doneList"></div>
-  <div class="empty" id="doneEmpty" style="display:none">
-    <div class="big">Nothing completed yet</div>Orders land here automatically when the final crate is counted.
-  </div>
+  <section id="viewDone" style="display:none">
+    <div id="doneList"></div>
+    <div class="empty" id="doneEmpty" style="display:none">
+      <div class="big">Nothing completed yet</div>Orders land here automatically when the final crate is counted.
+    </div>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -141,21 +146,34 @@ function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
 
+function switchTab(t){
+  document.getElementById('viewOut').style.display=t==='out'?'block':'none';
+  document.getElementById('viewDone').style.display=t==='done'?'block':'none';
+  document.getElementById('tabOut').classList.toggle('active',t==='out');
+  document.getElementById('tabDone').classList.toggle('active',t==='done');
+}
+
 async function refresh(){
   try{
     const r=await fetch('/api/state');STATE=await r.json();render();
   }catch(e){document.getElementById('syncMsg').textContent='Server unreachable';}
 }
+function matchesFilter(o,f){
+  if(!f)return true;
+  return o.so.toLowerCase().includes(f)||o.cust.toLowerCase().includes(f);
+}
 function render(){
-  const open=STATE.orders.filter(o=>o.status==='open');
-  const done=STATE.orders.filter(o=>o.status==='done');
-  stOut.textContent=open.length;stDone.textContent=done.length;
-  stCrates.textContent=open.reduce((a,o)=>a+(o.crates-o.counts.length),0);
-  pillOut.textContent=open.length;pillDone.textContent=done.length;
+  const f=document.getElementById('filter').value.trim().toLowerCase();
+  const allOpen=STATE.orders.filter(o=>o.status==='open');
+  const allDone=STATE.orders.filter(o=>o.status==='done');
+  const open=allOpen.filter(o=>matchesFilter(o,f));
+  const done=allDone.filter(o=>matchesFilter(o,f));
+  stOut.textContent=allOpen.length;stDone.textContent=allDone.length;
+  stCrates.textContent=allOpen.reduce((a,o)=>a+(o.crates-o.counts.length),0);
+  pillOut.textContent=allOpen.length;pillDone.textContent=allDone.length;
   const ls=STATE.lastSync;
-  const dot=document.getElementById('syncDot');
-  dot.className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
-  document.getElementById('syncMsg').textContent=ls?`Last sync ${ls.when} — ${ls.msg}`:'Not synced yet — press "Sync from NetSuite"';
+  document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
+  document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
 
   const grid=document.getElementById('outGrid');grid.innerHTML='';
   outEmpty.style.display=open.length?'none':'block';
@@ -196,6 +214,7 @@ function render(){
             <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
           </div>
           <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
+          <a class="btn small wtn" href="/wtn/${o.id}" target="_blank" onclick="event.stopPropagation()">View WTN</a>
           <div class="ref-block">
             WTN: <span class="set">${esc(o.wtn||'')}</span><br>
             SO (against count): <span class="${o.finalSo?'set':'pending'}">${esc(o.finalSo||'pending API')}</span>
@@ -210,7 +229,6 @@ function render(){
           <div class="actions">
             <div><label>SO created against count (manual until API)</label>
               <input value="${esc(o.finalSo||'')}" placeholder="pending API" onchange="setFinalSO(${o.id},this.value)"></div>
-            <a class="btn small" style="text-decoration:none" href="/wtn/${o.id}" target="_blank">Open WTN</a>
           </div>
         </div>
       </div>`);
@@ -219,20 +237,6 @@ function render(){
 function toggleCard(id){
   openCards.has(id)?openCards.delete(id):openCards.add(id);
   document.getElementById('comp'+id).classList.toggle('open');
-}
-async function syncNow(){
-  toast('Syncing from NetSuite…');
-  const r=await fetch('/api/sync',{method:'POST'});const j=await r.json();
-  toast(j.msg||'Sync finished');refresh();
-}
-function importCSV(input){
-  const f=input.files[0];if(!f)return;
-  const reader=new FileReader();
-  reader.onload=async e=>{
-    const r=await fetch('/api/import-csv',{method:'POST',body:e.target.result});
-    const j=await r.json();toast(j.msg||'Imported');input.value='';refresh();
-  };
-  reader.readAsText(f);
 }
 async function setFinalSO(id,v){
   await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});

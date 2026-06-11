@@ -3,10 +3,11 @@
    Zero-dependency Node.js app. Run with:  node server.js
    Serves:
      /            office dashboard (read-only data dash)
-     /count       Rec team counter form
+     /count       Rec team counter form (PIN login + collection number match)
      /wtn/:id     printable Duty of Care Waste Transfer Note
    Data:    data.json (created automatically next to this file)
-   Config:  config.json (web query URL, products, codes, WTN settings)
+   Config:  config.json (products, codes, WTN settings)
+            config.local.json (secrets: web query URL, email, counters, tokens)
    ========================================================================= */
 'use strict';
 const http = require('http');
@@ -16,10 +17,12 @@ const path = require('path');
 
 function deepMerge(a, b) { for (const k in b) { if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k])) a[k] = deepMerge(a[k] || {}, b[k]); else a[k] = b[k]; } return a; }
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
-/* Secrets (web query URL, email, API tokens) live in config.local.json —
+/* Secrets (web query URL, email, counters, API tokens) live in config.local.json —
    gitignored, never committed. Copy config.local.example.json to start. */
 const LOCAL_CONF = path.join(__dirname, 'config.local.json');
 if (fs.existsSync(LOCAL_CONF)) deepMerge(CONFIG, JSON.parse(fs.readFileSync(LOCAL_CONF, 'utf8')));
+CONFIG.counters = CONFIG.counters || [];
+
 const DATA_FILE = path.join(__dirname, 'data.json');
 const LOGO_B64 = fs.existsSync(path.join(__dirname, 'assets', 'logo.jpg'))
   ? fs.readFileSync(path.join(__dirname, 'assets', 'logo.jpg')).toString('base64') : '';
@@ -35,10 +38,13 @@ function saveDb() { fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2)); }
 /* ---------------- helpers ---------------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function normaliseSO(s) {
-  s = String(s || '').trim().toUpperCase();
-  if (s && !s.endsWith('C')) s += 'C';            // collection SOs carry a C suffix
+  s = String(s || '').toUpperCase().replace(/\s+/g, '');
+  if (!s) return '';
+  if (/^\d+C?$/.test(s)) s = 'SO' + s;            // digits only → assume SO prefix
+  if (!s.endsWith('C')) s += 'C';                  // collection SOs carry a C suffix
   return s;
 }
+function cleanNum(v) { return parseInt(String(v == null ? '' : v).replace(/[^\d-]/g, ''), 10); } // strips =, quotes, commas
 function ukDate(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || ''); }
 function isoDate(uk) { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(uk || ''); return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : (uk || ''); }
 function nowStamp() { return new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }); }
@@ -83,7 +89,6 @@ function fetchUrl(u, redirects, cb) {
   }).on('error', err => cb(err));
 }
 
-/* Parse the HTML table NetSuite returns for a published web query */
 function parseHtmlTable(html) {
   const rows = [];
   const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
@@ -100,46 +105,71 @@ function parseHtmlTable(html) {
   return rows;
 }
 
-/* Shared upsert used by web query sync AND CSV fallback */
+/* Upsert: adds new SOs AND updates header fields on existing open orders
+   (NetSuite is the source of truth for crates expected, customer, etc.) */
 function upsertRows(rows) {
   const hIdx = rows.findIndex(r => r.some(c => /document\s*number/i.test(c)));
-  if (hIdx < 0) return { error: 'No "Document Number" column found', added: 0, skipped: 0 };
+  if (hIdx < 0) return { error: 'No "Document Number" column found', added: 0, updated: 0, skipped: 0 };
   const head = rows[hIdx].map(h => h.toLowerCase());
   const ix = re => head.findIndex(h => re.test(h));
   const iSo = ix(/document\s*number/), iCu = ix(/company\s*name/), iDa = ix(/date\s*created/),
         iBy = ix(/created\s*by/), iQt = ix(/quantity\s*billed/);
-  let added = 0, skipped = 0;
+  let added = 0, updated = 0, skipped = 0;
   rows.slice(hIdx + 1).forEach(r => {
     const raw = r[iSo];
-    if (!raw || !/^so/i.test(raw)) return;
+    if (!raw || !/^so/i.test(String(raw).trim())) return;
     const so = normaliseSO(raw);
-    if (db.orders.some(o => o.so === so)) { skipped++; return; }
-    const crates = Math.min(CONFIG.maxCrates, Math.max(1, parseInt(r[iQt], 10) || 1));
+    const qty = cleanNum(r[iQt]);
+    const crates = Math.min(CONFIG.maxCrates, Math.max(1, isNaN(qty) ? 1 : qty));
+    const cust = iCu > -1 ? r[iCu] : 'Unknown';
+    const date = isoDate(iDa > -1 ? r[iDa] : '') || new Date().toISOString().slice(0, 10);
+    const by = iBy > -1 ? r[iBy] : '';
+    const existing = db.orders.find(o => o.so === so);
+    if (existing) {
+      if (existing.status === 'open') {
+        // never set crates below what's already been counted
+        const newCrates = Math.max(crates, existing.counts.length || 1);
+        if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date) {
+          existing.crates = newCrates; existing.cust = cust; existing.by = by; existing.date = date;
+          updated++;
+        } else skipped++;
+      } else skipped++;
+      return;
+    }
     db.orders.unshift({
-      id: ++db.seq, so,
-      cust: iCu > -1 ? r[iCu] : 'Unknown',
-      date: isoDate(iDa > -1 ? r[iDa] : '') || new Date().toISOString().slice(0, 10),
-      by: iBy > -1 ? r[iBy] : '',
+      id: ++db.seq, so, cust, date, by,
       crates, counts: [], status: 'open', wtn: null, finalSo: null, source: 'netsuite'
     });
     added++;
   });
-  return { added, skipped };
+  return { added, updated, skipped };
 }
 
 function syncFromNetSuite(cb) {
   const u = CONFIG.netsuite.webQueryUrl.replace('[EMAIL]', encodeURIComponent(CONFIG.netsuite.email));
   fetchUrl(u, (err, status, body) => {
     if (err) { db.lastSync = { when: nowStamp(), ok: false, msg: 'Connection failed: ' + err.message }; saveDb(); return cb(db.lastSync); }
-    if (status !== 200) { db.lastSync = { when: nowStamp(), ok: false, msg: 'NetSuite returned HTTP ' + status + ' — check the web query URL/email in config.json, or use CSV upload' }; saveDb(); return cb(db.lastSync); }
+    if (status !== 200) { db.lastSync = { when: nowStamp(), ok: false, msg: 'NetSuite returned HTTP ' + status }; saveDb(); return cb(db.lastSync); }
     const res = upsertRows(parseHtmlTable(body));
-    db.lastSync = { when: nowStamp(), ok: !res.error, msg: res.error || `${res.added} new, ${res.skipped} already tracked`, ...res };
+    db.lastSync = { when: nowStamp(), ok: !res.error, msg: res.error || `${res.added} new, ${res.updated} updated, ${res.skipped} unchanged`, ...res };
     saveDb(); cb(db.lastSync);
   });
 }
 
 if (CONFIG.netsuite.autoSyncMinutes > 0) {
   setInterval(() => syncFromNetSuite(() => {}), CONFIG.netsuite.autoSyncMinutes * 60 * 1000);
+  // sync shortly after startup too
+  setTimeout(() => syncFromNetSuite(() => {}), 5000);
+}
+
+/* ---------------- counter login ----------------
+   Counters are defined in config.local.json:
+     "counters": [ { "name": "M. Jones", "pin": "4321" }, ... ]
+   If no counters are configured, the form falls back to free-text names. */
+function login(pin) {
+  if (!CONFIG.counters.length) return { setup: true };
+  const c = CONFIG.counters.find(c => String(c.pin) === String(pin));
+  return c ? { ok: true, name: c.name } : { error: 'PIN not recognised' };
 }
 
 /* ---------------- counting / completion ---------------- */
@@ -161,15 +191,12 @@ function addCount(orderId, by, lines) {
 }
 
 /* ---------------- Phase 3: NetSuite SO creation (stub) ----------------
-   When CONFIG.netsuite.api.enabled is true, this should create a sales
-   order against the counted quantities via SuiteTalk REST:
+   When CONFIG.netsuite.api.enabled is true, create a sales order against
+   the counted quantities via SuiteTalk REST:
      POST https://<account>.suitetalk.api.netsuite.com/services/rest/record/v1/salesOrder
-     Auth: OAuth 1.0a (Token-Based Authentication) — consumer key/secret +
-           token id/secret from the NetSuite integration record.
-     Body: { entity: {id: <customer>}, item: { items: nsLines(order).map(
-            l => ({ item:{id: <mapped from l.code>}, quantity: l.q })) } }
-   On success, write the returned tranId into order.finalSo and saveDb().
-   Until then the dashboard accepts the SO number manually.               */
+     Auth: OAuth 1.0a (TBA) — keys live in config.local.json
+     Lines: nsLines(order) → map code → NetSuite item id
+   On success write the returned tranId to order.finalSo and saveDb().    */
 function createNetSuiteSalesOrder(order) {
   if (!CONFIG.netsuite.api.enabled) return;
   console.log('[Phase3] Would create NetSuite SO for', order.so, nsLines(order));
@@ -300,20 +327,30 @@ const server = http.createServer((req, res) => {
       lastSync: db.lastSync,
       products: CONFIG.products,
       maxCrates: CONFIG.maxCrates,
+      loginRequired: CONFIG.counters.length > 0,
       apiEnabled: CONFIG.netsuite.api.enabled
     });
   }
-  if (req.method === 'POST' && p === '/api/sync') return syncFromNetSuite(r => json(res, 200, r));
-  if (req.method === 'POST' && p === '/api/import-csv') {
+  if (req.method === 'POST' && p === '/api/login') {
     return readBody(req, body => {
-      const delim = body.includes('\t') ? '\t' : ',';
-      const rows = body.split(/\r?\n/).map(r => r.split(delim).map(c => c.trim().replace(/^"|"$/g, ''))).filter(r => r.some(c => c));
-      const r = upsertRows(rows);
-      db.lastSync = { when: nowStamp(), ok: !r.error, msg: r.error || `CSV: ${r.added} new, ${r.skipped} already tracked`, ...r };
-      saveDb();
-      json(res, 200, db.lastSync);
+      try { const { pin } = JSON.parse(body); json(res, 200, login(pin)); }
+      catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
+  if (req.method === 'POST' && p === '/api/find-order') {
+    return readBody(req, body => {
+      try {
+        const { number } = JSON.parse(body);
+        const so = normaliseSO(number);
+        if (!so) return json(res, 200, { error: 'Enter the collection number from the paperwork' });
+        const o = db.orders.find(x => x.so === so);
+        if (!o) return json(res, 200, { error: `No collection found for ${so} — check the number on the paperwork`, tried: so });
+        if (o.status === 'done') return json(res, 200, { error: `${so} is already fully counted (${o.crates} of ${o.crates} crates)`, tried: so });
+        json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: o.counts.length } });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  if (req.method === 'POST' && p === '/api/sync') return syncFromNetSuite(r => json(res, 200, r));
   if (req.method === 'POST' && p === '/api/count') {
     return readBody(req, body => {
       try { const { orderId, by, lines } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines)); }
