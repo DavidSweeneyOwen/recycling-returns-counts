@@ -132,6 +132,15 @@ function nsLines(o) {
   }));
   return Object.keys(m).sort().map(code => ({ code, q: m[code] }));
 }
+function co2Units(o) {
+  let n = 0;
+  o.counts.forEach(c => c.lines.forEach(l => {
+    if (l.other) return;
+    const prod = CONFIG.products.find(x => x.p === l.p);
+    if (prod && prod.buyback) n += Number(l.q);
+  }));
+  return n;
+}
 function nextWTN() {
   const yr = String(new Date().getFullYear());
   db.wtnSeq[yr] = (db.wtnSeq[yr] || 0) + 1;
@@ -438,7 +447,7 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
-      orders: db.orders.map(o => ({ ...o, counted: countedCrates(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
+      orders: db.orders.map(o => ({ ...o, counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
       lastSync: db.lastSync,
       products: CONFIG.products,
       maxCrates: CONFIG.maxCrates,
@@ -495,6 +504,7 @@ const server = http.createServer((req, res) => {
         const stamp = value ? nowStamp().split(',')[0] : null;
         if (field === 'wtnSent') o.wtnSentAt = stamp;
         else if (field === 'invoiced') o.invoicedAt = stamp;
+        else if (field === 'credit') o.creditAt = stamp;
         else return json(res, 400, { error: 'Unknown field' });
         saveDb(); json(res, 200, { ok: true, stamp });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }

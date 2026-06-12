@@ -73,6 +73,7 @@
   .status-tag.partial{background:var(--amber-soft);color:#9c6206}
   .status-tag.complete{background:var(--green-soft);color:var(--green)}
   .status-tag.short{background:var(--amber-soft);color:#9c6206}
+  .status-tag.co2{background:var(--blue-soft);color:var(--blue)}
   .age{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap}
   .age.g{background:var(--green-soft);color:var(--green)}
   .age.a{background:var(--amber-soft);color:#9c6206}
@@ -141,6 +142,7 @@
       <div class="hstat"><div class="num" id="stCrates">0</div><div class="lbl">Crates awaited</div></div>
       <div class="hstat counted"><div class="num" id="stCounted">0</div><div class="lbl">Counted</div></div>
       <div class="hstat invoiced"><div class="num" id="stInv">0</div><div class="lbl">Invoiced</div></div>
+      <div class="hstat"><div class="num" id="stCredit" style="color:#8ab8e8">0</div><div class="lbl">CO2 credits due</div></div>
     </div>
   </div>
 </header>
@@ -175,7 +177,7 @@
     <table class="inv-table" id="invTable" style="display:none">
       <thead><tr>
         <th style="width:30px"></th><th>SO</th><th>Customer</th><th>SO Created By</th>
-        <th>Date Counted</th><th>Counted By</th><th>WTN Sent</th><th>Date Inv'd</th><th></th>
+        <th>Date Counted</th><th>Counted By</th><th>WTN Sent</th><th>Date Inv'd</th><th>CO2 Credit</th><th></th>
       </tr></thead>
       <tbody id="invBody"></tbody>
     </table>
@@ -240,6 +242,7 @@ function render(){
   stCounted.textContent=countedAll.length;
   stInv.textContent=invAll.length;
   pillAwait.textContent=awaitAll.length;pillCounted.textContent=countedAll.length;pillInv.textContent=invAll.length;
+  stCredit.textContent=STATE.orders.filter(o=>o.status==='done'&&o.co2>0&&!o.creditAt).length;
 
   const ls=STATE.lastSync;
   document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
@@ -293,12 +296,17 @@ function render(){
           </div>
           <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
           ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
+          ${o.co2>0?`<span class="status-tag co2">CO2 buy-back — ${o.co2} unit${o.co2===1?'':'s'}</span>`:''}
           <div class="head-right" onclick="event.stopPropagation()">
             <a class="btn small wtn" href="/wtn/${o.id}" target="_blank">View WTN</a>
             <label class="tickbox">
               <input type="checkbox" ${o.wtnSentAt?'checked':''} onchange="mark(${o.id},'wtnSent',this.checked)">
               WTN sent ${o.wtnSentAt?`<span class="stamp">${esc(o.wtnSentAt)}</span>`:''}
             </label>
+            ${o.co2>0?`<label class="tickbox">
+              <input type="checkbox" ${o.creditAt?'checked':''} onchange="mark(${o.id},'credit',this.checked)">
+              Credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}
+            </label>`:''}
             <label class="tickbox">
               <input type="checkbox" onchange="mark(${o.id},'invoiced',this.checked)">
               Invoiced
@@ -329,9 +337,10 @@ function render(){
         <td>${esc(counterNames(o))}</td>
         <td>${esc(o.wtnSentAt||'—')}</td>
         <td>${esc(o.invoicedAt||'')}</td>
+        <td onclick="event.stopPropagation()">${o.co2>0?(o.creditAt?esc(o.creditAt):`<label class="tickbox" style="padding:4px 8px"><input type="checkbox" onchange="mark(${o.id},'credit',this.checked)">due — ${o.co2}</label>`):'n/a'}</td>
         <td onclick="event.stopPropagation()"><a class="btn small wtn" href="/wtn/${o.id}" target="_blank">WTN</a></td>
       </tr>
-      <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="9">${detailBlock(o,true)}</td></tr>`);
+      <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="10">${detailBlock(o,true)}</td></tr>`);
   });
 }
 function detailBlock(o,inv){
@@ -370,7 +379,8 @@ async function mark(id,field,value){
   const r=await fetch('/api/mark',{method:'POST',body:JSON.stringify({orderId:id,field,value})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
-  toast(field==='wtnSent'?(value?'WTN marked as sent':'WTN send unticked'):(value?'Marked as invoiced':'Moved back to Counted'));
+  const msgs={wtnSent:value?'WTN marked as sent':'WTN send unticked',invoiced:value?'Marked as invoiced':'Moved back to Counted',credit:value?'CO2 credit marked as issued':'Credit unticked'};
+  toast(msgs[field]);
   refresh();
 }
 async function setFinalSO(id,v){

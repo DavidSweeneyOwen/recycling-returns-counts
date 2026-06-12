@@ -1,6 +1,5 @@
 {
   "port": 8080,
-
   "netsuite": {
     "webQueryUrl": "SET-IN-config.local.json",
     "email": "SET-IN-config.local.json",
@@ -10,35 +9,145 @@
       "comment": "Phase 3: set enabled=true once the NetSuite integration record + token exist. See README."
     }
   },
-
   "wtn": {
     "prefix": "WTN",
     "ewcCode": "16 05 05",
     "carrierRegistration": "CBDU1833",
     "carrierIssuedBy": "Natural Resources Wales"
   },
-
   "maxCrates": 10,
-
   "products": [
-    { "p": "Water 3L",          "group": "Water",     "size": "3L",        "code": "SC-WAT-000",     "wtnBox": "water" },
-    { "p": "Water 6L",          "group": "Water",     "size": "6L",        "code": "SC-WAT-000",     "wtnBox": "water" },
-    { "p": "Water 9L",          "group": "Water",     "size": "9L",        "code": "SC-WAT-000",     "wtnBox": "water" },
-    { "p": "Foam 2L",           "group": "Foam",      "size": "2L",        "code": "SC-FOA-002",     "wtnBox": "foam" },
-    { "p": "Foam 3L",           "group": "Foam",      "size": "3L",        "code": "SC-FOA-003",     "wtnBox": "foam" },
-    { "p": "Foam 6L",           "group": "Foam",      "size": "6L",        "code": "SC-FOA-006",     "wtnBox": "foam" },
-    { "p": "Foam 9L",           "group": "Foam",      "size": "9L",        "code": "SC-FOA-009",     "wtnBox": "foam" },
-    { "p": "Powder 1KG",        "group": "Powder",    "size": "1KG",       "code": "SC-POW-000",     "wtnBox": "powder" },
-    { "p": "Powder 2KG",        "group": "Powder",    "size": "2KG",       "code": "SC-POW-000",     "wtnBox": "powder" },
-    { "p": "Powder 3KG",        "group": "Powder",    "size": "3KG",       "code": "SC-POW-000",     "wtnBox": "powder" },
-    { "p": "Powder 4KG",        "group": "Powder",    "size": "4KG",       "code": "SC-POW-000",     "wtnBox": "powder" },
-    { "p": "Powder 6KG",        "group": "Powder",    "size": "6KG",       "code": "SC-POW-000",     "wtnBox": "powder" },
-    { "p": "Powder 9KG",        "group": "Powder",    "size": "9KG",       "code": "SC-POW-000",     "wtnBox": "powder" },
-    { "p": "CO2 Steel 2KG",     "group": "CO2 Steel", "size": "2KG",       "code": "SC-COO-002-STL", "wtnBox": "co2steel2" },
-    { "p": "CO2 Steel 5KG",     "group": "CO2 Steel", "size": "5KG",       "code": "SC-COO-005-STL", "wtnBox": "co2steel5" },
-    { "p": "CO2 Alu 2KG Squat", "group": "Aluminium", "size": "2KG Squat", "code": "SC-COO-002-ALU", "wtnBox": "co2squat" },
-    { "p": "CO2 Alu 2KG Tall",  "group": "Aluminium", "size": "2KG Tall",  "code": "SC-COO-002-ALU", "wtnBox": "co2tall" },
-    { "p": "CO2 Alu 5KG",       "group": "Aluminium", "size": "5KG",       "code": "SC-COO-005-ALU", "wtnBox": "co2alu5" }
+    {
+      "p": "Water 3L",
+      "group": "Water",
+      "size": "3L",
+      "code": "SC-WAT-000",
+      "wtnBox": "water"
+    },
+    {
+      "p": "Water 6L",
+      "group": "Water",
+      "size": "6L",
+      "code": "SC-WAT-000",
+      "wtnBox": "water"
+    },
+    {
+      "p": "Water 9L",
+      "group": "Water",
+      "size": "9L",
+      "code": "SC-WAT-000",
+      "wtnBox": "water"
+    },
+    {
+      "p": "Foam 2L",
+      "group": "Foam",
+      "size": "2L",
+      "code": "SC-FOA-002",
+      "wtnBox": "foam"
+    },
+    {
+      "p": "Foam 3L",
+      "group": "Foam",
+      "size": "3L",
+      "code": "SC-FOA-003",
+      "wtnBox": "foam"
+    },
+    {
+      "p": "Foam 6L",
+      "group": "Foam",
+      "size": "6L",
+      "code": "SC-FOA-006",
+      "wtnBox": "foam"
+    },
+    {
+      "p": "Foam 9L",
+      "group": "Foam",
+      "size": "9L",
+      "code": "SC-FOA-009",
+      "wtnBox": "foam"
+    },
+    {
+      "p": "Powder 1KG",
+      "group": "Powder",
+      "size": "1KG",
+      "code": "SC-POW-000",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "Powder 2KG",
+      "group": "Powder",
+      "size": "2KG",
+      "code": "SC-POW-000",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "Powder 3KG",
+      "group": "Powder",
+      "size": "3KG",
+      "code": "SC-POW-000",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "Powder 4KG",
+      "group": "Powder",
+      "size": "4KG",
+      "code": "SC-POW-000",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "Powder 6KG",
+      "group": "Powder",
+      "size": "6KG",
+      "code": "SC-POW-000",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "Powder 9KG",
+      "group": "Powder",
+      "size": "9KG",
+      "code": "SC-POW-000",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "CO2 Steel 2KG",
+      "group": "CO2 Steel",
+      "size": "2KG",
+      "code": "SC-COO-002-STL",
+      "wtnBox": "co2steel2",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Steel 5KG",
+      "group": "CO2 Steel",
+      "size": "5KG",
+      "code": "SC-COO-005-STL",
+      "wtnBox": "co2steel5",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Alu 2KG Squat",
+      "group": "Aluminium",
+      "size": "2KG Squat",
+      "code": "SC-COO-002-ALU",
+      "wtnBox": "co2squat",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Alu 2KG Tall",
+      "group": "Aluminium",
+      "size": "2KG Tall",
+      "code": "SC-COO-002-ALU",
+      "wtnBox": "co2tall",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Alu 5KG",
+      "group": "Aluminium",
+      "size": "5KG",
+      "code": "SC-COO-005-ALU",
+      "wtnBox": "co2alu5",
+      "buyback": true
+    }
   ],
   "otherCode": "D/S cylinder Other"
 }
