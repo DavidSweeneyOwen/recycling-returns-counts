@@ -72,6 +72,16 @@
   .status-tag.awaiting{background:var(--red-soft);color:#a8200f}
   .status-tag.partial{background:var(--amber-soft);color:#9c6206}
   .status-tag.complete{background:var(--green-soft);color:var(--green)}
+  .status-tag.short{background:var(--amber-soft);color:#9c6206}
+  .age{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap}
+  .age.g{background:var(--green-soft);color:var(--green)}
+  .age.a{background:var(--amber-soft);color:#9c6206}
+  .age.r{background:var(--red-soft);color:#a8200f}
+  .so-card.age-r{border-left:4px solid var(--red)}
+  .so-card.age-a{border-left:4px solid var(--amber)}
+  .so-card.age-g{border-left:4px solid var(--green)}
+  .btn.ghost{background:transparent;color:var(--ink-soft);border-color:var(--line-dark)}
+  .btn.ghost:hover{background:var(--red);border-color:var(--red);color:#fff}
   /* counted cards */
   .comp-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);margin-bottom:13px}
   .comp-head{display:flex;align-items:center;gap:14px;padding:13px 16px;cursor:pointer;flex-wrap:wrap}
@@ -187,6 +197,15 @@ function crateLabel(c){
   if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
   return`Crate ${c.crateFrom||c.crate}`;
 }
+function ageDays(iso){
+  const d=new Date(iso+'T00:00:00');
+  return Math.max(0,Math.floor((Date.now()-d.getTime())/86400000));
+}
+function ageBadge(o){
+  const n=ageDays(o.date);
+  const cls=n<=5?'g':(n<=10?'a':'r');
+  return {cls,html:`<span class="age ${cls}">${n} day${n===1?'':'s'}</span>`};
+}
 function lastCountDate(o){return o.counts.length?o.counts[o.counts.length-1].when.split(',')[0]:'';}
 function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
 
@@ -235,20 +254,26 @@ function render(){
     const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
     const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
       :'<div class="nocounts">No crates counted yet</div>';
+    const age=ageBadge(o);
     grid.insertAdjacentHTML('beforeend',`
-      <div class="so-card">
+      <div class="so-card age-${age.cls}">
         <div class="so-top">
           <div>
             <div class="so-num">${esc(o.so)}</div>
             <div class="so-cust">${esc(o.cust)}</div>
             <div class="so-meta">Created ${esc(ukDate(o.date))} &middot; ${esc(o.by)}</div>
           </div>
-          <div class="crate-frac"><div class="big">${rec}<span class="of"> / ${o.crates}</span></div><div class="sub">crates counted</div></div>
+          <div class="crate-frac">
+            <div style="margin-bottom:6px;text-align:right">${age.html}</div>
+            <div class="big">${rec}<span class="of"> / ${o.crates}</span></div><div class="sub">crates counted</div>
+          </div>
         </div>
         <div class="prog"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div>
         <div class="ticks">${ticks}</div>
         <div class="so-body">${tbl}</div>
-        <div class="so-body" style="padding-top:0">${tag}</div>
+        <div class="so-body" style="padding-top:0;display:flex;align-items:center;gap:8px">${tag}
+          ${rec>0?`<button class="btn small ghost" style="margin-left:auto" onclick="closeShort(${o.id},${o.crates},${rec})">Close Short</button>`:''}
+        </div>
       </div>`);
   });
 
@@ -267,6 +292,7 @@ function render(){
             <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
           </div>
           <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
+          ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
           <div class="head-right" onclick="event.stopPropagation()">
             <a class="btn small wtn" href="/wtn/${o.id}" target="_blank">View WTN</a>
             <label class="tickbox">
@@ -296,7 +322,7 @@ function render(){
     body.insertAdjacentHTML('beforeend',`
       <tr class="main ${isOpen?'open':''}" id="invrow${o.id}" onclick="toggleRow(${o.id})">
         <td><span class="chev">&#9656;</span></td>
-        <td class="so-cell">${esc(o.so)}</td>
+        <td class="so-cell">${esc(o.so)}${o.short?' <span class="status-tag short" title="'+esc(o.short.reason||'')+'">short '+o.short.received+'/'+o.short.expected+'</span>':''}</td>
         <td>${esc(o.cust)}</td>
         <td>${esc(o.by)}</td>
         <td>${esc(lastCountDate(o))}</td>
@@ -329,6 +355,16 @@ function toggleRow(id){
   openRows.has(id)?openRows.delete(id):openRows.add(id);
   document.getElementById('invrow'+id).classList.toggle('open');
   document.getElementById('invdet'+id).classList.toggle('show');
+}
+async function closeShort(id,expected,received){
+  const msg=`This order expected ${expected} crates but only ${received} ${received===1?'has':'have'} been counted.\n\nClose it at ${received} crate(s)? This completes the order, issues the WTN for what was actually returned, and can't be undone.`;
+  if(!confirm(msg))return;
+  const reason=prompt('Reason (e.g. customer confirmed only sending '+received+'):','')??'';
+  const r=await fetch('/api/close-short',{method:'POST',body:JSON.stringify({orderId:id,reason})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(`Closed short — ${j.wtn} issued for ${j.received} of ${j.expected} crates`);
+  refresh();
 }
 async function mark(id,field,value){
   const r=await fetch('/api/mark',{method:'POST',body:JSON.stringify({orderId:id,field,value})});

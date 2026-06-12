@@ -465,6 +465,26 @@ const server = http.createServer((req, res) => {
       catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
+  if (req.method === 'POST' && p === '/api/close-short') {
+    return readBody(req, body => {
+      try {
+        const { orderId, reason } = JSON.parse(body);
+        const o = db.orders.find(x => x.id === Number(orderId));
+        if (!o) return json(res, 404, { error: 'Order not found' });
+        if (o.status !== 'open') return json(res, 400, { error: 'Order already completed' });
+        const received = countedCrates(o);
+        if (received < 1) return json(res, 400, { error: 'Nothing counted yet — count at least one crate before closing short' });
+        if (received >= o.crates) return json(res, 400, { error: 'Nothing to close short — all crates are counted' });
+        o.short = { expected: o.crates, received, reason: String(reason || '').trim(), when: nowStamp().split(',')[0] };
+        o.crates = received;                 // WTN + totals now reflect what actually came back
+        o.status = 'done';
+        o.wtn = nextWTN();
+        createNetSuiteSalesOrder(o);         // Phase 3 — raises the SO against the actual count
+        saveDb();
+        json(res, 200, { ok: true, wtn: o.wtn, received, expected: o.short.expected });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
   if (req.method === 'POST' && p === '/api/mark') {
     return readBody(req, body => {
       try {
