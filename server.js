@@ -36,7 +36,66 @@ function loadDb() {
   try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
   catch (e) { return { orders: [], seq: 0, wtnSeq: {}, lastSync: null }; }
 }
-function saveDb() { fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2)); }
+function saveDb() {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+  if (GH_REPO && GH_TOKEN) { clearTimeout(ghTimer); ghTimer = setTimeout(ghPush, 2500); }
+}
+
+/* ---------------- GitHub-backed persistence (free hosting) ----------------
+   On free cloud hosting the local filesystem is wiped on every restart, so
+   data.json is mirrored to a PRIVATE GitHub repo via the contents API.
+   Configure with env vars:
+     GH_DATA_REPO  e.g. "DavidSweeneyOwen/recycling-returns-data"
+     GH_TOKEN      fine-grained PAT with Contents read/write on that repo only
+   Every save is debounced (2.5s) into a commit; on boot the latest copy is
+   loaded back. The data repo doubles as a full audit history of all counts. */
+const GH_REPO = process.env.GH_DATA_REPO || '';
+const GH_TOKEN = process.env.GH_TOKEN || '';
+const GH_BRANCH = process.env.GH_DATA_BRANCH || 'main';
+const GH_API = process.env.GH_API_BASE || 'https://api.github.com';
+let ghSha = null, ghTimer = null, ghDirty = false, ghBusy = false;
+
+async function ghApi(method, url, body) {
+  const r = await fetch(GH_API + url, {
+    method,
+    headers: { 'Authorization': 'Bearer ' + GH_TOKEN, 'User-Agent': 'recycling-returns',
+               'Accept': 'application/vnd.github+json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return { status: r.status, json: await r.json().catch(() => null) };
+}
+async function ghLoad() {
+  const r = await ghApi('GET', `/repos/${GH_REPO}/contents/data.json?ref=${GH_BRANCH}`);
+  if (r.status === 200 && r.json && r.json.content) {
+    ghSha = r.json.sha;
+    return JSON.parse(Buffer.from(r.json.content, 'base64').toString('utf8'));
+  }
+  return null;
+}
+async function ghPush() {
+  if (ghBusy) { ghDirty = true; return; }
+  ghBusy = true; ghDirty = false;
+  try {
+    const body = { message: 'data update ' + nowStamp(),
+      content: Buffer.from(JSON.stringify(db, null, 2)).toString('base64'), branch: GH_BRANCH };
+    if (ghSha) body.sha = ghSha;
+    let r = await ghApi('PUT', `/repos/${GH_REPO}/contents/data.json`, body);
+    if (r.status === 409 || r.status === 422) {   // sha conflict — refetch, retry once
+      const cur = await ghApi('GET', `/repos/${GH_REPO}/contents/data.json?ref=${GH_BRANCH}`);
+      if (cur.status === 200 && cur.json) { body.sha = cur.json.sha; r = await ghApi('PUT', `/repos/${GH_REPO}/contents/data.json`, body); }
+    }
+    if ((r.status === 200 || r.status === 201) && r.json && r.json.content) ghSha = r.json.content.sha;
+    else { console.error('[github-store] push failed HTTP', r.status); ghDirty = true; }
+  } catch (e) { console.error('[github-store] push error', e.message); ghDirty = true; }
+  ghBusy = false;
+  if (ghDirty) setTimeout(ghPush, 3000);
+}
+if (GH_REPO && GH_TOKEN) {
+  ghLoad().then(remote => {
+    if (remote) { db = remote; console.log('[github-store] data.json loaded from', GH_REPO); }
+    else console.log('[github-store] no data.json in', GH_REPO, 'yet — it will be created on first save');
+  }).catch(e => console.error('[github-store] load failed:', e.message));
+}
 
 /* ---------------- helpers ---------------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }

@@ -42,19 +42,25 @@ Then open `http://localhost:8080/`. For team use, run it on any always-on PC/ser
 - Both 2KG Alu Squat and Tall currently map to `SC-COO-002-ALU` — edit `config.json` if Tall should map to `D/S cylinder 2KG Tall`.
 - The WTN's "Name of Contact" and D1 collection address aren't on the web query, so they stay blank for handwriting — they can be added to the saved search later and prefilled.
 
-## Hosting it live (Render — auto-deploys from GitHub)
+## Hosting it live — free (Render + GitHub data store)
 
-The repo includes `render.yaml` and `package.json` so [Render](https://render.com) can run it:
+The app runs on Render's **free plan**; count data persists by being committed to a **private GitHub data repo** (the free plan's own disk is wiped on every restart). The data repo also gives you a complete change history of every count.
 
-1. Sign up at render.com (free, use "Sign in with GitHub").
-2. **New + → Blueprint** → select the `recycling-returns-counts` repo → Render reads `render.yaml`.
-3. When prompted for environment variables:
+One-time setup:
+
+1. **Create the data repo**: on GitHub, New repository → name `recycling-returns-data` → **Private** → create. Leave it empty.
+2. **Create a token**: GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token. Repository access: *Only select repositories* → `recycling-returns-data`. Permissions: *Contents → Read and write*. Set a long expiry. Copy the token.
+3. **Deploy**: render.com → sign in with GitHub → New + → Blueprint → pick `recycling-returns-counts`. Fill the env vars:
    - `NETSUITE_WEBQUERY_URL` — the report79 web query URL (keep the `[EMAIL]` token in it)
-   - `NETSUITE_EMAIL` — the NetSuite login email
-   - `ACCESS_KEY` — leave **empty** for open access, or set a passphrase to require a one-time unlock per device
-4. Deploy. Your URLs become `https://recycling-returns.onrender.com/` (dashboard) and `.../count` (counter app — put this shortcut on the Rec team devices).
+   - `NETSUITE_EMAIL` — your NetSuite login email
+   - `GH_DATA_REPO` — `<your-username>/recycling-returns-data`
+   - `GH_TOKEN` — the token from step 2
+   - `ACCESS_KEY` — leave empty for open access, or set a passphrase
+4. Your URLs: `https://<service>.onrender.com/` (dashboard) and `.../count` (counter app — bookmark this on the Rec team devices).
 
-Every `git push` to main redeploys automatically. Count data lives on the persistent disk (`/var/data`) — the **Starter plan (~£6/month)** is required for that disk; on the free plan the data is wiped whenever the service restarts, so don't use free for real counts. The first sync re-pulls all SOs from NetSuite automatically.
+Every `git push` to main redeploys automatically.
+
+**Free plan quirk**: after 15 minutes with no visitors the service goes to sleep and the next visit takes ~1 minute to wake — the page will sit loading, then appear. If that annoys the Rec team, a free uptime pinger (e.g. cron-job.org hitting the dashboard URL every 10 minutes during work hours) keeps it awake.
 
 ## Phase 3 — NetSuite API
 

@@ -1,21 +1,19 @@
-# Render blueprint — creates the web service from this repo.
-# In Render: New + → Blueprint → pick this repo → set the env vars when prompted.
+# Render blueprint — free plan. Data persists in a private GitHub repo
+# (GH_DATA_REPO + GH_TOKEN), so no paid disk is needed.
 services:
   - type: web
     name: recycling-returns
     runtime: node
-    plan: starter          # needed for the persistent disk (count data survives restarts)
+    plan: free
     startCommand: node server.js
-    disk:
-      name: data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: DATA_DIR
-        value: /var/data
       - key: NETSUITE_WEBQUERY_URL
-        sync: false        # paste the report79 web query URL (with [EMAIL] token) in the dashboard
+        sync: false        # paste the report79 web query URL (keep the [EMAIL] token)
       - key: NETSUITE_EMAIL
         sync: false        # your NetSuite login email
+      - key: GH_DATA_REPO
+        sync: false        # e.g. DavidSweeneyOwen/recycling-returns-data (PRIVATE repo)
+      - key: GH_TOKEN
+        sync: false        # fine-grained PAT, Contents read/write on the data repo only
       - key: ACCESS_KEY
-        sync: false        # optional — leave empty for open access, set a passphrase to lock it
+        sync: false        # optional — leave empty for open access
