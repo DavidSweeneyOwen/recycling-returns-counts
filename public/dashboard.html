@@ -7,30 +7,34 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{--ink:#1c1f23;--ink-soft:#4d545c;--ink-faint:#8a919a;--paper:#f4f2ed;--card:#fff;--line:#e2ded6;
-    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
-    --red-soft:#fbe7e3;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Archivo',sans-serif;
+    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--blue:#2d5b8a;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
+    --red-soft:#fbe7e3;--blue-soft:#e4edf6;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Archivo',sans-serif;
     --shadow:0 1px 2px rgba(28,31,35,.06),0 4px 14px rgba(28,31,35,.07)}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh;
     background-image:radial-gradient(circle at 1px 1px,rgba(28,31,35,.05) 1px,transparent 0);background-size:26px 26px}
   header{background:var(--ink);color:#fff;border-bottom:4px solid var(--red)}
-  .head-inner{max-width:1280px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .head-inner{max-width:1320px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
   .logo-mark{width:42px;height:42px;background:var(--red);display:flex;align-items:center;justify-content:center;
     font-family:var(--display);font-weight:800;font-size:21px;color:#fff}
   h1{font-family:var(--display);font-weight:800;font-size:21px;text-transform:uppercase;letter-spacing:-.02em}
   .head-sub{font-family:var(--mono);font-size:11px;color:#9aa2ab;margin-top:2px}
-  .head-stats{margin-left:auto;display:flex;gap:26px}
+  .head-stats{margin-left:auto;display:flex;gap:24px}
   .hstat{text-align:right}
   .hstat .num{font-family:var(--mono);font-size:24px;font-weight:600;line-height:1}
   .hstat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9aa2ab;margin-top:4px}
-  .hstat.outst .num{color:#ffb36b}.hstat.done .num{color:#7fd6a6}
-  .wrap{max-width:1280px;margin:0 auto;padding:22px 28px 80px}
+  .hstat.awaiting .num{color:#ffb36b}
+  .hstat.counted .num{color:#7fd6a6}
+  .hstat.invoiced .num{color:#8ab8e8}
+  .wrap{max-width:1320px;margin:0 auto;padding:22px 28px 80px}
   nav.tabs{display:flex;border:1px solid var(--line-dark);background:var(--card);width:fit-content;box-shadow:var(--shadow)}
   nav.tabs button{font-family:var(--display);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;
-    padding:13px 26px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--line)}
+    padding:13px 24px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--line)}
   nav.tabs button:last-child{border-right:none}
   nav.tabs button.active{background:var(--ink);color:#fff}
   nav.tabs button .pill{font-family:var(--mono);font-size:11px;background:var(--red);color:#fff;padding:1px 7px;margin-left:8px;border-radius:99px}
+  nav.tabs button .pill.green{background:var(--green)}
+  nav.tabs button .pill.blue{background:var(--blue)}
   .toolbar{display:flex;gap:12px;margin:18px 0;flex-wrap:wrap;align-items:center}
   .filter{padding:10px 14px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;width:300px;background:var(--card)}
   .filter:focus{outline:2px solid var(--red);outline-offset:-1px}
@@ -43,6 +47,7 @@
   .btn.small{padding:6px 12px;font-size:11px}
   .btn.wtn{background:var(--green);border-color:var(--green)}
   .btn.wtn:hover{background:var(--red);border-color:var(--red)}
+  /* awaiting cards */
   .so-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:16px}
   .so-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
   .so-top{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
@@ -67,13 +72,19 @@
   .status-tag.awaiting{background:var(--red-soft);color:#a8200f}
   .status-tag.partial{background:var(--amber-soft);color:#9c6206}
   .status-tag.complete{background:var(--green-soft);color:var(--green)}
+  /* counted cards */
   .comp-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);margin-bottom:13px}
   .comp-head{display:flex;align-items:center;gap:14px;padding:13px 16px;cursor:pointer;flex-wrap:wrap}
   .chev{font-family:var(--mono);color:var(--ink-faint);transition:transform .2s}
   .comp-card.open .chev{transform:rotate(90deg)}
-  .ref-block{font-family:var(--mono);font-size:12px;margin-left:auto;text-align:right;line-height:1.7}
+  .ref-block{font-family:var(--mono);font-size:12px;text-align:right;line-height:1.7}
   .ref-block .pending{color:var(--amber);font-weight:600}
   .ref-block .set{color:var(--green);font-weight:600}
+  .tickbox{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12px;background:#fbfaf7;
+    border:1px solid var(--line-dark);padding:7px 12px;cursor:pointer;user-select:none}
+  .tickbox input{width:17px;height:17px;accent-color:var(--green);cursor:pointer}
+  .tickbox .stamp{color:var(--green);font-weight:600}
+  .head-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .comp-detail{display:none;border-top:1px solid var(--line);padding:14px 16px;background:#fbfaf7}
   .comp-card.open .comp-detail{display:block}
   .detail-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
@@ -88,6 +99,19 @@
   .actions label{display:block;font-family:var(--display);font-size:10px;font-weight:700;text-transform:uppercase;
     letter-spacing:.07em;color:var(--ink-soft);margin-bottom:4px}
   .actions input{padding:8px 10px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;width:200px}
+  /* invoiced table */
+  .inv-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
+  .inv-table th{font-family:var(--display);font-size:11px;text-transform:uppercase;letter-spacing:.06em;text-align:left;
+    padding:11px 14px;background:var(--ink);color:#fff;white-space:nowrap}
+  .inv-table td{padding:10px 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;vertical-align:middle}
+  .inv-table tr.main{cursor:pointer}
+  .inv-table tr.main:hover{background:#fbfaf7}
+  .inv-table .so-cell{color:var(--red);font-weight:600}
+  .inv-table .chev{display:inline-block;margin-right:6px}
+  .inv-table tr.open .chev{transform:rotate(90deg)}
+  .inv-table tr.detail{display:none}
+  .inv-table tr.detail.show{display:table-row}
+  .inv-table tr.detail>td{background:#fbfaf7;padding:16px}
   .empty{text-align:center;padding:50px 20px;color:var(--ink-faint)}
   .empty .big{font-family:var(--display);font-size:18px;font-weight:700;color:var(--ink-soft);margin-bottom:6px}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
@@ -100,20 +124,22 @@
     <div class="logo-mark">R</div>
     <div>
       <h1>Recycling Returns — Dashboard</h1>
-      <div class="head-sub">Live from NetSuite &middot; counts from the Rec team form</div>
+      <div class="head-sub">Live from NetSuite &middot; counts from the Rec team app</div>
     </div>
     <div class="head-stats">
-      <div class="hstat outst"><div class="num" id="stOut">0</div><div class="lbl">Outstanding</div></div>
+      <div class="hstat awaiting"><div class="num" id="stAwait">0</div><div class="lbl">Awaiting count</div></div>
       <div class="hstat"><div class="num" id="stCrates">0</div><div class="lbl">Crates awaited</div></div>
-      <div class="hstat done"><div class="num" id="stDone">0</div><div class="lbl">Completed</div></div>
+      <div class="hstat counted"><div class="num" id="stCounted">0</div><div class="lbl">Counted</div></div>
+      <div class="hstat invoiced"><div class="num" id="stInv">0</div><div class="lbl">Invoiced</div></div>
     </div>
   </div>
 </header>
 
 <div class="wrap">
   <nav class="tabs">
-    <button id="tabOut" class="active" onclick="switchTab('out')">Outstanding <span class="pill" id="pillOut">0</span></button>
-    <button id="tabDone" onclick="switchTab('done')">Completed <span class="pill" id="pillDone">0</span></button>
+    <button id="tabAwait" class="active" onclick="switchTab('await')">Awaiting Count <span class="pill" id="pillAwait">0</span></button>
+    <button id="tabCounted" onclick="switchTab('counted')">Counted <span class="pill green" id="pillCounted">0</span></button>
+    <button id="tabInv" onclick="switchTab('inv')">Invoiced <span class="pill blue" id="pillInv">0</span></button>
   </nav>
 
   <div class="toolbar">
@@ -121,17 +147,30 @@
     <span class="sync-msg"><span class="sync-dot" id="syncDot"></span><span id="syncMsg">Waiting for first sync…</span></span>
   </div>
 
-  <section id="viewOut">
-    <div class="so-grid" id="outGrid"></div>
-    <div class="empty" id="outEmpty" style="display:none">
-      <div class="big">Nothing outstanding</div>All collection SOs have been counted, or none match the filter.
+  <section id="viewAwait">
+    <div class="so-grid" id="awaitGrid"></div>
+    <div class="empty" id="awaitEmpty" style="display:none">
+      <div class="big">Nothing awaiting count</div>Every collection has been counted, or none match the filter.
     </div>
   </section>
 
-  <section id="viewDone" style="display:none">
-    <div id="doneList"></div>
-    <div class="empty" id="doneEmpty" style="display:none">
-      <div class="big">Nothing completed yet</div>Orders land here automatically when the final crate is counted.
+  <section id="viewCounted" style="display:none">
+    <div id="countedList"></div>
+    <div class="empty" id="countedEmpty" style="display:none">
+      <div class="big">Nothing in Counted</div>Orders land here when the final crate is counted, and move on once ticked as invoiced.
+    </div>
+  </section>
+
+  <section id="viewInv" style="display:none">
+    <table class="inv-table" id="invTable" style="display:none">
+      <thead><tr>
+        <th style="width:30px"></th><th>SO</th><th>Customer</th><th>SO Created By</th>
+        <th>Date Counted</th><th>Counted By</th><th>WTN Sent</th><th>Date Inv'd</th><th></th>
+      </tr></thead>
+      <tbody id="invBody"></tbody>
+    </table>
+    <div class="empty" id="invEmpty" style="display:none">
+      <div class="big">Nothing invoiced yet</div>Tick "Invoiced" on a counted order and it moves here with its dates.
     </div>
   </section>
 </div>
@@ -140,16 +179,23 @@
 
 <script>
 let STATE=null;
-const openCards=new Set();
+const openCards=new Set(),openRows=new Set();
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
+function crateLabel(c){
+  if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
+  return`Crate ${c.crateFrom||c.crate}`;
+}
+function lastCountDate(o){return o.counts.length?o.counts[o.counts.length-1].when.split(',')[0]:'';}
+function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
 
 function switchTab(t){
-  document.getElementById('viewOut').style.display=t==='out'?'block':'none';
-  document.getElementById('viewDone').style.display=t==='done'?'block':'none';
-  document.getElementById('tabOut').classList.toggle('active',t==='out');
-  document.getElementById('tabDone').classList.toggle('active',t==='done');
+  const map={await:'Await',counted:'Counted',inv:'Inv'};
+  Object.entries(map).forEach(([k,v])=>{
+    document.getElementById('view'+v).style.display=k===t?'block':'none';
+    document.getElementById('tab'+v).classList.toggle('active',k===t);
+  });
 }
 
 async function refresh(){
@@ -163,20 +209,27 @@ function matchesFilter(o,f){
 }
 function render(){
   const f=document.getElementById('filter').value.trim().toLowerCase();
-  const allOpen=STATE.orders.filter(o=>o.status==='open');
-  const allDone=STATE.orders.filter(o=>o.status==='done');
-  const open=allOpen.filter(o=>matchesFilter(o,f));
-  const done=allDone.filter(o=>matchesFilter(o,f));
-  stOut.textContent=allOpen.length;stDone.textContent=allDone.length;
-  stCrates.textContent=allOpen.reduce((a,o)=>a+(o.crates-o.counted),0);
-  pillOut.textContent=allOpen.length;pillDone.textContent=allDone.length;
+  const awaitAll=STATE.orders.filter(o=>o.status==='open');
+  const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);
+  const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
+  const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
+  const counted=countedAll.filter(o=>matchesFilter(o,f));
+  const inv=invAll.filter(o=>matchesFilter(o,f));
+
+  stAwait.textContent=awaitAll.length;
+  stCrates.textContent=awaitAll.reduce((a,o)=>a+(o.crates-o.counted),0);
+  stCounted.textContent=countedAll.length;
+  stInv.textContent=invAll.length;
+  pillAwait.textContent=awaitAll.length;pillCounted.textContent=countedAll.length;pillInv.textContent=invAll.length;
+
   const ls=STATE.lastSync;
   document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
   document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
 
-  const grid=document.getElementById('outGrid');grid.innerHTML='';
-  outEmpty.style.display=open.length?'none':'block';
-  open.forEach(o=>{
+  /* ---- awaiting count ---- */
+  const grid=document.getElementById('awaitGrid');grid.innerHTML='';
+  awaitEmpty.style.display=awaiting.length?'none':'block';
+  awaiting.forEach(o=>{
     const rec=o.counted,pct=Math.round(rec/o.crates*100);
     const tag=rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>';
     const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
@@ -199,9 +252,10 @@ function render(){
       </div>`);
   });
 
-  const list=document.getElementById('doneList');list.innerHTML='';
-  doneEmpty.style.display=done.length?'none':'block';
-  done.forEach(o=>{
+  /* ---- counted ---- */
+  const list=document.getElementById('countedList');list.innerHTML='';
+  countedEmpty.style.display=counted.length?'none':'block';
+  counted.forEach(o=>{
     const totalUnits=o.totals.reduce((a,t)=>a+t.q,0);
     const isOpen=openCards.has(o.id)?'open':'';
     list.insertAdjacentHTML('beforeend',`
@@ -213,33 +267,75 @@ function render(){
             <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
           </div>
           <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
-          <a class="btn small wtn" href="/wtn/${o.id}" target="_blank" onclick="event.stopPropagation()">View WTN</a>
-          <div class="ref-block">
-            WTN: <span class="set">${esc(o.wtn||'')}</span><br>
-            SO (against count): <span class="${o.finalSo?'set':'pending'}">${esc(o.finalSo||'pending API')}</span>
+          <div class="head-right" onclick="event.stopPropagation()">
+            <a class="btn small wtn" href="/wtn/${o.id}" target="_blank">View WTN</a>
+            <label class="tickbox">
+              <input type="checkbox" ${o.wtnSentAt?'checked':''} onchange="mark(${o.id},'wtnSent',this.checked)">
+              WTN sent ${o.wtnSentAt?`<span class="stamp">${esc(o.wtnSentAt)}</span>`:''}
+            </label>
+            <label class="tickbox">
+              <input type="checkbox" onchange="mark(${o.id},'invoiced',this.checked)">
+              Invoiced
+            </label>
+            <div class="ref-block">
+              WTN: <span class="set">${esc(o.wtn||'')}</span><br>
+              SO: <span class="${o.finalSo?'set':'pending'}">${esc(o.finalSo||'pending API')}</span>
+            </div>
           </div>
         </div>
-        <div class="comp-detail">
-          <div class="detail-grid">
-            <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
-            <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
-            <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
-          </div>
-          <div class="actions">
-            <div><label>SO created against count (manual until API)</label>
-              <input value="${esc(o.finalSo||'')}" placeholder="pending API" onchange="setFinalSO(${o.id},this.value)"></div>
-          </div>
-        </div>
+        <div class="comp-detail">${detailBlock(o)}</div>
       </div>`);
   });
+
+  /* ---- invoiced ---- */
+  const body=document.getElementById('invBody');body.innerHTML='';
+  document.getElementById('invTable').style.display=inv.length?'table':'none';
+  invEmpty.style.display=inv.length?'none':'block';
+  inv.forEach(o=>{
+    const isOpen=openRows.has(o.id);
+    body.insertAdjacentHTML('beforeend',`
+      <tr class="main ${isOpen?'open':''}" id="invrow${o.id}" onclick="toggleRow(${o.id})">
+        <td><span class="chev">&#9656;</span></td>
+        <td class="so-cell">${esc(o.so)}</td>
+        <td>${esc(o.cust)}</td>
+        <td>${esc(o.by)}</td>
+        <td>${esc(lastCountDate(o))}</td>
+        <td>${esc(counterNames(o))}</td>
+        <td>${esc(o.wtnSentAt||'—')}</td>
+        <td>${esc(o.invoicedAt||'')}</td>
+        <td onclick="event.stopPropagation()"><a class="btn small wtn" href="/wtn/${o.id}" target="_blank">WTN</a></td>
+      </tr>
+      <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="9">${detailBlock(o,true)}</td></tr>`);
+  });
 }
-function crateLabel(c){
-  if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
-  return`Crate ${c.crateFrom||c.crate}`;
+function detailBlock(o,inv){
+  return `
+    <div class="detail-grid">
+      <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
+      <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
+      <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
+    </div>
+    <div class="actions">
+      <div><label>SO created against count (manual until API)</label>
+        <input value="${esc(o.finalSo||'')}" placeholder="pending API" onchange="setFinalSO(${o.id},this.value)"></div>
+      ${inv?`<label class="tickbox"><input type="checkbox" checked onchange="mark(${o.id},'invoiced',this.checked)">Invoiced <span class="stamp">${esc(o.invoicedAt||'')}</span></label>`:''}
+    </div>`;
 }
 function toggleCard(id){
   openCards.has(id)?openCards.delete(id):openCards.add(id);
   document.getElementById('comp'+id).classList.toggle('open');
+}
+function toggleRow(id){
+  openRows.has(id)?openRows.delete(id):openRows.add(id);
+  document.getElementById('invrow'+id).classList.toggle('open');
+  document.getElementById('invdet'+id).classList.toggle('show');
+}
+async function mark(id,field,value){
+  const r=await fetch('/api/mark',{method:'POST',body:JSON.stringify({orderId:id,field,value})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(field==='wtnSent'?(value?'WTN marked as sent':'WTN send unticked'):(value?'Marked as invoiced':'Moved back to Counted'));
+  refresh();
 }
 async function setFinalSO(id,v){
   await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});

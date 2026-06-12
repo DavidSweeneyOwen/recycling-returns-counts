@@ -346,6 +346,21 @@ const server = http.createServer((req, res) => {
       catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
+  if (req.method === 'POST' && p === '/api/mark') {
+    return readBody(req, body => {
+      try {
+        const { orderId, field, value } = JSON.parse(body);
+        const o = db.orders.find(x => x.id === Number(orderId));
+        if (!o) return json(res, 404, { error: 'Order not found' });
+        if (o.status !== 'done') return json(res, 400, { error: 'Order not counted yet' });
+        const stamp = value ? nowStamp().split(',')[0] : null;
+        if (field === 'wtnSent') o.wtnSentAt = stamp;
+        else if (field === 'invoiced') o.invoicedAt = stamp;
+        else return json(res, 400, { error: 'Unknown field' });
+        saveDb(); json(res, 200, { ok: true, stamp });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
   if (req.method === 'POST' && p === '/api/final-so') {
     return readBody(req, body => {
       try {
@@ -370,7 +385,7 @@ function sendFile(res, name) {
   });
 }
 
-server.listen(CONFIG.port, () => {
+server.listen(process.env.PORT || CONFIG.port, () => {
   console.log(`CheckFire Recycling Returns running:`);
   console.log(`  Dashboard:    http://localhost:${CONFIG.port}/`);
   console.log(`  Counter form: http://localhost:${CONFIG.port}/count`);
