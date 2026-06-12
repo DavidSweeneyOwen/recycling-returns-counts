@@ -21,7 +21,6 @@ const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), '
    gitignored, never committed. Copy config.local.example.json to start. */
 const LOCAL_CONF = path.join(__dirname, 'config.local.json');
 if (fs.existsSync(LOCAL_CONF)) deepMerge(CONFIG, JSON.parse(fs.readFileSync(LOCAL_CONF, 'utf8')));
-CONFIG.counters = CONFIG.counters || [];
 
 const DATA_FILE = path.join(__dirname, 'data.json');
 const LOGO_B64 = fs.existsSync(path.join(__dirname, 'assets', 'logo.jpg'))
@@ -49,6 +48,9 @@ function ukDate(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); ret
 function isoDate(uk) { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(uk || ''); return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : (uk || ''); }
 function nowStamp() { return new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }); }
 
+function countedCrates(o) {
+  return o.counts.reduce((a, c) => a + (c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1), 0);
+}
 function aggregate(o) {
   const m = {};
   o.counts.forEach(c => c.lines.forEach(l => { m[l.p] = (m[l.p] || 0) + Number(l.q); }));
@@ -128,7 +130,7 @@ function upsertRows(rows) {
     if (existing) {
       if (existing.status === 'open') {
         // never set crates below what's already been counted
-        const newCrates = Math.max(crates, existing.counts.length || 1);
+        const newCrates = Math.max(crates, countedCrates(existing) || 1);
         if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date) {
           existing.crates = newCrates; existing.cust = cust; existing.by = by; existing.date = date;
           updated++;
@@ -162,32 +164,26 @@ if (CONFIG.netsuite.autoSyncMinutes > 0) {
   setTimeout(() => syncFromNetSuite(() => {}), 5000);
 }
 
-/* ---------------- counter login ----------------
-   Counters are defined in config.local.json:
-     "counters": [ { "name": "M. Jones", "pin": "4321" }, ... ]
-   If no counters are configured, the form falls back to free-text names. */
-function login(pin) {
-  if (!CONFIG.counters.length) return { setup: true };
-  const c = CONFIG.counters.find(c => String(c.pin) === String(pin));
-  return c ? { ok: true, name: c.name } : { error: 'PIN not recognised' };
-}
-
 /* ---------------- counting / completion ---------------- */
-function addCount(orderId, by, lines) {
+function addCount(orderId, by, lines, crates) {
   const o = db.orders.find(x => x.id === Number(orderId));
   if (!o) return { error: 'Order not found' };
   if (o.status !== 'open') return { error: 'Order already completed' };
   if (!by || !lines || !lines.length) return { error: 'Missing counter name or counts' };
-  o.counts.push({ crate: o.counts.length + 1, by, when: nowStamp(), lines });
+  const already = countedCrates(o);
+  const remaining = o.crates - already;
+  if (remaining < 1) return { error: 'All crates already counted' };
+  const n = Math.max(1, Math.min(parseInt(crates, 10) || 1, remaining));
+  o.counts.push({ crateFrom: already + 1, crateTo: already + n, by, when: nowStamp(), lines });
   let completed = false;
-  if (o.counts.length >= o.crates) {
+  if (countedCrates(o) >= o.crates) {
     o.status = 'done';
     o.wtn = nextWTN();
     completed = true;
     createNetSuiteSalesOrder(o);   // Phase 3 — no-op until enabled in config
   }
   saveDb();
-  return { ok: true, completed, wtn: o.wtn, crate: o.counts.length, of: o.crates };
+  return { ok: true, completed, wtn: o.wtn, counted: countedCrates(o), of: o.crates };
 }
 
 /* ---------------- Phase 3: NetSuite SO creation (stub) ----------------
@@ -323,18 +319,11 @@ const server = http.createServer((req, res) => {
   /* api */
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
-      orders: db.orders.map(o => ({ ...o, totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
+      orders: db.orders.map(o => ({ ...o, counted: countedCrates(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
       lastSync: db.lastSync,
       products: CONFIG.products,
       maxCrates: CONFIG.maxCrates,
-      loginRequired: CONFIG.counters.length > 0,
       apiEnabled: CONFIG.netsuite.api.enabled
-    });
-  }
-  if (req.method === 'POST' && p === '/api/login') {
-    return readBody(req, body => {
-      try { const { pin } = JSON.parse(body); json(res, 200, login(pin)); }
-      catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
   if (req.method === 'POST' && p === '/api/find-order') {
@@ -346,14 +335,14 @@ const server = http.createServer((req, res) => {
         const o = db.orders.find(x => x.so === so);
         if (!o) return json(res, 200, { error: `No collection found for ${so} — check the number on the paperwork`, tried: so });
         if (o.status === 'done') return json(res, 200, { error: `${so} is already fully counted (${o.crates} of ${o.crates} crates)`, tried: so });
-        json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: o.counts.length } });
+        json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: countedCrates(o) } });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
   if (req.method === 'POST' && p === '/api/sync') return syncFromNetSuite(r => json(res, 200, r));
   if (req.method === 'POST' && p === '/api/count') {
     return readBody(req, body => {
-      try { const { orderId, by, lines } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines)); }
+      try { const { orderId, by, lines, crates } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines, crates)); }
       catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }

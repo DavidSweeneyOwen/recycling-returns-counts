@@ -94,14 +94,10 @@
   <div id="stepLogin" style="display:none">
     <div class="login-card">
       <h2>Who's counting?</h2>
-      <p id="loginPrompt">Enter your PIN to start counting. Your name goes on every crate you count.</p>
-      <div id="pinBlock">
-        <label>PIN</label>
-        <input id="pinInput" class="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-      </div>
-      <div id="nameBlock" style="display:none">
+      <p id="loginPrompt">Put your name in to start counting — it goes on every crate you count.</p>
+      <div id="nameBlock">
         <label>Your name</label>
-        <input id="nameInput" placeholder="Name" autocomplete="name">
+        <input id="nameInput" placeholder="Name" autocomplete="name" onkeydown="if(event.key==='Enter')doLogin()">
       </div>
       <button class="btn block" onclick="doLogin()">Start Counting</button>
       <div class="err" id="loginErr"></div>
@@ -124,13 +120,18 @@
       <div class="cust" id="mCust"></div>
       <div class="meta" id="mMeta"></div>
       <div class="frac" id="mFrac"></div>
-      <button class="btn block" onclick="startCount()">Count Crate <span id="mNext"></span></button>
+      <button class="btn block" onclick="startCount()">Start Counting</button>
     </div>
   </div>
 
   <!-- STEP 2: count grid -->
   <div id="stepCount" style="display:none">
     <div class="crate-banner"><span id="crateLabel"></span><button class="back" onclick="backToFind()">&larr; Back</button></div>
+    <div class="find-card" style="margin-bottom:4px">
+      <label style="margin-top:0">How many crates are you counting now?</label>
+      <select id="batchSel" onchange="updateHint()" style="width:100%;padding:13px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:17px;background:#fff"></select>
+      <p class="find-hint" style="margin-top:8px">If more than one crate from this collection has arrived together, count them as one go — enter the totals across all of them.</p>
+    </div>
     <div id="grid"></div>
     <div class="cgroup otherg">
       <div class="ghead">Other (Size / Container / Contents)</div>
@@ -169,33 +170,17 @@ async function init(){
   const r=await fetch('/api/state');STATE=await r.json();
   counter=localStorage.getItem('recCounter')||null;
   if(counter){setWho();show('stepFind');}
-  else{
-    if(!STATE.loginRequired){
-      document.getElementById('pinBlock').style.display='none';
-      document.getElementById('nameBlock').style.display='block';
-      document.getElementById('loginPrompt').textContent='No PINs are set up yet — enter your name to start counting. (PINs can be added in config.local.json.)';
-    }
-    show('stepLogin');
-  }
+  else show('stepLogin');
 }
 function setWho(){
   document.getElementById('who').style.display='block';
   document.getElementById('whoName').textContent=counter;
 }
-async function doLogin(){
+function doLogin(){
   const err=document.getElementById('loginErr');err.style.display='none';
-  if(STATE.loginRequired){
-    const pin=document.getElementById('pinInput').value.trim();
-    if(!pin){err.textContent='Enter your PIN';err.style.display='block';return;}
-    const r=await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
-    const j=await r.json();
-    if(!j.ok){err.textContent=j.error||'PIN not recognised — ask the office to check config.local.json';err.style.display='block';return;}
-    counter=j.name;
-  }else{
-    const name=document.getElementById('nameInput').value.trim();
-    if(!name){err.textContent='Enter your name';err.style.display='block';return;}
-    counter=name;
-  }
+  const name=document.getElementById('nameInput').value.trim();
+  if(!name){err.textContent='Enter your name';err.style.display='block';return;}
+  counter=name;
   localStorage.setItem('recCounter',counter);
   setWho();show('stepFind');
   setTimeout(()=>document.getElementById('soInput').focus(),100);
@@ -203,7 +188,7 @@ async function doLogin(){
 function logout(){
   localStorage.removeItem('recCounter');counter=null;
   document.getElementById('who').style.display='none';
-  document.getElementById('pinInput').value='';
+  document.getElementById('nameInput').value='';
   show('stepLogin');
 }
 
@@ -220,7 +205,6 @@ async function findOrder(){
   document.getElementById('mCust').textContent=active.cust;
   document.getElementById('mMeta').innerHTML=`Created ${esc(ukDate(active.date))} &middot; ${esc(active.by)}`;
   document.getElementById('mFrac').textContent=`${active.counted} of ${active.crates} crates counted so far`;
-  document.getElementById('mNext').textContent=`${active.counted+1} of ${active.crates}`;
   document.getElementById('matchCard').style.display='block';
 }
 
@@ -235,8 +219,10 @@ function groupsFromProducts(){
 const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
 
 function startCount(){
-  const next=active.counted+1;
-  document.getElementById('crateLabel').textContent=`${active.so} — ${active.cust} — Crate ${next} of ${active.crates}`;
+  document.getElementById('crateLabel').textContent=`${active.so} — ${active.cust} — ${active.counted} of ${active.crates} counted`;
+  const remaining=active.crates-active.counted;
+  const sel=document.getElementById('batchSel');
+  sel.innerHTML=Array.from({length:remaining},(_,i)=>`<option value="${i+1}">${i+1} crate${i?'s':''}</option>`).join('');
   const grid=document.getElementById('grid');grid.innerHTML='';
   groupsFromProducts().forEach(grp=>{
     grid.insertAdjacentHTML('beforeend',`
@@ -249,11 +235,16 @@ function startCount(){
       </div>`);
   });
   document.getElementById('otherLines').innerHTML='';
-  const hint=document.getElementById('hint');
-  if(next===active.crates){hint.className='hint final';hint.textContent='FINAL CRATE — saving this count completes the order, generates the WTN reference and updates the office dashboard.';}
-  else{hint.className='hint';hint.textContent=`${active.crates-next} crate(s) will still be outstanding after this one.`;}
+  updateHint();
   show('stepCount');document.getElementById('submitBar').style.display='flex';
   window.scrollTo(0,0);
+}
+function updateHint(){
+  const n=parseInt(document.getElementById('batchSel').value,10)||1;
+  const left=active.crates-active.counted-n;
+  const hint=document.getElementById('hint');
+  if(left<=0){hint.className='hint final';hint.textContent='FINAL CRATE(S) — saving this count completes the order, generates the WTN reference and updates the office dashboard.';}
+  else{hint.className='hint';hint.textContent=`${left} crate(s) will still be outstanding after this count.`;}
 }
 function addOther(){
   document.getElementById('otherLines').insertAdjacentHTML('beforeend',`
@@ -274,16 +265,17 @@ async function submitCount(){
     if(d&&q>0)lines.push({p:'Other: '+d,q,other:true});
   });
   if(!lines.length){toast('Enter at least one count');return;}
-  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines})});
+  const crates=parseInt(document.getElementById('batchSel').value,10)||1;
+  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines,crates})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
   document.getElementById('submitBar').style.display='none';
   if(j.completed){
     document.getElementById('doneTitle').textContent='Order Complete';
-    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — all ${j.of} crates counted by ${esc(counter)}.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office dashboard has been updated.`;
+    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — all ${j.of} crates counted.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office has been updated.`;
   }else{
-    document.getElementById('doneTitle').textContent=`Crate ${j.crate} of ${j.of} saved`;
-    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — ${j.of-j.crate} crate(s) still to come.<br>The dashboard now shows the running total.`;
+    document.getElementById('doneTitle').textContent=`${j.counted} of ${j.of} crates saved`;
+    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — ${j.of-j.counted} crate(s) still to come.<br>The running total has been updated.`;
   }
   show('stepDone');
 }

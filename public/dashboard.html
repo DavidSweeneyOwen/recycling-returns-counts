@@ -118,7 +118,6 @@
 
   <div class="toolbar">
     <input class="filter" id="filter" placeholder="Filter by SO number or customer…" oninput="render()">
-    <a class="btn small" href="/count" style="margin-left:4px">Counter Form &rarr;</a>
     <span class="sync-msg"><span class="sync-dot" id="syncDot"></span><span id="syncMsg">Waiting for first sync…</span></span>
   </div>
 
@@ -169,7 +168,7 @@ function render(){
   const open=allOpen.filter(o=>matchesFilter(o,f));
   const done=allDone.filter(o=>matchesFilter(o,f));
   stOut.textContent=allOpen.length;stDone.textContent=allDone.length;
-  stCrates.textContent=allOpen.reduce((a,o)=>a+(o.crates-o.counts.length),0);
+  stCrates.textContent=allOpen.reduce((a,o)=>a+(o.crates-o.counted),0);
   pillOut.textContent=allOpen.length;pillDone.textContent=allDone.length;
   const ls=STATE.lastSync;
   document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
@@ -178,7 +177,7 @@ function render(){
   const grid=document.getElementById('outGrid');grid.innerHTML='';
   outEmpty.style.display=open.length?'none':'block';
   open.forEach(o=>{
-    const rec=o.counts.length,pct=Math.round(rec/o.crates*100);
+    const rec=o.counted,pct=Math.round(rec/o.crates*100);
     const tag=rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>';
     const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
     const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
@@ -224,7 +223,7 @@ function render(){
           <div class="detail-grid">
             <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
             <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
-            <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry">Crate ${c.crate} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
+            <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
           </div>
           <div class="actions">
             <div><label>SO created against count (manual until API)</label>
@@ -233,6 +232,10 @@ function render(){
         </div>
       </div>`);
   });
+}
+function crateLabel(c){
+  if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
+  return`Crate ${c.crateFrom||c.crate}`;
 }
 function toggleCard(id){
   openCards.has(id)?openCards.delete(id):openCards.add(id);
