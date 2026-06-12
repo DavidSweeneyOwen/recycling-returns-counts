@@ -225,6 +225,22 @@ function syncFromNetSuite(cb) {
   });
 }
 
+/* Keep-alive: the free hosting tier sleeps after 15 min without traffic.
+   Pinging our own public URL counts as traffic, so the counter app stays
+   instant during working hours (Mon-Sat 06:00-20:00 UK). Render sets
+   RENDER_EXTERNAL_URL automatically; locally this does nothing. */
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL || '';
+if (SELF_URL) {
+  setInterval(() => {
+    const now = new Date();
+    const hour = parseInt(now.toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }), 10);
+    const day = now.toLocaleString('en-GB', { weekday: 'short', timeZone: 'Europe/London' });
+    if (hour >= 6 && hour < 20 && day !== 'Sun') {
+      fetch(SELF_URL.replace(/\/$/, '') + '/api/ping').catch(() => {});
+    }
+  }, 10 * 60 * 1000);
+}
+
 if (CONFIG.netsuite.autoSyncMinutes > 0) {
   setInterval(() => syncFromNetSuite(() => {}), CONFIG.netsuite.autoSyncMinutes * 60 * 1000);
   // sync shortly after startup too
@@ -385,8 +401,10 @@ const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
 
-  /* optional access gate */
-  if (ACCESS_KEY && !authed(req)) {
+  /* optional access gate — the counter app stays OPEN so the Rec team
+     never see a password; the dashboard, WTNs and office APIs are gated. */
+  const OPEN_PATHS = ['/count', '/api/ping', '/api/counter-config', '/api/find-order', '/api/count'];
+  if (ACCESS_KEY && !authed(req) && !OPEN_PATHS.includes(p)) {
     if (req.method === 'POST' && p === '/unlock') {
       return readBody(req, body => {
         const key = decodeURIComponent((body.match(/key=([^&]*)/) || [])[1] || '').trim();
@@ -414,6 +432,10 @@ const server = http.createServer((req, res) => {
   }
 
   /* api */
+  if (req.method === 'GET' && p === '/api/ping') return json(res, 200, { ok: true });
+  if (req.method === 'GET' && p === '/api/counter-config') {
+    return json(res, 200, { products: CONFIG.products, maxCrates: CONFIG.maxCrates });
+  }
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
       orders: db.orders.map(o => ({ ...o, counted: countedCrates(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),

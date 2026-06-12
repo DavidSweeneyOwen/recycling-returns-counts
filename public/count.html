@@ -167,7 +167,7 @@ function show(id){
 }
 
 async function init(){
-  const r=await fetch('/api/state');STATE=await r.json();
+  const r=await fetch('/api/counter-config');STATE=await r.json();
   counter=localStorage.getItem('recCounter')||null;
   if(counter){setWho();show('stepFind');}
   else show('stepLogin');
