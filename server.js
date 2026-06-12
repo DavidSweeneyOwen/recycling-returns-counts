@@ -49,7 +49,11 @@ function saveDb() {
      GH_TOKEN      fine-grained PAT with Contents read/write on that repo only
    Every save is debounced (2.5s) into a commit; on boot the latest copy is
    loaded back. The data repo doubles as a full audit history of all counts. */
-const GH_REPO = process.env.GH_DATA_REPO || '';
+const GH_REPO = (process.env.GH_DATA_REPO || '')
+  .trim()
+  .replace(/^https?:\/\/(www\.)?github\.com\//i, '')   // full URL pasted? strip the domain
+  .replace(/\.git$/i, '')
+  .replace(/\/+$/, '');
 const GH_TOKEN = process.env.GH_TOKEN || '';
 const GH_BRANCH = process.env.GH_DATA_BRANCH || 'main';
 const GH_API = process.env.GH_API_BASE || 'https://api.github.com';
