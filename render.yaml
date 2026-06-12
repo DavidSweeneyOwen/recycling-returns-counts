@@ -1,0 +1,21 @@
+# Render blueprint — creates the web service from this repo.
+# In Render: New + → Blueprint → pick this repo → set the env vars when prompted.
+services:
+  - type: web
+    name: recycling-returns
+    runtime: node
+    plan: starter          # needed for the persistent disk (count data survives restarts)
+    startCommand: node server.js
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: NETSUITE_WEBQUERY_URL
+        sync: false        # paste the report79 web query URL (with [EMAIL] token) in the dashboard
+      - key: NETSUITE_EMAIL
+        sync: false        # your NetSuite login email
+      - key: ACCESS_KEY
+        sync: false        # optional — leave empty for open access, set a passphrase to lock it

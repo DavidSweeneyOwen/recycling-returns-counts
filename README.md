@@ -42,6 +42,20 @@ Then open `http://localhost:8080/`. For team use, run it on any always-on PC/ser
 - Both 2KG Alu Squat and Tall currently map to `SC-COO-002-ALU` — edit `config.json` if Tall should map to `D/S cylinder 2KG Tall`.
 - The WTN's "Name of Contact" and D1 collection address aren't on the web query, so they stay blank for handwriting — they can be added to the saved search later and prefilled.
 
+## Hosting it live (Render — auto-deploys from GitHub)
+
+The repo includes `render.yaml` and `package.json` so [Render](https://render.com) can run it:
+
+1. Sign up at render.com (free, use "Sign in with GitHub").
+2. **New + → Blueprint** → select the `recycling-returns-counts` repo → Render reads `render.yaml`.
+3. When prompted for environment variables:
+   - `NETSUITE_WEBQUERY_URL` — the report79 web query URL (keep the `[EMAIL]` token in it)
+   - `NETSUITE_EMAIL` — the NetSuite login email
+   - `ACCESS_KEY` — leave **empty** for open access, or set a passphrase to require a one-time unlock per device
+4. Deploy. Your URLs become `https://recycling-returns.onrender.com/` (dashboard) and `.../count` (counter app — put this shortcut on the Rec team devices).
+
+Every `git push` to main redeploys automatically. Count data lives on the persistent disk (`/var/data`) — the **Starter plan (~£6/month)** is required for that disk; on the free plan the data is wiped whenever the service restarts, so don't use free for real counts. The first sync re-pulls all SOs from NetSuite automatically.
+
 ## Phase 3 — NetSuite API
 
 When ready: create an Integration record in NetSuite (Setup → Integration), generate TBA tokens, then implement `createNetSuiteSalesOrder()` in `server.js` (SuiteTalk REST, `POST /record/v1/salesOrder`, lines from the rolled-up codes) and set `netsuite.api.enabled` to `true` in `config.json`. The function is called automatically the moment the final crate is counted.

@@ -21,8 +21,12 @@ const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), '
    gitignored, never committed. Copy config.local.example.json to start. */
 const LOCAL_CONF = path.join(__dirname, 'config.local.json');
 if (fs.existsSync(LOCAL_CONF)) deepMerge(CONFIG, JSON.parse(fs.readFileSync(LOCAL_CONF, 'utf8')));
+/* Cloud hosting: secrets come from environment variables instead of config.local.json */
+if (process.env.NETSUITE_WEBQUERY_URL) CONFIG.netsuite.webQueryUrl = process.env.NETSUITE_WEBQUERY_URL;
+if (process.env.NETSUITE_EMAIL) CONFIG.netsuite.email = process.env.NETSUITE_EMAIL;
+const ACCESS_KEY = process.env.ACCESS_KEY || '';   // optional shared key — empty = open access
 
-const DATA_FILE = path.join(__dirname, 'data.json');
+const DATA_FILE = path.join(process.env.DATA_DIR || __dirname, 'data.json');
 const LOGO_B64 = fs.existsSync(path.join(__dirname, 'assets', 'logo.jpg'))
   ? fs.readFileSync(path.join(__dirname, 'assets', 'logo.jpg')).toString('base64') : '';
 
@@ -302,9 +306,39 @@ function readBody(req, cb) {
   req.on('end', () => cb(b));
 }
 
+function authed(req) {
+  if (!ACCESS_KEY) return true;
+  return (req.headers.cookie || '').split(/;\s*/).includes('appkey=' + ACCESS_KEY);
+}
+const GATE_PAGE = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Recycling Returns</title>
+<style>body{font-family:Arial,sans-serif;background:#f4f2ed;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+form{background:#fff;border-top:5px solid #d63420;padding:30px;box-shadow:0 4px 14px rgba(0,0,0,.1);max-width:340px;width:100%}
+h1{font-size:18px;margin:0 0 6px}p{font-size:13px;color:#666}input{width:100%;padding:12px;font-size:16px;border:1px solid #ccc;box-sizing:border-box;margin:10px 0}
+button{width:100%;padding:12px;background:#1c1f23;color:#fff;border:none;font-weight:bold;font-size:14px;cursor:pointer}</style></head>
+<body><form method="POST" action="/unlock"><h1>Recycling Returns</h1><p>Enter the access key to continue.</p>
+<input name="key" type="password" autofocus><button>Unlock</button></form></body></html>`;
+
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
+
+  /* optional access gate */
+  if (ACCESS_KEY && !authed(req)) {
+    if (req.method === 'POST' && p === '/unlock') {
+      return readBody(req, body => {
+        const key = decodeURIComponent((body.match(/key=([^&]*)/) || [])[1] || '').trim();
+        if (key === ACCESS_KEY) {
+          res.writeHead(302, { 'Set-Cookie': `appkey=${ACCESS_KEY}; Path=/; Max-Age=31536000; HttpOnly`, 'Location': '/' });
+          return res.end();
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(GATE_PAGE.replace('Enter the access key', 'Wrong key — try again'));
+      });
+    }
+    if (p.startsWith('/api/')) return json(res, 401, { error: 'Access key required' });
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(GATE_PAGE);
+  }
 
   /* pages */
   if (req.method === 'GET' && (p === '/' || p === '/dashboard')) return sendFile(res, 'dashboard.html');
