@@ -2,7 +2,7 @@
    CheckFire Recycling Returns — Server
    Zero-dependency Node.js app. Run with:  node server.js
    Serves:
-     /            office dashboard (read-only data dash)
+     /            office dashboard — Awaiting / Counted / Invoiced / Reports / Amendments
      /count       Rec team counter form (PIN login + collection number match)
      /wtn/:id     printable Duty of Care Waste Transfer Note
    Data:    data.json (created automatically next to this file)
@@ -146,6 +146,14 @@ function nextWTN() {
   db.wtnSeq[yr] = (db.wtnSeq[yr] || 0) + 1;
   return `${CONFIG.wtn.prefix}-${yr}-${String(db.wtnSeq[yr]).padStart(4, '0')}`;
 }
+/* Customer drop-offs have no NetSuite SO, so they get a traceable internal
+   reference (DROP-YYYY-NNNN) instead. Sarah raises the real SO afterwards. */
+function nextDropRef() {
+  const yr = String(new Date().getFullYear());
+  db.dropSeq = db.dropSeq || {};
+  db.dropSeq[yr] = (db.dropSeq[yr] || 0) + 1;
+  return `DROP-${yr}-${String(db.dropSeq[yr]).padStart(4, '0')}`;
+}
 
 /* ---------------- NetSuite web query sync ---------------- */
 function fetchUrl(u, redirects, cb) {
@@ -192,6 +200,11 @@ function upsertRows(rows) {
   const ix = re => head.findIndex(h => re.test(h));
   const iSo = ix(/document\s*number/), iCu = ix(/company\s*name/), iDa = ix(/date\s*created/),
         iBy = ix(/created\s*by/), iQt = ix(/quantity\s*billed/);
+  // collection-address columns (configurable; joined in order, blanks skipped)
+  const addrCols = Array.isArray(CONFIG.netsuite.addressColumns) ? CONFIG.netsuite.addressColumns
+                 : [CONFIG.netsuite.addressColumn || 'address'];
+  const iAds = [];
+  addrCols.forEach(c => { const i = ix(new RegExp(c, 'i')); if (i > -1 && !iAds.includes(i)) iAds.push(i); });
   let added = 0, updated = 0, skipped = 0;
   rows.slice(hIdx + 1).forEach(r => {
     const raw = r[iSo];
@@ -202,20 +215,22 @@ function upsertRows(rows) {
     const cust = iCu > -1 ? r[iCu] : 'Unknown';
     const date = isoDate(iDa > -1 ? r[iDa] : '') || new Date().toISOString().slice(0, 10);
     const by = iBy > -1 ? r[iBy] : '';
+    const addr = iAds.map(i => String(r[i] || '').trim()).filter(Boolean).join(', ');
     const existing = db.orders.find(o => o.so === so);
     if (existing) {
       if (existing.status === 'open') {
         // never set crates below what's already been counted
         const newCrates = Math.max(crates, countedCrates(existing) || 1);
-        if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date) {
+        if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date || (addr && existing.collectionAddress !== addr)) {
           existing.crates = newCrates; existing.cust = cust; existing.by = by; existing.date = date;
+          if (addr) existing.collectionAddress = addr;
           updated++;
         } else skipped++;
       } else skipped++;
       return;
     }
     db.orders.unshift({
-      id: ++db.seq, so, cust, date, by,
+      id: ++db.seq, so, cust, date, by, collectionAddress: addr,
       crates, counts: [], status: 'open', wtn: null, finalSo: null, source: 'netsuite'
     });
     added++;
@@ -308,6 +323,11 @@ function wtnHtml(o) {
   const collDate = o.counts.length ? o.counts[o.counts.length - 1].when.split(',')[0] : ukDate(o.date);
   const v = n => n > 0 ? n : '';
   const W = CONFIG.wtn;
+  const sic = W.sicCode || '32990';
+  const addrLines = o.collectionAddress ? esc(o.collectionAddress).replace(/\n/g, '<br>') : '';
+  const d1addr = o.dropOff
+    ? (addrLines ? esc(o.cust) + '<br>' + addrLines : '<i>Customer drop-off &mdash; collection address to be added</i>')
+    : (esc(o.cust) + (addrLines ? '<br>' + addrLines : ''));
   return `<!DOCTYPE html><html lang="en-GB"><head><meta charset="UTF-8"><title>${esc(o.wtn || 'WTN')} — ${esc(o.cust)}</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;color:#000;margin:0;background:#fff}
@@ -340,6 +360,7 @@ function wtnHtml(o) {
       <td colspan="2" style="width:50%"><span class="lbl">A1&nbsp; Description of the waste being transferred:</span><br>EWC Code ${esc(W.ewcCode)}</td>
       <td colspan="2"><span class="lbl">A2&nbsp; How is the waste contained?</span><br>${o.crates} plastic crate(s)</td>
     </tr>
+    <tr><td colspan="4"><span class="lbl">A3&nbsp; SIC Code:</span> ${esc(sic)}</td></tr>
     <tr><td colspan="4" class="sec">Section B - Current holder of the waste (Customer)</td></tr>
     <tr><td colspan="4" class="small">By signing Section D below I confirm that I have fulfilled my duty to apply the waste hierarchy as required by Regulation 12 of the Waste (England and Wales) Regulations 2011.</td></tr>
     <tr>
@@ -363,7 +384,7 @@ function wtnHtml(o) {
     </tr>
     <tr><td colspan="4" class="sec">Section D - Transfer</td></tr>
     <tr>
-      <td colspan="2"><span class="lbl">D1&nbsp; Address of transfer or collection point</span><br><br><br><br></td>
+      <td colspan="2"><span class="lbl">D1&nbsp; Address of transfer or collection point</span><br>${d1addr}<br><br></td>
       <td colspan="2"><span class="lbl">D2&nbsp; Carrier's name / transfer point:</span><br>Checkfire Ltd<br>Pontygwindy Industrial Estate<br>Caerphilly, CF83 3HU<br>Tel: 029 2086 8333</td>
     </tr>
     <tr><td colspan="4" class="sec">Section E - Details of Items</td></tr>
@@ -411,8 +432,9 @@ const server = http.createServer((req, res) => {
   const p = u.pathname;
 
   /* optional access gate — the counter app stays OPEN so the Rec team
-     never see a password; the dashboard, WTNs and office APIs are gated. */
-  const OPEN_PATHS = ['/count', '/api/ping', '/api/counter-config', '/api/find-order', '/api/count'];
+     never see a password; the dashboard (with its Reports and Amendments
+     tabs), WTNs and office APIs are all gated behind the access key. */
+  const OPEN_PATHS = ['/count', '/api/ping', '/api/counter-config', '/api/find-order', '/api/count', '/api/dropoff'];
   if (ACCESS_KEY && !authed(req) && !OPEN_PATHS.includes(p)) {
     if (req.method === 'POST' && p === '/unlock') {
       return readBody(req, body => {
@@ -433,6 +455,7 @@ const server = http.createServer((req, res) => {
   /* pages */
   if (req.method === 'GET' && (p === '/' || p === '/dashboard')) return sendFile(res, 'dashboard.html');
   if (req.method === 'GET' && p === '/count') return sendFile(res, 'count.html');
+  if (req.method === 'GET' && p === '/dashboard.js') return sendFile(res, 'dashboard.js');
   if (req.method === 'GET' && /^\/wtn\/\d+$/.test(p)) {
     const o = db.orders.find(x => x.id === Number(p.split('/')[2]));
     if (!o) return json(res, 404, { error: 'Order not found' });
@@ -451,6 +474,7 @@ const server = http.createServer((req, res) => {
       lastSync: db.lastSync,
       products: CONFIG.products,
       maxCrates: CONFIG.maxCrates,
+      monthlyCustomers: CONFIG.monthlyCustomers || [],
       apiEnabled: CONFIG.netsuite.api.enabled
     });
   }
@@ -464,6 +488,59 @@ const server = http.createServer((req, res) => {
         if (!o) return json(res, 200, { error: `No collection found for ${so} — check the number on the paperwork`, tried: so });
         if (o.status === 'done') return json(res, 200, { error: `${so} is already fully counted (${o.crates} of ${o.crates} crates)`, tried: so });
         json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: countedCrates(o) } });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  if (req.method === 'POST' && p === '/api/dropoff') {
+    return readBody(req, body => {
+      try {
+        const { cust, by, crates, address } = JSON.parse(body);
+        const customer = String(cust || '').trim();
+        if (!customer) return json(res, 200, { error: 'Customer name is required so the WTN and invoice can be sent.' });
+        const n = Math.max(1, Math.min(CONFIG.maxCrates, parseInt(crates, 10) || 1));
+        const o = {
+          id: ++db.seq, so: nextDropRef(), cust: customer,
+          date: new Date().toISOString().slice(0, 10), by: String(by || '').trim(),
+          collectionAddress: String(address || '').trim(),
+          crates: n, counts: [], status: 'open', wtn: null, finalSo: null,
+          source: 'dropoff', dropOff: true
+        };
+        db.orders.unshift(o);
+        saveDb();
+        json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: 0 } });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  if (req.method === 'POST' && p === '/api/amend') {
+    return readBody(req, body => {
+      try {
+        const { orderId, counts, crates, reason, by, clearFinalSo, clearInvoiced, clearCredit } = JSON.parse(body);
+        const o = db.orders.find(x => x.id === Number(orderId));
+        if (!o) return json(res, 404, { error: 'Order not found' });
+        if (!reason || !String(reason).trim()) return json(res, 400, { error: 'A reason is required to amend a count' });
+        const before = aggregate(o);
+        if (Array.isArray(counts)) {
+          o.counts = counts.map(c => ({
+            crateFrom: c.crateFrom, crateTo: c.crateTo,
+            by: c.by || 'amended', when: c.when || nowStamp(),
+            lines: (c.lines || []).filter(l => l && l.p != null && Number(l.q) > 0)
+                     .map(l => ({ p: l.p, q: Number(l.q), ...(l.other ? { other: true } : {}) }))
+          })).filter(c => c.lines.length);
+        }
+        if (crates != null) o.crates = Math.max(1, Math.min(CONFIG.maxCrates, parseInt(crates, 10) || o.crates));
+        const after = aggregate(o);
+        o.amendments = o.amendments || [];
+        o.amendments.push({ when: nowStamp(), by: String(by || '').trim() || 'Rec admin', reason: String(reason).trim(), before, after });
+        o.amended = true;
+        o.wtnSentAt = null;                 // WTN content changed — must be re-sent
+        if (clearFinalSo) o.finalSo = null;
+        if (clearInvoiced) o.invoicedAt = null;
+        if (clearCredit) o.creditAt = null;
+        const counted = countedCrates(o);
+        if (counted >= o.crates) { if (o.status !== 'done') { o.status = 'done'; } o.wtn = o.wtn || nextWTN(); }
+        else { o.status = 'open'; }
+        saveDb();
+        json(res, 200, { ok: true, wtn: o.wtn, counted, of: o.crates, status: o.status });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
