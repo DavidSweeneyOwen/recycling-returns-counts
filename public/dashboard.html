@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Recycling Returns — Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"></script>
 <style>
   :root{--ink:#1c1f23;--ink-soft:#4d545c;--ink-faint:#8a919a;--paper:#f4f2ed;--card:#fff;--line:#e2ded6;
     --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--blue:#2d5b8a;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
@@ -27,9 +30,9 @@
   .hstat.counted .num{color:#7fd6a6}
   .hstat.invoiced .num{color:#8ab8e8}
   .wrap{max-width:1320px;margin:0 auto;padding:22px 28px 80px}
-  nav.tabs{display:flex;border:1px solid var(--line-dark);background:var(--card);width:fit-content;box-shadow:var(--shadow)}
+  nav.tabs{display:flex;border:1px solid var(--line-dark);background:var(--card);width:fit-content;box-shadow:var(--shadow);flex-wrap:wrap}
   nav.tabs button{font-family:var(--display);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;
-    padding:13px 24px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--line)}
+    padding:13px 22px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--line)}
   nav.tabs button:last-child{border-right:none}
   nav.tabs button.active{background:var(--ink);color:#fff}
   nav.tabs button .pill{font-family:var(--mono);font-size:11px;background:var(--red);color:#fff;padding:1px 7px;margin-left:8px;border-radius:99px}
@@ -45,8 +48,15 @@
     padding:9px 16px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
   .btn:hover{background:var(--red);border-color:var(--red)}
   .btn.small{padding:6px 12px;font-size:11px}
+  .btn.sm{padding:6px 10px;font-size:11px}
   .btn.wtn{background:var(--green);border-color:var(--green)}
   .btn.wtn:hover{background:var(--red);border-color:var(--red)}
+  .btn.x{background:var(--green);border-color:var(--green)}
+  .btn.p{background:var(--amber);border-color:var(--amber)}
+  .btn.save{background:var(--amber);border-color:var(--amber)}
+  .btn.save:hover{background:var(--red);border-color:var(--red)}
+  .btn.ghost{background:transparent;color:var(--ink-soft);border-color:var(--line-dark)}
+  .btn.ghost:hover{background:var(--red);border-color:var(--red);color:#fff}
   /* awaiting cards */
   .so-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:16px}
   .so-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
@@ -74,6 +84,12 @@
   .status-tag.complete{background:var(--green-soft);color:var(--green)}
   .status-tag.short{background:var(--amber-soft);color:#9c6206}
   .status-tag.co2{background:var(--blue-soft);color:var(--blue)}
+  .status-tag.drop{background:#efe3f7;color:#6b3fa0}
+  .status-tag.amended{background:#f3e8d0;color:#8a5a00}
+  .status-tag.monthly{background:#d8efe9;color:#0f6b5e}
+  .so-card.drop{border-left:4px solid #8a4fc4}
+  .comp-card.drop{border-left:4px solid #8a4fc4}
+  .comp-card.amended-c{border-left:4px solid #c79a3a}
   .age{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap}
   .age.g{background:var(--green-soft);color:var(--green)}
   .age.a{background:var(--amber-soft);color:#9c6206}
@@ -81,8 +97,6 @@
   .so-card.age-r{border-left:4px solid var(--red)}
   .so-card.age-a{border-left:4px solid var(--amber)}
   .so-card.age-g{border-left:4px solid var(--green)}
-  .btn.ghost{background:transparent;color:var(--ink-soft);border-color:var(--line-dark)}
-  .btn.ghost:hover{background:var(--red);border-color:var(--red);color:#fff}
   /* counted cards */
   .comp-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);margin-bottom:13px}
   .comp-head{display:flex;align-items:center;gap:14px;padding:13px 16px;cursor:pointer;flex-wrap:wrap}
@@ -105,7 +119,7 @@
   .detail-grid td{padding:3px 0;border-bottom:1px dashed var(--line)}
   .detail-grid td:last-child{text-align:right;font-weight:600}
   .crate-log{font-family:var(--mono);font-size:11.5px}
-  .crate-log .entry{padding:5px 0;border-bottom:1px dashed var(--line)}
+  .crate-log .entry-l{padding:5px 0;border-bottom:1px dashed var(--line)}
   .actions{display:flex;gap:10px;margin-top:14px;align-items:flex-end;flex-wrap:wrap}
   .actions label{display:block;font-family:var(--display);font-size:10px;font-weight:700;text-transform:uppercase;
     letter-spacing:.07em;color:var(--ink-soft);margin-bottom:4px}
@@ -125,6 +139,51 @@
   .inv-table tr.detail>td{background:#fbfaf7;padding:16px}
   .empty{text-align:center;padding:50px 20px;color:var(--ink-faint)}
   .empty .big{font-family:var(--display);font-size:18px;font-weight:700;color:var(--ink-soft);margin-bottom:6px}
+  /* shared panel + reports */
+  .panel{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:18px;margin-bottom:20px}
+  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;align-items:end}
+  .panel label,.filters label{display:block;font-family:var(--display);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-bottom:5px}
+  .panel select,.panel input,.panel textarea{width:100%;padding:10px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;background:#fff}
+  .panel select:focus,.panel input:focus,.panel textarea:focus{outline:2px solid var(--red);outline-offset:-1px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border:1px solid var(--line-dark);background:#fff;cursor:pointer}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px}
+  .kpi{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:16px}
+  .kpi .num{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1}
+  .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint);margin-top:6px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  h3{font-family:var(--display);font-size:14px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+  table.rep{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+  table.rep th{text-align:left;background:var(--ink);color:#fff;padding:8px 10px;font-family:var(--display);font-size:11px;text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0}
+  table.rep td{padding:7px 10px;border-bottom:1px solid var(--line)}
+  table.rep td.n,table.rep th.n{text-align:right}
+  .scrollbox{max-height:360px;overflow:auto;border:1px solid var(--line)}
+  .meta-line{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin:6px 0 14px}
+  .chartbox{position:relative;height:300px}
+  /* admin */
+  .reslist{max-height:300px;overflow:auto;border:1px solid var(--line)}
+  .resrow{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:12.5px}
+  .resrow:hover{background:#fbfaf7}
+  .resrow .so{color:var(--red);font-weight:600;min-width:120px}
+  .resrow .cust{flex:1}
+  .tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;font-weight:600}
+  .tag.open{background:var(--red-soft);color:#a8200f}.tag.done{background:var(--green-soft);color:var(--green)}
+  .tag.inv{background:var(--blue-soft);color:var(--blue)}.tag.amd{background:#f3e8d0;color:#8a5a00}
+  .entry{border:1px solid var(--line-dark);margin-top:12px}
+  .entry-head{background:#fbfaf7;padding:8px 12px;font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+  .lrow{display:grid;grid-template-columns:1fr 110px 44px;gap:8px;padding:7px 12px;align-items:center;border-bottom:1px dashed var(--line)}
+  .lrow .pname{font-family:var(--mono);font-size:13px}
+  .lrow .rm{border:1px solid var(--line-dark);background:#fff;cursor:pointer;height:38px;color:var(--red);font-weight:700}
+  .addrow{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;padding:9px 12px;align-items:center;background:#fbfaf7}
+  .opts{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px}
+  .opt{display:flex;gap:7px;align-items:center;font-family:var(--mono);font-size:12.5px}
+  .opt input{width:17px;height:17px;accent-color:var(--amber)}
+  .note{background:var(--amber-soft);border:1px solid #ecc98a;padding:12px 14px;font-size:13px;line-height:1.6;margin-top:14px}
+  .ok{background:var(--green-soft);border:1px solid #9ccbb0;padding:14px 16px;font-size:13.5px;line-height:1.7;margin-top:14px;display:none}
+  .hist .h{padding:9px 12px;border-bottom:1px dashed var(--line);font-family:var(--mono);font-size:12px;line-height:1.6}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:700px){.row2{grid-template-columns:1fr}}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
     padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--green)}
 </style>
@@ -143,6 +202,8 @@
       <div class="hstat counted"><div class="num" id="stCounted">0</div><div class="lbl">Counted</div></div>
       <div class="hstat invoiced"><div class="num" id="stInv">0</div><div class="lbl">Invoiced</div></div>
       <div class="hstat"><div class="num" id="stCredit" style="color:#8ab8e8">0</div><div class="lbl">CO2 credits due</div></div>
+      <div class="hstat"><div class="num" id="stDrop" style="color:#c9a0e8">0</div><div class="lbl">Drop-offs to action</div></div>
+      <div class="hstat"><div class="num" id="stMonthly" style="color:#7fd6c6">0</div><div class="lbl">Monthly accts</div></div>
     </div>
   </div>
 </header>
@@ -152,10 +213,12 @@
     <button id="tabAwait" class="active" onclick="switchTab('await')">Awaiting Count <span class="pill" id="pillAwait">0</span></button>
     <button id="tabCounted" onclick="switchTab('counted')">Counted <span class="pill green" id="pillCounted">0</span></button>
     <button id="tabInv" onclick="switchTab('inv')">Invoiced <span class="pill blue" id="pillInv">0</span></button>
+    <button id="tabReports" onclick="switchTab('reports')">Reports</button>
+    <button id="tabAdmin" onclick="switchTab('admin')">Amendments</button>
   </nav>
 
-  <div class="toolbar">
-    <input class="filter" id="filter" placeholder="Filter by SO number or customer…" oninput="render()">
+  <div class="toolbar" id="orderToolbar">
+    <input class="filter" id="filter" placeholder="Filter by SO number or customer…" oninput="renderOrders()">
     <span class="sync-msg"><span class="sync-dot" id="syncDot"></span><span id="syncMsg">Waiting for first sync…</span></span>
   </div>
 
@@ -185,210 +248,105 @@
       <div class="big">Nothing invoiced yet</div>Tick "Invoiced" on a counted order and it moves here with its dates.
     </div>
   </section>
+
+  <!-- ===================== REPORTS ===================== -->
+  <section id="viewReports" style="display:none">
+    <div class="panel">
+      <div class="filters">
+        <div>
+          <label>Date range</label>
+          <select id="fRange" onchange="onRangeChange()">
+            <option value="mtd">This month (MTD)</option>
+            <option value="lastmonth">Last month</option>
+            <option value="ytd">This year (YTD)</option>
+            <option value="last7">Last 7 days</option>
+            <option value="last30">Last 30 days</option>
+            <option value="week">This week</option>
+            <option value="year">Last 12 months</option>
+            <option value="all" selected>All time</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </div>
+        <div id="customFrom" style="display:none"><label>From</label><input type="date" id="fFrom" onchange="renderReports()"></div>
+        <div id="customTo" style="display:none"><label>To</label><input type="date" id="fTo" onchange="renderReports()"></div>
+        <div><label>Customer</label><select id="fCust" onchange="renderReports()"><option value="">All customers</option></select></div>
+        <div><label>Type</label><select id="fType" onchange="onTypeChange()"><option value="">All types</option></select></div>
+        <div><label>Size</label><select id="fSize" onchange="renderReports()"><option value="">All sizes</option></select></div>
+        <div><label>Product</label><select id="fProd" onchange="renderReports()"><option value="">All products</option></select></div>
+      </div>
+      <div class="chips">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--ink-faint);align-self:center">Quick accounts:</span>
+        <span class="chip" onclick="quickCust('Marlowe')">Marlowe</span>
+        <span class="chip" onclick="quickCust('Mitie')">Mitie</span>
+        <span class="chip" onclick="quickCust('')">Clear</span>
+        <span style="flex:1"></span>
+        <a class="btn x" onclick="exportXlsx()">⤓ Export Excel</a>
+        <a class="btn p" onclick="exportPptx()">⤓ Export PowerPoint</a>
+      </div>
+      <div class="meta-line" id="metaLine"></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div class="panel"><h3>Units by type</h3><div class="chartbox"><canvas id="chartTypeCanvas"></canvas></div></div>
+      <div class="panel"><h3>Trend over time</h3><div class="chartbox"><canvas id="chartTrendCanvas"></canvas></div></div>
+    </div>
+    <div class="panel"><h3>By customer</h3><div class="scrollbox"><table class="rep" id="tblCust"></table></div></div>
+    <div class="grid2">
+      <div class="panel"><h3>By product</h3><div class="scrollbox"><table class="rep" id="tblProd"></table></div></div>
+      <div class="panel"><h3>By type</h3><div class="scrollbox"><table class="rep" id="tblType"></table></div></div>
+    </div>
+    <div class="panel">
+      <h3>Billing view — customer &times; charge code</h3>
+      <div class="meta-line">Mirrors the month-end Smartsheet filter: each customer's totals per NetSuite scrapping-charge code.</div>
+      <div class="scrollbox"><table class="rep" id="tblBilling"></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== AMENDMENTS ===================== -->
+  <section id="viewAdmin" style="display:none">
+    <div class="panel">
+      <label>Find the order to amend</label>
+      <input id="search" placeholder="Search by SO, DROP ref or customer…" oninput="renderAdminList()">
+      <div class="reslist" id="list" style="margin-top:12px"></div>
+    </div>
+    <div class="panel" id="editPanel" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:var(--mono);color:var(--red);font-weight:600" id="eSo"></div>
+          <div style="font-family:var(--display);font-weight:700;font-size:20px" id="eCust"></div>
+          <div style="font-family:var(--mono);font-size:12px;color:var(--ink-soft)" id="eMeta"></div>
+        </div>
+        <a class="btn sm ghost" id="eWtnLink" href="#" target="_blank">Reprint WTN</a>
+      </div>
+      <div class="row2" style="margin-top:14px">
+        <div><label>Your name (recorded on the amendment)</label><input id="adminName" placeholder="Rec admin name"></div>
+        <div><label>Crates expected</label><input id="eCrates" type="number" min="1"></div>
+      </div>
+      <div id="entries"></div>
+      <button class="btn sm ghost" style="margin-top:12px" onclick="addEntry()">+ Add crate entry</button>
+      <label style="margin-top:18px">Reason for amendment (required)</label>
+      <textarea id="reason" rows="2" placeholder="e.g. customer complaint — 2× Powder 6KG miscounted as 9KG"></textarea>
+      <div class="opts">
+        <label class="opt"><input type="checkbox" id="optSo">Clear the raised SO (needs re-raising)</label>
+        <label class="opt"><input type="checkbox" id="optInv">Untick Invoiced (re-invoice / credit)</label>
+        <label class="opt"><input type="checkbox" id="optCredit">Untick CO2 credit</label>
+      </div>
+      <div class="note">Saving updates the counts, logs who/why, and automatically flags the <b>WTN to be re-sent</b> (its content is regenerated from the new counts). Reprint it above, re-raise the SO in NetSuite, and re-issue the invoice or credit as needed.</div>
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <button class="btn save" onclick="saveAmend()">Save amendment</button>
+        <button class="btn ghost" onclick="closeEdit()">Cancel</button>
+      </div>
+      <div class="ok" id="okBox"></div>
+      <div id="histWrap" style="margin-top:20px;display:none">
+        <label>Amendment history</label>
+        <div class="hist" id="hist"></div>
+      </div>
+    </div>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
 
-<script>
-let STATE=null;
-const openCards=new Set(),openRows=new Set();
-function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
-function crateLabel(c){
-  if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
-  return`Crate ${c.crateFrom||c.crate}`;
-}
-function ageDays(iso){
-  const d=new Date(iso+'T00:00:00');
-  return Math.max(0,Math.floor((Date.now()-d.getTime())/86400000));
-}
-function ageBadge(o){
-  const n=ageDays(o.date);
-  const cls=n<=5?'g':(n<=10?'a':'r');
-  return {cls,html:`<span class="age ${cls}">${n} day${n===1?'':'s'}</span>`};
-}
-function lastCountDate(o){return o.counts.length?o.counts[o.counts.length-1].when.split(',')[0]:'';}
-function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
-
-function switchTab(t){
-  const map={await:'Await',counted:'Counted',inv:'Inv'};
-  Object.entries(map).forEach(([k,v])=>{
-    document.getElementById('view'+v).style.display=k===t?'block':'none';
-    document.getElementById('tab'+v).classList.toggle('active',k===t);
-  });
-}
-
-async function refresh(){
-  try{
-    const r=await fetch('/api/state');STATE=await r.json();render();
-  }catch(e){document.getElementById('syncMsg').textContent='Server unreachable';}
-}
-function matchesFilter(o,f){
-  if(!f)return true;
-  return o.so.toLowerCase().includes(f)||o.cust.toLowerCase().includes(f);
-}
-function render(){
-  const f=document.getElementById('filter').value.trim().toLowerCase();
-  const awaitAll=STATE.orders.filter(o=>o.status==='open');
-  const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);
-  const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
-  const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
-  const counted=countedAll.filter(o=>matchesFilter(o,f));
-  const inv=invAll.filter(o=>matchesFilter(o,f));
-
-  stAwait.textContent=awaitAll.length;
-  stCrates.textContent=awaitAll.reduce((a,o)=>a+(o.crates-o.counted),0);
-  stCounted.textContent=countedAll.length;
-  stInv.textContent=invAll.length;
-  pillAwait.textContent=awaitAll.length;pillCounted.textContent=countedAll.length;pillInv.textContent=invAll.length;
-  stCredit.textContent=STATE.orders.filter(o=>o.status==='done'&&o.co2>0&&!o.creditAt).length;
-
-  const ls=STATE.lastSync;
-  document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
-  document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
-
-  /* ---- awaiting count ---- */
-  const grid=document.getElementById('awaitGrid');grid.innerHTML='';
-  awaitEmpty.style.display=awaiting.length?'none':'block';
-  awaiting.forEach(o=>{
-    const rec=o.counted,pct=Math.round(rec/o.crates*100);
-    const tag=rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>';
-    const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
-    const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
-      :'<div class="nocounts">No crates counted yet</div>';
-    const age=ageBadge(o);
-    grid.insertAdjacentHTML('beforeend',`
-      <div class="so-card age-${age.cls}">
-        <div class="so-top">
-          <div>
-            <div class="so-num">${esc(o.so)}</div>
-            <div class="so-cust">${esc(o.cust)}</div>
-            <div class="so-meta">Created ${esc(ukDate(o.date))} &middot; ${esc(o.by)}</div>
-          </div>
-          <div class="crate-frac">
-            <div style="margin-bottom:6px;text-align:right">${age.html}</div>
-            <div class="big">${rec}<span class="of"> / ${o.crates}</span></div><div class="sub">crates counted</div>
-          </div>
-        </div>
-        <div class="prog"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div>
-        <div class="ticks">${ticks}</div>
-        <div class="so-body">${tbl}</div>
-        <div class="so-body" style="padding-top:0;display:flex;align-items:center;gap:8px">${tag}
-          ${rec>0?`<button class="btn small ghost" style="margin-left:auto" onclick="closeShort(${o.id},${o.crates},${rec})">Close Short</button>`:''}
-        </div>
-      </div>`);
-  });
-
-  /* ---- counted ---- */
-  const list=document.getElementById('countedList');list.innerHTML='';
-  countedEmpty.style.display=counted.length?'none':'block';
-  counted.forEach(o=>{
-    const totalUnits=o.totals.reduce((a,t)=>a+t.q,0);
-    const isOpen=openCards.has(o.id)?'open':'';
-    list.insertAdjacentHTML('beforeend',`
-      <div class="comp-card ${isOpen}" id="comp${o.id}">
-        <div class="comp-head" onclick="toggleCard(${o.id})">
-          <span class="chev">&#9656;</span>
-          <div>
-            <div class="so-num">${esc(o.so)}</div>
-            <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
-          </div>
-          <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
-          ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
-          ${o.co2>0?`<span class="status-tag co2">CO2 buy-back — ${o.co2} unit${o.co2===1?'':'s'}</span>`:''}
-          <div class="head-right" onclick="event.stopPropagation()">
-            <a class="btn small wtn" href="/wtn/${o.id}" target="_blank">View WTN</a>
-            <label class="tickbox">
-              <input type="checkbox" ${o.wtnSentAt?'checked':''} onchange="mark(${o.id},'wtnSent',this.checked)">
-              WTN sent ${o.wtnSentAt?`<span class="stamp">${esc(o.wtnSentAt)}</span>`:''}
-            </label>
-            ${o.co2>0?`<label class="tickbox">
-              <input type="checkbox" ${o.creditAt?'checked':''} onchange="mark(${o.id},'credit',this.checked)">
-              Credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}
-            </label>`:''}
-            <label class="tickbox">
-              <input type="checkbox" onchange="mark(${o.id},'invoiced',this.checked)">
-              Invoiced
-            </label>
-            <div class="ref-block">
-              WTN: <span class="set">${esc(o.wtn||'')}</span><br>
-              SO: <span class="${o.finalSo?'set':'pending'}">${esc(o.finalSo||'pending API')}</span>
-            </div>
-          </div>
-        </div>
-        <div class="comp-detail">${detailBlock(o)}</div>
-      </div>`);
-  });
-
-  /* ---- invoiced ---- */
-  const body=document.getElementById('invBody');body.innerHTML='';
-  document.getElementById('invTable').style.display=inv.length?'table':'none';
-  invEmpty.style.display=inv.length?'none':'block';
-  inv.forEach(o=>{
-    const isOpen=openRows.has(o.id);
-    body.insertAdjacentHTML('beforeend',`
-      <tr class="main ${isOpen?'open':''}" id="invrow${o.id}" onclick="toggleRow(${o.id})">
-        <td><span class="chev">&#9656;</span></td>
-        <td class="so-cell">${esc(o.so)}${o.short?' <span class="status-tag short" title="'+esc(o.short.reason||'')+'">short '+o.short.received+'/'+o.short.expected+'</span>':''}</td>
-        <td>${esc(o.cust)}</td>
-        <td>${esc(o.by)}</td>
-        <td>${esc(lastCountDate(o))}</td>
-        <td>${esc(counterNames(o))}</td>
-        <td>${esc(o.wtnSentAt||'—')}</td>
-        <td>${esc(o.invoicedAt||'')}</td>
-        <td onclick="event.stopPropagation()">${o.co2>0?(o.creditAt?esc(o.creditAt):`<label class="tickbox" style="padding:4px 8px"><input type="checkbox" onchange="mark(${o.id},'credit',this.checked)">due — ${o.co2}</label>`):'n/a'}</td>
-        <td onclick="event.stopPropagation()"><a class="btn small wtn" href="/wtn/${o.id}" target="_blank">WTN</a></td>
-      </tr>
-      <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="10">${detailBlock(o,true)}</td></tr>`);
-  });
-}
-function detailBlock(o,inv){
-  return `
-    <div class="detail-grid">
-      <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
-      <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
-      <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
-    </div>
-    <div class="actions">
-      <div><label>SO created against count (manual until API)</label>
-        <input value="${esc(o.finalSo||'')}" placeholder="pending API" onchange="setFinalSO(${o.id},this.value)"></div>
-      ${inv?`<label class="tickbox"><input type="checkbox" checked onchange="mark(${o.id},'invoiced',this.checked)">Invoiced <span class="stamp">${esc(o.invoicedAt||'')}</span></label>`:''}
-    </div>`;
-}
-function toggleCard(id){
-  openCards.has(id)?openCards.delete(id):openCards.add(id);
-  document.getElementById('comp'+id).classList.toggle('open');
-}
-function toggleRow(id){
-  openRows.has(id)?openRows.delete(id):openRows.add(id);
-  document.getElementById('invrow'+id).classList.toggle('open');
-  document.getElementById('invdet'+id).classList.toggle('show');
-}
-async function closeShort(id,expected,received){
-  const msg=`This order expected ${expected} crates but only ${received} ${received===1?'has':'have'} been counted.\n\nClose it at ${received} crate(s)? This completes the order, issues the WTN for what was actually returned, and can't be undone.`;
-  if(!confirm(msg))return;
-  const reason=prompt('Reason (e.g. customer confirmed only sending '+received+'):','')??'';
-  const r=await fetch('/api/close-short',{method:'POST',body:JSON.stringify({orderId:id,reason})});
-  const j=await r.json();
-  if(j.error){toast(j.error);return;}
-  toast(`Closed short — ${j.wtn} issued for ${j.received} of ${j.expected} crates`);
-  refresh();
-}
-async function mark(id,field,value){
-  const r=await fetch('/api/mark',{method:'POST',body:JSON.stringify({orderId:id,field,value})});
-  const j=await r.json();
-  if(j.error){toast(j.error);return;}
-  const msgs={wtnSent:value?'WTN marked as sent':'WTN send unticked',invoiced:value?'Marked as invoiced':'Moved back to Counted',credit:value?'CO2 credit marked as issued':'Credit unticked'};
-  toast(msgs[field]);
-  refresh();
-}
-async function setFinalSO(id,v){
-  await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});
-  toast('SO number saved');refresh();
-}
-refresh();
-setInterval(refresh,30000);
-</script>
+<script src="/dashboard.js"></script>
 </body>
 </html>
