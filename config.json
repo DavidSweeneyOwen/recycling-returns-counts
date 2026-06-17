@@ -7,13 +7,20 @@
     "api": {
       "enabled": false,
       "comment": "Phase 3: set enabled=true once the NetSuite integration record + token exist. See README."
-    }
+    },
+    "addressColumns": [
+      "shipping address line 1",
+      "shipping address line 2",
+      "shipping address state",
+      "shipping address zip"
+    ]
   },
   "wtn": {
     "prefix": "WTN",
     "ewcCode": "16 05 05",
     "carrierRegistration": "CBDU1833",
-    "carrierIssuedBy": "Natural Resources Wales"
+    "carrierIssuedBy": "Natural Resources Wales",
+    "sicCode": "32990"
   },
   "maxCrates": 10,
   "products": [
@@ -149,5 +156,37 @@
       "buyback": true
     }
   ],
-  "otherCode": "D/S cylinder Other"
+  "otherCode": "D/S cylinder Other",
+  "monthlyCustomers": [
+    {
+      "code": "FP704",
+      "name": "Firemark Limited",
+      "match": "firemark"
+    },
+    {
+      "code": "FY670",
+      "name": "PHS Compliance",
+      "match": "phs compliance"
+    },
+    {
+      "code": "MARL01",
+      "name": "Mitie Security Ltd",
+      "match": "mitie security"
+    },
+    {
+      "code": "GR139",
+      "name": "Griffin Fire",
+      "match": "griffin fire"
+    },
+    {
+      "code": "MARL03",
+      "name": "FAFS Fire & Security",
+      "match": "fafs"
+    },
+    {
+      "code": "CLY0821",
+      "name": "Clymac Limited",
+      "match": "clymac"
+    }
+  ]
 }
