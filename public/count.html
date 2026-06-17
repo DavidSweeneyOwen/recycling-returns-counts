@@ -122,6 +122,18 @@
       <div class="frac" id="mFrac"></div>
       <button class="btn block" onclick="startCount()">Start Counting</button>
     </div>
+    <button class="btn secondary block" onclick="showDropOff()" style="border-color:var(--amber);color:#9c6206">+ Customer drop-off (no SO number)</button>
+    <div class="match" id="dropCard" style="border-color:var(--amber);display:none">
+      <div class="so" style="color:#9c6206">DROPPED OFF BY CUSTOMER</div>
+      <label>Customer name (required &mdash; Sarah sends the WTN and invoice to this)</label>
+      <input id="dropCust" placeholder="Company / customer name" autocomplete="off">
+      <label>Collection address (optional &mdash; added to the WTN)</label>
+      <input id="dropAddr" placeholder="Where the recycling came from" autocomplete="off">
+      <label>How many crates in total?</label>
+      <input id="dropCrates" type="number" min="1" value="1" inputmode="numeric">
+      <button class="btn block" onclick="startDropOff()">Start Counting</button>
+      <div class="err" id="dropErr"></div>
+    </div>
   </div>
 
   <!-- STEP 2: count grid -->
@@ -192,6 +204,25 @@ function logout(){
   show('stepLogin');
 }
 
+function showDropOff(){
+  document.getElementById('matchCard').style.display='none';
+  document.getElementById('findErr').style.display='none';
+  document.getElementById('dropCard').style.display='block';
+  setTimeout(()=>document.getElementById('dropCust').focus(),60);
+}
+async function startDropOff(){
+  const err=document.getElementById('dropErr');err.style.display='none';
+  const cust=document.getElementById('dropCust').value.trim();
+  if(!cust){err.textContent='Enter the customer name — Sarah needs it to send the WTN and invoice.';err.style.display='block';return;}
+  const crates=parseInt(document.getElementById('dropCrates').value,10)||1;
+  const address=document.getElementById('dropAddr').value.trim();
+  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,address})});
+  const j=await r.json();
+  if(!j.ok){toast(j.error||'Could not create drop-off');return;}
+  active=j.order;
+  document.getElementById('dropCard').style.display='none';
+  startCount();
+}
 async function findOrder(){
   const err=document.getElementById('findErr');err.style.display='none';
   document.getElementById('matchCard').style.display='none';
@@ -284,6 +315,9 @@ function backToFind(){
   document.getElementById('soInput').value='';
   document.getElementById('matchCard').style.display='none';
   document.getElementById('findErr').style.display='none';
+  document.getElementById('dropCard').style.display='none';
+  document.getElementById('dropCust').value='';
+  document.getElementById('dropAddr').value='';
   show('stepFind');window.scrollTo(0,0);
   setTimeout(()=>document.getElementById('soInput').focus(),100);
 }
