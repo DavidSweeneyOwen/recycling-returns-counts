@@ -74,6 +74,13 @@
       "wtnBox": "foam"
     },
     {
+      "p": "Foam 25L",
+      "group": "Foam",
+      "size": "25L",
+      "code": "SC-FOA-025",
+      "wtnBox": "foam"
+    },
+    {
       "p": "Powder 1KG",
       "group": "Powder",
       "size": "1KG",
@@ -116,6 +123,20 @@
       "wtnBox": "powder"
     },
     {
+      "p": "Powder 50KG",
+      "group": "Powder",
+      "size": "50KG Trolley",
+      "code": "SC-POW-050",
+      "wtnBox": "powder"
+    },
+    {
+      "p": "Powder 100KG",
+      "group": "Powder",
+      "size": "100KG Trolley",
+      "code": "SC-POW-100",
+      "wtnBox": "powder"
+    },
+    {
       "p": "CO2 Steel 2KG",
       "group": "CO2 Steel",
       "size": "2KG",
@@ -153,6 +174,30 @@
       "size": "5KG",
       "code": "SC-COO-005-ALU",
       "wtnBox": "co2alu5",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Trolley 10KG",
+      "group": "CO2 Trolley",
+      "size": "10KG",
+      "code": "SC-CO2-010",
+      "wtnBox": "co2trolley",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Trolley 20KG",
+      "group": "CO2 Trolley",
+      "size": "20KG",
+      "code": "SC-CO2-020",
+      "wtnBox": "co2trolley",
+      "buyback": true
+    },
+    {
+      "p": "CO2 Trolley 30KG",
+      "group": "CO2 Trolley",
+      "size": "30KG",
+      "code": "SC-CO2-030",
+      "wtnBox": "co2trolley",
       "buyback": true
     }
   ],
