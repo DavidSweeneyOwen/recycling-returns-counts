@@ -273,6 +273,13 @@
         <div><label>Type</label><select id="fType" onchange="onTypeChange()"><option value="">All types</option></select></div>
         <div><label>Size</label><select id="fSize" onchange="renderReports()"><option value="">All sizes</option></select></div>
         <div><label>Product</label><select id="fProd" onchange="renderReports()"><option value="">All products</option></select></div>
+        <div><label>Stage</label><select id="fStage" onchange="renderReports()">
+          <option value="">Everything counted</option>
+          <option value="billed">Billed only</option>
+          <option value="unbilled">Not yet billed</option>
+          <option value="open">Still open (part-counted)</option>
+          <option value="amended">Amended</option>
+        </select></div>
       </div>
       <div class="chips">
         <span style="font-family:var(--mono);font-size:11px;color:var(--ink-faint);align-self:center">Quick accounts:</span>
@@ -294,6 +301,12 @@
     <div class="grid2">
       <div class="panel"><h3>By product</h3><div class="scrollbox"><table class="rep" id="tblProd"></table></div></div>
       <div class="panel"><h3>By type</h3><div class="scrollbox"><table class="rep" id="tblType"></table></div></div>
+    </div>
+    <div class="panel">
+      <h3>Counted vs billed</h3>
+      <div class="meta-line">Counted is what the rec team logged. Amended is the net correction from the Amendments tab.
+        Billed is what has actually been invoiced &mdash; this is the month-end figure.</div>
+      <div class="scrollbox"><table class="rep" id="tblRecon"></table></div>
     </div>
     <div class="panel">
       <h3>Billing view — customer &times; charge code</h3>

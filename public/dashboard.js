@@ -213,17 +213,49 @@ function parseWhen(when){
   return null;
 }
 function fmtUK(dt){return dt?('0'+dt.getDate()).slice(-2)+'/'+('0'+(dt.getMonth()+1)).slice(-2)+'/'+dt.getFullYear():'';}
+/* Records are built at order x product level — the only level at which "counted",
+   "amended" and "billed" all exist, because an amendment replaces the whole counts
+   array and there is no line-level lineage to apportion against.
+   Each record carries the collection's lifecycle state so the report can tell a
+   finished, invoiced collection apart from one that is still part-counted or has
+   been amended back to open. `qty` remains the current position, so every existing
+   consumer keeps working unchanged. */
 function buildRecords(){
   RECORDS=[];
   (STATE.orders||[]).forEach(o=>{
+    const amends=Array.isArray(o.amendments)?o.amendments:[];
+
+    // what the rec team originally logged, before any amendment
+    const origMap={};
+    if(amends.length&&Array.isArray(amends[0].before)){
+      amends[0].before.forEach(x=>{origMap[x.p]=(origMap[x.p]||0)+(Number(x.q)||0);});
+    }
+    // current (post-amendment) state, plus the latest count date
+    const curMap={};
+    let lastDate=parseWhen(o.date);
     (o.counts||[]).forEach(c=>{
-      const dt=parseWhen(c.when)||parseWhen(o.date);
-      (c.lines||[]).forEach(l=>{
-        const pm=PRODMAP[l.p]||{};
-        RECORDS.push({date:dt,cust:o.cust||'Unknown',so:o.so,product:l.p,
-          size:l.other?'—':(pm.size||'—'),type:l.other?'Other':(pm.type||'Other'),
-          code:l.other?'OTHER':(pm.code||'UNMAPPED'),qty:Number(l.q)||0,dropOff:!!o.dropOff});
-      });
+      const dt=parseWhen(c.when);
+      if(dt&&(!lastDate||dt>lastDate))lastDate=dt;
+      (c.lines||[]).forEach(l=>{curMap[l.p]=(curMap[l.p]||0)+(Number(l.q)||0);});
+    });
+    if(!amends.length)Object.assign(origMap,curMap);   // never amended -> counted === current
+
+    const invoiced=!!o.invoicedAt,complete=o.status==='done';
+    [...new Set([...Object.keys(origMap),...Object.keys(curMap)])].forEach(p=>{
+      const pm=PRODMAP[p],known=!!pm;
+      const counted=origMap[p]||0,now=curMap[p]||0;
+      RECORDS.push({
+        date:lastDate,cust:o.cust||'Unknown',so:o.so,product:p,
+        size:known?(pm.size||'—'):'—',
+        type:known?(pm.type||'Other'):'Other',
+        code:known?(pm.code||'UNMAPPED'):'OTHER',
+        counted,                      // originally counted
+        amended:now-counted,          // net correction (negative = counted down)
+        qty:now,                      // current position = counted + amended
+        billed:invoiced?now:0,        // only what has actually been invoiced
+        status:o.status,complete,invoiced,
+        wasAmended:now!==counted||amends.length>0,
+        dropOff:!!o.dropOff});
     });
   });
 }
@@ -279,7 +311,8 @@ function rangeBounds(){
 function currentFilter(){
   const {from,to}=rangeBounds();
   return {from,to,cust:document.getElementById('fCust').value,type:document.getElementById('fType').value,
-    size:document.getElementById('fSize').value,prod:document.getElementById('fProd').value};
+    size:document.getElementById('fSize').value,prod:document.getElementById('fProd').value,
+    stage:document.getElementById('fStage').value};
 }
 function applyFilter(){
   const f=currentFilter();
@@ -290,8 +323,23 @@ function applyFilter(){
     if(f.type&&r.type!==f.type)return false;
     if(f.size&&r.size!==f.size)return false;
     if(f.prod&&r.product!==f.prod)return false;
+    if(f.stage==='billed'  && !r.invoiced)return false;
+    if(f.stage==='unbilled'&&  r.invoiced)return false;
+    if(f.stage==='open'    &&  r.complete)return false;
+    if(f.stage==='amended' && !r.wasAmended)return false;
     return true;
   });
+}
+/* Counted / amended / billed rollup — the month-end reconciliation. */
+function recon(rows,key){
+  const m={};
+  rows.forEach(r=>{
+    const k=r[key];
+    if(!m[k])m[k]={k,counted:0,amended:0,current:0,billed:0,unbilled:0};
+    m[k].counted+=r.counted;m[k].amended+=r.amended;m[k].current+=r.qty;
+    m[k].billed+=r.billed;if(!r.invoiced)m[k].unbilled+=r.qty;
+  });
+  return Object.values(m).sort((a,b)=>b.current-a.current);
 }
 function groupSum(rows,key){const m={};rows.forEach(r=>{m[r[key]]=(m[r[key]]||0)+r.qty;});return Object.entries(m).map(([k,v])=>({k,v})).sort((a,b)=>b.v-a.v);}
 function trendBuckets(rows){
@@ -316,8 +364,13 @@ function renderReports(){
   const sos=new Set(rows.map(r=>r.so));
   const co2=rows.filter(r=>(PRODMAP[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0);
   const drops=new Set(rows.filter(r=>r.dropOff).map(r=>r.so));
+  const tCounted=rows.reduce((a,r)=>a+r.counted,0);
+  const tAmended=rows.reduce((a,r)=>a+r.amended,0);
+  const tBilled =rows.reduce((a,r)=>a+r.billed,0);
   document.getElementById('kpis').innerHTML=[
-    ['Total units',totalUnits],['Collections',sos.size],['Customers',new Set(rows.map(r=>r.cust)).size],
+    ['Counted',tCounted],['Amended',(tAmended>0?'+':'')+tAmended],['Current',totalUnits],
+    ['Billed',tBilled],['Not yet billed',totalUnits-tBilled],
+    ['Collections',sos.size],['Customers',new Set(rows.map(r=>r.cust)).size],
     ['CO2 buy-back units',co2],['Drop-offs',drops.size]
   ].map(([l,n])=>`<div class="kpi"><div class="num">${n}</div><div class="lbl">${l}</div></div>`).join('');
   const byCust=groupSum(rows,'cust'),byProd=groupSum(rows,'product'),byType=groupSum(rows,'type');
@@ -337,8 +390,20 @@ function renderReports(){
   byCust.forEach(c=>{const cr=rows.filter(r=>r.cust===c.k);
     bh+=`<tr><td>${esc(c.k)}</td>`+codes.map(code=>`<td class="n">${cr.filter(r=>r.code===code).reduce((a,r)=>a+r.qty,0)||''}</td>`).join('')+`<td class="n"><b>${c.v}</b></td></tr>`;});
   document.getElementById('tblBilling').innerHTML=bh;
+  const rc=recon(rows,'cust');
+  const tot=k=>rc.reduce((a,r)=>a+r[k],0);
+  document.getElementById('tblRecon').innerHTML=
+    '<tr><th>Customer</th><th class="n">Counted</th><th class="n">Amended</th>'+
+    '<th class="n">Current</th><th class="n">Billed</th><th class="n">Not billed</th></tr>'+
+    rc.map(r=>`<tr><td>${esc(r.k)}</td><td class="n">${r.counted}</td>`+
+      `<td class="n">${r.amended?(r.amended>0?'+':'')+r.amended:''}</td>`+
+      `<td class="n"><b>${r.current}</b></td><td class="n">${r.billed}</td>`+
+      `<td class="n">${r.unbilled||''}</td></tr>`).join('')+
+    `<tr><td><b>Total</b></td><td class="n"><b>${tot('counted')}</b></td>`+
+    `<td class="n"><b>${tot('amended')||''}</b></td><td class="n"><b>${tot('current')}</b></td>`+
+    `<td class="n"><b>${tot('billed')}</b></td><td class="n"><b>${tot('unbilled')||''}</b></td></tr>`;
   const fr=f.from?fmtUK(f.from):'start',to=f.to?fmtUK(f.to):'today';
-  document.getElementById('metaLine').textContent=`Showing ${rows.length} count line(s) · ${fr} → ${to}`+
+  document.getElementById('metaLine').textContent=`Showing ${rows.length} collection line(s) · ${fr} → ${to}`+
     (f.cust?` · ${f.cust}`:'')+(f.type?` · ${f.type}`:'')+(f.size?` · ${f.size}`:'')+(f.prod?` · ${f.prod}`:'');
   drawCharts(byType,trend);
 }
@@ -376,6 +441,13 @@ function exportXlsx(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Type','Units'],...byType.map(t=>[t.k,t.v])]),'By Type');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Date','Customer','SO','Product','Size','Type','Code','Qty','Drop-off'],
     ...rows.map(r=>[fmtUK(r.date),r.cust,r.so,r.product,r.size,r.type,r.code,r.qty,r.dropOff?'Yes':''])]),'Raw');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
+    [['Customer','Counted','Amended','Current','Billed','Not billed'],
+     ...recon(rows,'cust').map(r=>[r.k,r.counted,r.amended,r.current,r.billed,r.unbilled])]),'Reconciliation');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
+    [['Date','Customer','SO','Product','Size','Type','Code','Counted','Amended','Current','Billed','Status','Invoiced','Drop-off'],
+     ...rows.map(r=>[fmtUK(r.date),r.cust,r.so,r.product,r.size,r.type,r.code,
+                     r.counted,r.amended,r.qty,r.billed,r.status,r.invoiced?'Yes':'',r.dropOff?'Yes':''])]),'Raw detail');
   XLSX.writeFile(wb,'CheckFire-Recycling-Report-'+fmtUK(new Date()).replace(/\//g,'-')+'.xlsx');
 }
 function exportPptx(){
