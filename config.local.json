@@ -1,0 +1,11 @@
+{
+  "netsuite": {
+    "webQueryUrl": "https://3810789.app.netsuite.com/app/reporting/webquery.nl?compid=3810789&entity=3305113&email=[EMAIL]&role=1485&cr=2140&hash=AAEJ7tMQf1mmH41JWgTj17OfWHsXWZxsewnXVJgNCwfyZ6S8Z-E",
+    "email": "david.sweeney-owen@checkfire.co.uk"
+  },
+  "counters": [
+    { "name": "David Sweeney-Owen", "pin": "1111" },
+    { "name": "Rec Counter 1", "pin": "2222" },
+    { "name": "Rec Counter 2", "pin": "3333" }
+  ]
+}

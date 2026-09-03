@@ -7,22 +7,15 @@
     "api": {
       "enabled": false,
       "comment": "Phase 3: set enabled=true once the NetSuite integration record + token exist. See README."
-    },
-    "addressColumns": [
-      "shipping address line 1",
-      "shipping address line 2",
-      "shipping address state",
-      "shipping address zip"
-    ]
+    }
   },
   "wtn": {
     "prefix": "WTN",
     "ewcCode": "16 05 05",
     "carrierRegistration": "CBDU1833",
-    "carrierIssuedBy": "Natural Resources Wales",
-    "sicCode": "32990"
+    "carrierIssuedBy": "Natural Resources Wales"
   },
-  "maxCrates": 10,
+  "maxCrates": 60,
   "products": [
     {
       "p": "Water 3L",
@@ -74,13 +67,6 @@
       "wtnBox": "foam"
     },
     {
-      "p": "Foam 25L",
-      "group": "Foam",
-      "size": "25L",
-      "code": "SC-FOA-025",
-      "wtnBox": "foam"
-    },
-    {
       "p": "Powder 1KG",
       "group": "Powder",
       "size": "1KG",
@@ -123,20 +109,6 @@
       "wtnBox": "powder"
     },
     {
-      "p": "Powder 50KG",
-      "group": "Powder",
-      "size": "50KG Trolley",
-      "code": "SC-POW-050",
-      "wtnBox": "powder"
-    },
-    {
-      "p": "Powder 100KG",
-      "group": "Powder",
-      "size": "100KG Trolley",
-      "code": "SC-POW-100",
-      "wtnBox": "powder"
-    },
-    {
       "p": "CO2 Steel 2KG",
       "group": "CO2 Steel",
       "size": "2KG",
@@ -175,63 +147,7 @@
       "code": "SC-COO-005-ALU",
       "wtnBox": "co2alu5",
       "buyback": true
-    },
-    {
-      "p": "CO2 Trolley 10KG",
-      "group": "CO2 Trolley",
-      "size": "10KG",
-      "code": "SC-CO2-010",
-      "wtnBox": "co2trolley",
-      "buyback": true
-    },
-    {
-      "p": "CO2 Trolley 20KG",
-      "group": "CO2 Trolley",
-      "size": "20KG",
-      "code": "SC-CO2-020",
-      "wtnBox": "co2trolley",
-      "buyback": true
-    },
-    {
-      "p": "CO2 Trolley 30KG",
-      "group": "CO2 Trolley",
-      "size": "30KG",
-      "code": "SC-CO2-030",
-      "wtnBox": "co2trolley",
-      "buyback": true
     }
   ],
-  "otherCode": "D/S cylinder Other",
-  "monthlyCustomers": [
-    {
-      "code": "FP704",
-      "name": "Firemark Limited",
-      "match": "firemark"
-    },
-    {
-      "code": "FY670",
-      "name": "PHS Compliance",
-      "match": "phs compliance"
-    },
-    {
-      "code": "MARL01",
-      "name": "Mitie Security Ltd",
-      "match": "mitie security"
-    },
-    {
-      "code": "GR139",
-      "name": "Griffin Fire",
-      "match": "griffin fire"
-    },
-    {
-      "code": "MARL03",
-      "name": "FAFS Fire & Security",
-      "match": "fafs"
-    },
-    {
-      "code": "CLY0821",
-      "name": "Clymac Limited",
-      "match": "clymac"
-    }
-  ]
+  "otherCode": "D/S cylinder Other"
 }

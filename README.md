@@ -15,6 +15,7 @@ One small app, three screens, no manual re-keying:
 3. **Rec team counts each crate** on the counter form — pick the collection, enter counts in a grid that mirrors the paper Recycling Collection Form (Water / Foam / Powder / CO2 Steel / Aluminium / Other), name, save. Counts route straight into the dashboard.
 4. **Dashboard shows what's outstanding** — "2 of 3 crates" with progress bars and a running product total per SO. Partial counts accumulate.
 5. **Final crate counted → order auto-moves to Completed**, a sequential WTN reference is assigned (WTN-YYYY-NNNN), and the Duty of Care WTN is available to print/send — same format as the existing customer-facing template (EWC 16 05 05, CBDU1833, Sections A–E, Section E totals filled from the counts).
+5a. **If the counter form can't find the SO** (not synced yet, or genuinely not raised for this delivery), the Rec team can tap *Count anyway — no SO yet* on the counter form: they enter the customer name and how many cages/pallet boxes are in the delivery, and counting proceeds against a placeholder order (`MANUAL-<id>`, tagged `source: "manual"`) instead of falling back to paper. It shows on the dashboard with a **No SO yet** badge and an inline field — type the real SO number in once it's raised in NetSuite and it replaces the placeholder (matched by `so` from then on, so a later NetSuite sync will keep it updated same as any other order).
 6. **SO against the count**: the completed card shows the rolled-up NetSuite scrapping-charge lines (SC-WAT-000, SC-FOA-006, SC-POW-000…). Until the API lands, raise the SO in NetSuite from those lines and type its number into the card. Phase 3 automates this — the hook is already in `server.js` (`createNetSuiteSalesOrder`).
 
 ## Running it
@@ -34,7 +35,7 @@ Then open `http://localhost:8080/`. For team use, run it on any always-on PC/ser
 - `netsuite.autoSyncMinutes` — polling interval (0 = manual sync only).
 - `products` — the count grid, NetSuite item codes and WTN box mapping, all in one place.
 - `wtn` — EWC code, carrier registration, reference prefix.
-- `maxCrates` — currently 10.
+- `maxCrates` — currently 60 (raised from 10 so a full Chubb delivery — 45-53 cages or 28 pallet boxes — fits in one order; NetSuite's Quantity Billed is capped at this on sync, and it's also the ceiling the counter form offers per screen).
 
 ## Notes & known points
 

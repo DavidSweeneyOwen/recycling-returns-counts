@@ -114,6 +114,14 @@
       <div class="err" id="findErr"></div>
       <p class="find-hint">Type the Sales Order number from the paperwork that came with the crate.
       The C is added automatically. Counting is only possible against a live collection — if it doesn't match, check the number and try again.</p>
+      <div id="manualFallback" style="display:none;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line-dark)">
+        <p class="find-hint" style="margin-top:0">Still not showing up? You can count it anyway — the office will attach the real SO number once it's raised.</p>
+        <label>Customer name</label>
+        <input id="manualCust" placeholder="e.g. Chubb" autocomplete="off">
+        <label>How many cages / pallet boxes are in this delivery?</label>
+        <input id="manualCrates" type="number" min="1" inputmode="numeric" placeholder="e.g. 48">
+        <button class="btn secondary block" onclick="startManual()">Count anyway — no SO yet</button>
+      </div>
     </div>
     <div class="match" id="matchCard">
       <div class="so" id="mSo"></div>
@@ -121,18 +129,6 @@
       <div class="meta" id="mMeta"></div>
       <div class="frac" id="mFrac"></div>
       <button class="btn block" onclick="startCount()">Start Counting</button>
-    </div>
-    <button class="btn secondary block" onclick="showDropOff()" style="border-color:var(--amber);color:#9c6206">+ Customer drop-off (no SO number)</button>
-    <div class="match" id="dropCard" style="border-color:var(--amber);display:none">
-      <div class="so" style="color:#9c6206">DROPPED OFF BY CUSTOMER</div>
-      <label>Customer name (required &mdash; Sarah sends the WTN and invoice to this)</label>
-      <input id="dropCust" placeholder="Company / customer name" autocomplete="off">
-      <label>Collection address (optional &mdash; added to the WTN)</label>
-      <input id="dropAddr" placeholder="Where the recycling came from" autocomplete="off">
-      <label>How many crates in total?</label>
-      <input id="dropCrates" type="number" min="1" value="1" inputmode="numeric">
-      <button class="btn block" onclick="startDropOff()">Start Counting</button>
-      <div class="err" id="dropErr"></div>
     </div>
   </div>
 
@@ -171,6 +167,7 @@
 
 <script>
 let STATE=null,active=null,counter=null;
+function soLabel(so){return so&&String(so).startsWith('MANUAL-')?'No SO yet':so;}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
@@ -204,33 +201,19 @@ function logout(){
   show('stepLogin');
 }
 
-function showDropOff(){
-  document.getElementById('matchCard').style.display='none';
-  document.getElementById('findErr').style.display='none';
-  document.getElementById('dropCard').style.display='block';
-  setTimeout(()=>document.getElementById('dropCust').focus(),60);
-}
-async function startDropOff(){
-  const err=document.getElementById('dropErr');err.style.display='none';
-  const cust=document.getElementById('dropCust').value.trim();
-  if(!cust){err.textContent='Enter the customer name — Sarah needs it to send the WTN and invoice.';err.style.display='block';return;}
-  const crates=parseInt(document.getElementById('dropCrates').value,10)||1;
-  const address=document.getElementById('dropAddr').value.trim();
-  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,address})});
-  const j=await r.json();
-  if(!j.ok){toast(j.error||'Could not create drop-off');return;}
-  active=j.order;
-  document.getElementById('dropCard').style.display='none';
-  startCount();
-}
 async function findOrder(){
   const err=document.getElementById('findErr');err.style.display='none';
   document.getElementById('matchCard').style.display='none';
+  document.getElementById('manualFallback').style.display='none';
   const number=document.getElementById('soInput').value.trim();
   if(!number){err.textContent='Enter the collection number from the paperwork';err.style.display='block';return;}
   const r=await fetch('/api/find-order',{method:'POST',body:JSON.stringify({number})});
   const j=await r.json();
-  if(!j.ok){err.textContent=j.error;err.style.display='block';return;}
+  if(!j.ok){
+    err.textContent=j.error;err.style.display='block';
+    document.getElementById('manualFallback').style.display='block';
+    return;
+  }
   active=j.order;
   document.getElementById('mSo').textContent=active.so;
   document.getElementById('mCust').textContent=active.cust;
@@ -249,8 +232,23 @@ function groupsFromProducts(){
 }
 const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
 
+async function startManual(){
+  const err=document.getElementById('findErr');
+  const cust=document.getElementById('manualCust').value.trim();
+  const crates=parseInt(document.getElementById('manualCrates').value,10);
+  if(!cust){toast('Enter the customer name');return;}
+  if(!crates||crates<1){toast('Enter how many cages / pallet boxes are in this delivery');return;}
+  const r=await fetch('/api/manual-order',{method:'POST',body:JSON.stringify({cust,crates,by:counter})});
+  const j=await r.json();
+  if(!j.ok){toast(j.error);return;}
+  active=j.order;
+  err.style.display='none';
+  document.getElementById('manualFallback').style.display='none';
+  document.getElementById('manualCust').value='';document.getElementById('manualCrates').value='';
+  startCount();
+}
 function startCount(){
-  document.getElementById('crateLabel').textContent=`${active.so} — ${active.cust} — ${active.counted} of ${active.crates} counted`;
+  document.getElementById('crateLabel').textContent=`${soLabel(active.so)} — ${active.cust} — ${active.counted} of ${active.crates} counted`;
   const remaining=active.crates-active.counted;
   const sel=document.getElementById('batchSel');
   sel.innerHTML=Array.from({length:remaining},(_,i)=>`<option value="${i+1}">${i+1} crate${i?'s':''}</option>`).join('');
@@ -303,10 +301,10 @@ async function submitCount(){
   document.getElementById('submitBar').style.display='none';
   if(j.completed){
     document.getElementById('doneTitle').textContent='Order Complete';
-    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — all ${j.of} crates counted.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office has been updated.`;
+    document.getElementById('doneMsg').innerHTML=`${esc(soLabel(active.so))} — all ${j.of} crates counted.<br>WTN reference <b>${esc(j.wtn)}</b> assigned.<br>The office has been updated.`;
   }else{
     document.getElementById('doneTitle').textContent=`${j.counted} of ${j.of} crates saved`;
-    document.getElementById('doneMsg').innerHTML=`${esc(active.so)} — ${j.of-j.counted} crate(s) still to come.<br>The running total has been updated.`;
+    document.getElementById('doneMsg').innerHTML=`${esc(soLabel(active.so))} — ${j.of-j.counted} crate(s) still to come.<br>The running total has been updated.`;
   }
   show('stepDone');
 }
@@ -315,9 +313,7 @@ function backToFind(){
   document.getElementById('soInput').value='';
   document.getElementById('matchCard').style.display='none';
   document.getElementById('findErr').style.display='none';
-  document.getElementById('dropCard').style.display='none';
-  document.getElementById('dropCust').value='';
-  document.getElementById('dropAddr').value='';
+  document.getElementById('manualFallback').style.display='none';
   show('stepFind');window.scrollTo(0,0);
   setTimeout(()=>document.getElementById('soInput').focus(),100);
 }
