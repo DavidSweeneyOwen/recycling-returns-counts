@@ -48,7 +48,16 @@ function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
 function matchesFilter(o,f){if(!f)return true;return o.so.toLowerCase().includes(f)||o.cust.toLowerCase().includes(f);}
 /* A drop-off still on its DROP- placeholder — the office hasn't attached the real
    SO yet. Keyed off the reference, not o.source, so it clears the moment one is. */
-function noSo(o){return /^DROP-/.test(String(o.so||''));}
+function noSo(o){return /^DROP-/.test(String(o.so||''))&&!o.noSoExpected;}
+/* Every open, un-WTN'd drop-off for the same customer — one collection as far as
+   the WTN, sales order and invoice are concerned. */
+function openDropSiblings(o){
+  if(!STATE||!o.dropOff||o.status!=='open'||o.wtn)return [];
+  const k=String(o.cust||'').trim().toLowerCase();
+  if(!k)return [];
+  return STATE.orders.filter(x=>x.dropOff&&x.status==='open'&&!x.wtn&&String(x.cust||'').trim().toLowerCase()===k)
+    .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||a.id-b.id);   // oldest first, same as the server merges
+}
 const AGED_DAYS=90;   // three months on Awaiting Count and it archives itself
 function isAged(o){return o.status==='open'&&!o.keepOpen&&ageDays(o.date)>AGED_DAYS;}
 function dmy(s){const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s||'');return m?`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:null;}
@@ -74,7 +83,7 @@ function renderOrders(){
   const f=document.getElementById('filter').value.trim().toLowerCase();
   const awaitAll=STATE.orders.filter(o=>o.status==='open'&&!isAged(o));
   const archAll=STATE.orders.filter(isAged);
-  const countedAll=STATE.orders.filter(o=>o.status==='done');          // everything counted, invoiced or not
+  const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);   // ticking Invoiced moves it to the Invoiced tab
   const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
   const nosoAll=STATE.orders.filter(noSo).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
@@ -109,6 +118,11 @@ function renderOrders(){
     const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
       :'<div class="nocounts">No crates counted yet</div>';
     const age=ageBadge(o);
+    const sibs=openDropSiblings(o);
+    /* Several drop-offs from one customer = one WTN, one SO, one invoice. Offer the
+       merge on the oldest card only, so the same button does not appear six times. */
+    const mergeBtn=(sibs.length>1&&sibs[0].id===o.id)
+      ? `<button class="btn small ghost" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>` : '';
     grid.insertAdjacentHTML('beforeend',`
       <div class="so-card age-${age.cls} ${o.dropOff?'drop':''}">
         <div class="so-top">
@@ -125,8 +139,10 @@ function renderOrders(){
         <div class="prog"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div>
         <div class="ticks">${ticks}</div>
         <div class="so-body">${tbl}</div>
-        <div class="so-body" style="padding-top:0;display:flex;align-items:center;gap:8px">${tag}
-          ${rec>0?`<button class="btn small ghost" style="margin-left:auto" onclick="closeShort(${o.id},${o.crates},${rec})">Close Short</button>`:''}
+        <div class="so-body" style="padding-top:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${tag}
+          ${sibs.length>1?`<span class="status-tag drop">${sibs.length} open drop-offs for this customer</span>`:''}
+          <span style="margin-left:auto;display:flex;gap:8px">${mergeBtn}
+          ${rec>0?`<button class="btn small ghost" onclick="closeShort(${o.id},${o.crates},${rec})">Close Short</button>`:''}</span>
         </div>
       </div>`);
   });
@@ -219,7 +235,8 @@ function renderOrders(){
         <td><div style="display:flex;gap:6px">
           <input id="nosoSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
           <button class="btn small" onclick="attachSo(${o.id},'nosoSo${o.id}')">Attach</button>
-        </div></td>
+        </div>
+        <button class="btn small ghost" style="margin-top:6px;width:100%" onclick="noSoExpected(${o.id})" title="This customer only ever drops off — take it off this queue and remember them">No SO expected — drop-off customer</button></td>
       </tr>`);
   });
 
@@ -285,6 +302,28 @@ async function attachSo(id,inputId){
   const j=await r.json();
   if(j.error){toast(j.error);return;}
   toast(j.absorbed?`${j.so} attached — merged with the collection NetSuite had raised`:`${j.so} attached`);
+  refresh();
+}
+/* Fold every open drop-off for one customer into a single collection, so the admin
+   raises one WTN, one sales order and one invoice rather than six. */
+async function mergeDrops(id){
+  const sibs=openDropSiblings(STATE.orders.find(o=>o.id===id)||{});
+  const total=sibs.reduce((a,o)=>a+o.crates,0);
+  if(!confirm(`Merge ${sibs.length} open drop-offs for ${sibs[0]?sibs[0].cust:'this customer'} into one collection of ${total} crate(s)?\n\nThe counts already taken are kept and re-sequenced. Collections that already have a WTN issued are left alone. This cannot be undone.`))return;
+  const r=await fetch('/api/merge-drops',{method:'POST',body:JSON.stringify({orderId:id})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(j.completed?`Merged into ${j.into} — ${j.crates} crates, complete, ${j.wtn} issued`
+                   :`Merged ${j.merged+1} drop-offs into ${j.into} — ${j.crates} crates`);
+  refresh();
+}
+/* This customer only ever drops off — no SO is ever raised, so take the collection
+   off the No SO Yet queue and remember them for next time. */
+async function noSoExpected(id){
+  const r=await fetch('/api/no-so-expected',{method:'POST',body:JSON.stringify({orderId:id,value:true})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(`${j.cust} marked as drop-off only — future drop-offs skip this queue`);
   refresh();
 }
 /* Pull an archived collection back onto Awaiting Count — it is still expected. */

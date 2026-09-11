@@ -503,7 +503,11 @@ const server = http.createServer((req, res) => {
           date: new Date().toISOString().slice(0, 10), by: String(by || '').trim(),
           collectionAddress: String(address || '').trim(),
           crates: n, counts: [], status: 'open', wtn: null, finalSo: null,
-          source: 'dropoff', dropOff: true
+          source: 'dropoff', dropOff: true,
+          /* Customers who only ever drop off never get an SO raised, so their
+             collections skip the No SO Yet queue. The list learns itself from
+             the "No SO expected" button on that tab. */
+          noSoExpected: (db.dropOnly || []).includes(customer.toLowerCase()) ? nowStamp().split(',')[0] : null
         };
         db.orders.unshift(o);
         saveDb();
@@ -595,6 +599,65 @@ const server = http.createServer((req, res) => {
         if (!o) return json(res, 404, { error: 'Order not found' });
         o.finalSo = String(finalSo || '').trim() || null;
         saveDb(); json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  /* Several drop-offs from one customer are one collection as far as the admin is
+     concerned — one WTN, one sales order, one invoice. This folds every open
+     drop-off for that customer into the oldest one, summing the crates expected
+     and re-sequencing the crate log so the audit trail still reads straight.
+     Only OPEN drop-offs with no WTN issued are ever touched: once a WTN is out
+     with the customer it cannot be rewritten. */
+  if (req.method === 'POST' && p === '/api/merge-drops') {
+    return readBody(req, body => {
+      try {
+        const { orderId } = JSON.parse(body);
+        const target = db.orders.find(x => x.id === Number(orderId));
+        if (!target) return json(res, 404, { error: 'Order not found' });
+        const key = String(target.cust || '').trim().toLowerCase();
+        if (!key) return json(res, 400, { error: 'That collection has no customer name to group on' });
+        const group = db.orders.filter(o => o.dropOff && o.status === 'open' && !o.wtn
+          && String(o.cust || '').trim().toLowerCase() === key);
+        if (group.length < 2) return json(res, 400, { error: 'Nothing to merge — only one open drop-off for this customer' });
+        group.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id);
+        const keep = group[0], rest = group.slice(1), merged = [];
+        rest.forEach(o => {
+          let at = countedCrates(keep);
+          (o.counts || []).forEach(c => {
+            const n = c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1;
+            keep.counts.push(Object.assign({}, c, { crateFrom: at + 1, crateTo: at + n }));
+            at += n;
+          });
+          keep.crates += o.crates;
+          if (!keep.collectionAddress && o.collectionAddress) keep.collectionAddress = o.collectionAddress;
+          merged.push(o.so);
+          db.orders.splice(db.orders.indexOf(o), 1);
+        });
+        keep.mergedFrom = (keep.mergedFrom || []).concat(merged);
+        keep.mergedAt = nowStamp().split(',')[0];
+        if (countedCrates(keep) >= keep.crates) { keep.status = 'done'; keep.wtn = nextWTN(); }
+        saveDb();
+        json(res, 200, { ok: true, into: keep.so, merged: merged.length, crates: keep.crates, completed: keep.status === 'done', wtn: keep.wtn });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  /* Mark a collection as never going to get an SO — customers who only ever drop
+     off. It leaves the No SO Yet queue, and the customer is remembered so their
+     future drop-offs skip the queue on arrival. */
+  if (req.method === 'POST' && p === '/api/no-so-expected') {
+    return readBody(req, body => {
+      try {
+        const { orderId, value } = JSON.parse(body);
+        const o = db.orders.find(x => x.id === Number(orderId));
+        if (!o) return json(res, 404, { error: 'Order not found' });
+        const on = value !== false;
+        o.noSoExpected = on ? nowStamp().split(',')[0] : null;
+        const key = String(o.cust || '').trim().toLowerCase();
+        db.dropOnly = db.dropOnly || [];
+        if (on) { if (key && !db.dropOnly.includes(key)) db.dropOnly.push(key); }
+        else db.dropOnly = db.dropOnly.filter(k => k !== key);
+        saveDb();
+        json(res, 200, { ok: true, on, cust: o.cust });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
