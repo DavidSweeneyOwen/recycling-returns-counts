@@ -12,12 +12,12 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 /* ============ tab switching ============ */
 function switchTab(t){
   activeTab=t;
-  const map={await:'Await',counted:'Counted',inv:'Inv',reports:'Reports',admin:'Admin'};
+  const map={await:'Await',counted:'Counted',inv:'Inv',noso:'Noso',arch:'Arch',reports:'Reports',admin:'Admin'};
   Object.entries(map).forEach(([k,v])=>{
     document.getElementById('view'+v).style.display=k===t?'block':'none';
     document.getElementById('tab'+v).classList.toggle('active',k===t);
   });
-  document.getElementById('orderToolbar').style.display=(t==='await'||t==='counted'||t==='inv')?'flex':'none';
+  document.getElementById('orderToolbar').style.display=(t==='await'||t==='counted'||t==='inv'||t==='noso'||t==='arch')?'flex':'none';
   if(t==='reports'){ if(!reportsReady){populateReportFilters();reportsReady=true;} renderReports(); }
   if(t==='admin'){ renderAdminList(); }
 }
@@ -46,24 +46,51 @@ function ageBadge(o){const n=ageDays(o.date);const cls=n<=5?'g':(n<=10?'a':'r');
 function lastCountDate(o){return o.counts.length?o.counts[o.counts.length-1].when.split(',')[0]:'';}
 function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
 function matchesFilter(o,f){if(!f)return true;return o.so.toLowerCase().includes(f)||o.cust.toLowerCase().includes(f);}
+/* A drop-off still on its DROP- placeholder — the office hasn't attached the real
+   SO yet. Keyed off the reference, not o.source, so it clears the moment one is. */
+function noSo(o){return /^DROP-/.test(String(o.so||''));}
+const AGED_DAYS=90;   // three months on Awaiting Count and it archives itself
+function isAged(o){return o.status==='open'&&!o.keepOpen&&ageDays(o.date)>AGED_DAYS;}
+function dmy(s){const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s||'');return m?`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:null;}
+/* A drop-off that looks like a collection already counted against a real SO — same
+   customer, counted within a fortnight. Catches the same delivery counted twice
+   before anyone attaches an SO to something that has already been invoiced. */
+function likelyDuplicate(o){
+  if(!noSo(o)||!STATE)return null;
+  const key=String(o.cust||'').trim().toLowerCase();
+  if(key.length<3)return null;
+  const t1=new Date(dmy(lastCountDate(o))||o.date).getTime();
+  return STATE.orders.find(x=>{
+    if(x.id===o.id||noSo(x)||x.status!=='done')return false;
+    const k2=String(x.cust||'').trim().toLowerCase();
+    if(!k2||!(k2.includes(key)||key.includes(k2)))return false;
+    const t2=new Date(dmy(lastCountDate(x))||x.date).getTime();
+    return isFinite(t1)&&isFinite(t2)&&Math.abs(t1-t2)<=14*86400000;
+  })||null;
+}
 
 function renderOrders(){
   if(!STATE)return;
   const f=document.getElementById('filter').value.trim().toLowerCase();
-  const awaitAll=STATE.orders.filter(o=>o.status==='open');
-  const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);
+  const awaitAll=STATE.orders.filter(o=>o.status==='open'&&!isAged(o));
+  const archAll=STATE.orders.filter(isAged);
+  const countedAll=STATE.orders.filter(o=>o.status==='done');          // everything counted, invoiced or not
   const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
+  const nosoAll=STATE.orders.filter(noSo).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
   const counted=countedAll.filter(o=>matchesFilter(o,f));
   const inv=invAll.filter(o=>matchesFilter(o,f));
+  const arch=archAll.filter(o=>matchesFilter(o,f));
+  const noso=nosoAll.filter(o=>matchesFilter(o,f));
 
   stAwait.textContent=awaitAll.length;
   stCrates.textContent=awaitAll.reduce((a,o)=>a+(o.crates-o.counted),0);
   stCounted.textContent=countedAll.length;
   stInv.textContent=invAll.length;
   pillAwait.textContent=awaitAll.length;pillCounted.textContent=countedAll.length;pillInv.textContent=invAll.length;
+  pillNoso.textContent=nosoAll.length;pillArch.textContent=archAll.length;
   stCredit.textContent=STATE.orders.filter(o=>o.status==='done'&&o.co2>0&&!o.creditAt).length;
-  stDrop.textContent=countedAll.filter(o=>o.dropOff).length;
+  stDrop.textContent=nosoAll.length;   // drop-offs still waiting on an SO from the office
   stMonthly.textContent=STATE.orders.filter(o=>monthlyInfo(o)&&!o.invoicedAt).length;
 
   const ls=STATE.lastSync;
@@ -135,8 +162,8 @@ function renderOrders(){
               Credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}
             </label>`:''}
             <label class="tickbox">
-              <input type="checkbox" onchange="mark(${o.id},'invoiced',this.checked)">
-              Invoiced
+              <input type="checkbox" ${o.invoicedAt?'checked':''} onchange="mark(${o.id},'invoiced',this.checked)">
+              Invoiced ${o.invoicedAt?`<span class="stamp">${esc(o.invoicedAt)}</span>`:''}
             </label>
             <div class="ref-block">
               WTN: <span class="set">${esc(o.wtn||'')}</span><br>
@@ -167,6 +194,54 @@ function renderOrders(){
         <td onclick="event.stopPropagation()"><a class="btn small wtn" href="/wtn/${o.id}" target="_blank">WTN</a></td>
       </tr>
       <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="10">${detailBlock(o,true)}</td></tr>`);
+  });
+
+  /* ---- No SO Yet: drop-offs waiting on a real SO ---- */
+  const nbody=document.getElementById('nosoBody');nbody.innerHTML='';
+  document.getElementById('nosoTable').style.display=noso.length?'table':'none';
+  nosoEmpty.style.display=noso.length?'none':'block';
+  noso.forEach(o=>{
+    const units=o.totals.reduce((a,t)=>a+t.q,0);
+    const dup=likelyDuplicate(o);
+    const status=o.status==='open'
+      ? `<span class="status-tag partial">Counting — ${o.counted} of ${o.crates}</span>`
+      : `<span class="status-tag complete">Counted${o.invoicedAt?' &middot; invoiced':''}</span>`;
+    nbody.insertAdjacentHTML('beforeend',`
+      <tr${dup?' style="background:var(--amber-soft)"':''}>
+        <td class="so-cell">${esc(o.so)}</td>
+        <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}
+          ${dup?`<br><span class="status-tag short" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(dup.so)}</span>`:''}</td>
+        <td>${esc(lastCountDate(o)||ukDate(o.date))}<br>${ageBadge(o).html}</td>
+        <td>${esc(counterNames(o)||o.by||'—')}</td>
+        <td>${o.counted} / ${o.crates}</td>
+        <td>${units}</td>
+        <td>${status}</td>
+        <td><div style="display:flex;gap:6px">
+          <input id="nosoSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
+          <button class="btn small" onclick="attachSo(${o.id},'nosoSo${o.id}')">Attach</button>
+        </div></td>
+      </tr>`);
+  });
+
+  /* ---- Archive: still awaiting a count three months on ---- */
+  const abody=document.getElementById('archBody');abody.innerHTML='';
+  document.getElementById('archTable').style.display=arch.length?'table':'none';
+  archEmpty.style.display=arch.length?'none':'block';
+  arch.forEach(o=>{
+    const units=o.totals.reduce((a,t)=>a+t.q,0);
+    abody.insertAdjacentHTML('beforeend',`
+      <tr>
+        <td class="so-cell">${esc(o.so)}</td>
+        <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}</td>
+        <td>${esc(ukDate(o.date))}</td>
+        <td>${ageBadge(o).html}</td>
+        <td>${o.counted} / ${o.crates}</td>
+        <td>${units?units+' units':'<span class="nocounts">nothing counted</span>'}</td>
+        <td style="text-align:right">
+          <button class="btn small ghost" onclick="keepOpen(${o.id})">Still expected — back to Awaiting</button>
+          ${o.counted>0?`<button class="btn small ghost" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close Short</button>`:''}
+        </td>
+      </tr>`);
   });
 }
 function detailBlock(o,inv){
@@ -201,6 +276,24 @@ async function mark(id,field,value){
   toast(msgs[field]);refresh();
 }
 async function setFinalSO(id,v){await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});toast('SO number saved');refresh();}
+/* Attach the real SO to a drop-off from the No SO Yet tab. */
+async function attachSo(id,inputId){
+  const inp=document.getElementById(inputId||('nosoSo'+id));
+  const so=(inp&&inp.value||'').trim();
+  if(!so){toast('Enter the SO number');return;}
+  const r=await fetch('/api/set-so',{method:'POST',body:JSON.stringify({orderId:id,so})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(j.absorbed?`${j.so} attached — merged with the collection NetSuite had raised`:`${j.so} attached`);
+  refresh();
+}
+/* Pull an archived collection back onto Awaiting Count — it is still expected. */
+async function keepOpen(id){
+  const r=await fetch('/api/keep-open',{method:'POST',body:JSON.stringify({orderId:id})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast('Back on Awaiting Count');refresh();
+}
 
 /* ============ reports ============ */
 function parseWhen(when){
