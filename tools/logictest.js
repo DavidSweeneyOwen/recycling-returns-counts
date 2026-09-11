@@ -34,7 +34,9 @@ http.get('http://localhost:8123/api/state', r => {
     console.log('  Counted tab   :', f.counted.join(', ') || '(none)');
     console.log('  Duplicates    :', f.dupes.join(' | ') || '(none flagged)');
     const bad = [];
-    if (f.aged.length) bad.push('a kept-open order is still archived');
+    if (!f.aged.length) bad.push('the 140-day-old collection was not archived');
+    if (f.aged.some(so => state.orders.find(o => o.so === so && o.keepOpen)))
+      bad.push('a kept-open collection is still being archived');
     if (!f.noSo.includes('DROP-2026-0002')) bad.push('unmatched drop-off missing from No SO Yet');
     if (f.noSo.includes('SO824039C')) bad.push('a matched drop-off is still showing as unmatched');
     if (f.counted.length !== 3) bad.push('Counted should hold all 3 counted collections, got ' + f.counted.length);
