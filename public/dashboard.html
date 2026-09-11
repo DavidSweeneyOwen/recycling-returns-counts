@@ -142,6 +142,7 @@
       <div class="hstat"><div class="num" id="stCrates">0</div><div class="lbl">Crates awaited</div></div>
       <div class="hstat counted"><div class="num" id="stCounted">0</div><div class="lbl">Counted</div></div>
       <div class="hstat invoiced"><div class="num" id="stInv">0</div><div class="lbl">Invoiced</div></div>
+      <div class="hstat"><div class="num" id="stNoso" style="color:#ff8a73">0</div><div class="lbl">No SO yet</div></div>
       <div class="hstat"><div class="num" id="stCredit" style="color:#8ab8e8">0</div><div class="lbl">CO2 credits due</div></div>
     </div>
   </div>
@@ -152,6 +153,7 @@
     <button id="tabAwait" class="active" onclick="switchTab('await')">Awaiting Count <span class="pill" id="pillAwait">0</span></button>
     <button id="tabCounted" onclick="switchTab('counted')">Counted <span class="pill green" id="pillCounted">0</span></button>
     <button id="tabInv" onclick="switchTab('inv')">Invoiced <span class="pill blue" id="pillInv">0</span></button>
+    <button id="tabNoso" onclick="switchTab('noso')">No SO Yet <span class="pill" id="pillNoso">0</span></button>
   </nav>
 
   <div class="toolbar">
@@ -185,6 +187,19 @@
       <div class="big">Nothing invoiced yet</div>Tick "Invoiced" on a counted order and it moves here with its dates.
     </div>
   </section>
+
+  <section id="viewNoso" style="display:none">
+    <table class="inv-table" id="nosoTable" style="display:none">
+      <thead><tr>
+        <th>Customer</th><th>Counted</th><th>Counted By</th><th>Crates</th><th>Units</th>
+        <th>What was counted</th><th>Status</th><th style="width:300px">Attach the real SO</th>
+      </tr></thead>
+      <tbody id="nosoBody"></tbody>
+    </table>
+    <div class="empty" id="nosoEmpty" style="display:none">
+      <div class="big">Everything is matched to an SO</div>Collections counted before their SO was raised sit here until the real number is attached.
+    </div>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -210,9 +225,12 @@ function ageBadge(o){
 }
 function lastCountDate(o){return o.counts.length?o.counts[o.counts.length-1].when.split(',')[0]:'';}
 function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
+/* Counted without an SO — the placeholder ref, not o.source, so an order stops
+   showing as unmatched the moment the real SO is attached. */
+function noSo(o){return String(o.so||'').startsWith('MANUAL-');}
 
 function switchTab(t){
-  const map={await:'Await',counted:'Counted',inv:'Inv'};
+  const map={await:'Await',counted:'Counted',inv:'Inv',noso:'Noso'};
   Object.entries(map).forEach(([k,v])=>{
     document.getElementById('view'+v).style.display=k===t?'block':'none';
     document.getElementById('tab'+v).classList.toggle('active',k===t);
@@ -233,15 +251,21 @@ function render(){
   const awaitAll=STATE.orders.filter(o=>o.status==='open');
   const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);
   const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
+  /* Every order still on a placeholder ref, whatever stage it's reached — oldest first,
+     because the longest-unmatched ones are the ones holding up invoicing. */
+  const nosoAll=STATE.orders.filter(noSo).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
   const counted=countedAll.filter(o=>matchesFilter(o,f));
   const inv=invAll.filter(o=>matchesFilter(o,f));
+  const noso=nosoAll.filter(o=>matchesFilter(o,f));
 
   stAwait.textContent=awaitAll.length;
   stCrates.textContent=awaitAll.reduce((a,o)=>a+(o.crates-o.counted),0);
   stCounted.textContent=countedAll.length;
   stInv.textContent=invAll.length;
+  stNoso.textContent=nosoAll.length;
   pillAwait.textContent=awaitAll.length;pillCounted.textContent=countedAll.length;pillInv.textContent=invAll.length;
+  pillNoso.textContent=nosoAll.length;
   stCredit.textContent=STATE.orders.filter(o=>o.status==='done'&&o.co2>0&&!o.creditAt).length;
 
   const ls=STATE.lastSync;
@@ -262,9 +286,9 @@ function render(){
       <div class="so-card age-${age.cls}">
         <div class="so-top">
           <div>
-            <div class="so-num">${o.source==='manual'?'<span class="status-tag awaiting" style="margin-right:6px">No SO yet</span>':esc(o.so)}</div>
+            <div class="so-num">${noSo(o)?'<span class="status-tag awaiting" style="margin-right:6px">No SO yet</span>':esc(o.so)}</div>
             <div class="so-cust">${esc(o.cust)}</div>
-            ${o.source==='manual'?`<div style="display:flex;gap:6px;margin-top:6px">
+            ${noSo(o)?`<div style="display:flex;gap:6px;margin-top:6px">
               <input id="attachSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:6px 8px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12px" onkeydown="if(event.key==='Enter')attachSo(${o.id})">
               <button class="btn small" onclick="attachSo(${o.id})">Attach SO</button>
             </div>`:''}
@@ -295,9 +319,9 @@ function render(){
         <div class="comp-head" onclick="toggleCard(${o.id})">
           <span class="chev">&#9656;</span>
           <div>
-            <div class="so-num">${o.source==='manual'?'<span class="status-tag awaiting" style="margin-right:6px">No SO yet</span>':esc(o.so)}</div>
+            <div class="so-num">${noSo(o)?'<span class="status-tag awaiting" style="margin-right:6px">No SO yet</span>':esc(o.so)}</div>
             <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
-            ${o.source==='manual'?`<div style="display:flex;gap:6px;margin-top:6px" onclick="event.stopPropagation()">
+            ${noSo(o)?`<div style="display:flex;gap:6px;margin-top:6px" onclick="event.stopPropagation()">
               <input id="attachSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:6px 8px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12px" onkeydown="if(event.key==='Enter')attachSo(${o.id})">
               <button class="btn small" onclick="attachSo(${o.id})">Attach SO</button>
             </div>`:''}
@@ -350,6 +374,34 @@ function render(){
       </tr>
       <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="10">${detailBlock(o,true)}</td></tr>`);
   });
+
+  /* ---- no SO yet: the matching-up queue ---- */
+  const nbody=document.getElementById('nosoBody');nbody.innerHTML='';
+  document.getElementById('nosoTable').style.display=noso.length?'table':'none';
+  nosoEmpty.style.display=noso.length?'none':'block';
+  noso.forEach(o=>{
+    const units=o.totals.reduce((a,t)=>a+t.q,0);
+    const what=o.totals.length?o.totals.map(t=>esc(t.p)+' &times;'+t.q).join(', ')
+      :'<span class="nocounts">nothing counted yet</span>';
+    const status=o.status==='open'
+      ? `<span class="status-tag partial">Counting — ${o.counted} of ${o.crates}</span>`
+      : `<span class="status-tag complete">Counted${o.invoicedAt?' &middot; invoiced':''}</span>`;
+    const age=ageBadge(o);
+    nbody.insertAdjacentHTML('beforeend',`
+      <tr>
+        <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}</td>
+        <td>${esc(lastCountDate(o)||ukDate(o.date))}<br>${age.html}</td>
+        <td>${esc(counterNames(o)||o.by||'—')}</td>
+        <td>${o.counted} / ${o.crates}</td>
+        <td>${units}</td>
+        <td style="font-size:11.5px;white-space:normal;max-width:300px">${what}</td>
+        <td>${status}</td>
+        <td><div style="display:flex;gap:6px">
+          <input id="nosoSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
+          <button class="btn small" onclick="attachSo(${o.id},'nosoSo${o.id}')">Attach</button>
+        </div></td>
+      </tr>`);
+  });
 }
 function detailBlock(o,inv){
   return `
@@ -395,14 +447,15 @@ async function setFinalSO(id,v){
   await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});
   toast('SO number saved');refresh();
 }
-async function attachSo(id){
-  const inp=document.getElementById('attachSo'+id);
+async function attachSo(id,inputId){
+  const inp=document.getElementById(inputId||('attachSo'+id));
   const so=inp.value.trim();
   if(!so){toast('Enter the SO number');return;}
   const r=await fetch('/api/set-so',{method:'POST',body:JSON.stringify({orderId:id,so})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
-  toast(`${j.so} attached`);refresh();
+  toast(j.absorbed?`${j.so} attached — merged with the collection NetSuite had raised`:`${j.so} attached`);
+  refresh();
 }
 refresh();
 setInterval(refresh,30000);

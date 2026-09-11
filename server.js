@@ -539,10 +539,22 @@ const server = http.createServer((req, res) => {
         const norm = normaliseSO(so);
         if (!norm) return json(res, 400, { error: 'Enter an SO number' });
         const clash = db.orders.find(x => x.so === norm && x.id !== o.id);
-        if (clash) return json(res, 400, { error: `${norm} is already used by another order` });
+        let absorbed = false;
+        if (clash) {
+          /* Normal case: the collection was counted before NetSuite raised the SO,
+             so a later sync has pulled that SO in as its own empty order. Absorb it
+             rather than blocking the match — but only ever an untouched open order. */
+          if (clash.status !== 'open' || countedCrates(clash) > 0)
+            return json(res, 400, { error: `${norm} already has counts against it — check the number` });
+          o.cust = clash.cust; o.date = clash.date; o.by = clash.by;   // NetSuite owns the header
+          if (o.status === 'open') o.crates = Math.max(clash.crates, countedCrates(o) || 1);
+          db.orders.splice(db.orders.indexOf(clash), 1);
+          absorbed = true;
+        }
         o.so = norm;
+        o.matchedAt = nowStamp().split(',')[0];
         saveDb();
-        json(res, 200, { ok: true, so: norm });
+        json(res, 200, { ok: true, so: norm, absorbed });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
