@@ -111,11 +111,13 @@
       <input id="soInput" class="big-in" placeholder="e.g. SO824039" autocomplete="off"
         onkeydown="if(event.key==='Enter')findOrder()">
       <button class="btn block" onclick="findOrder()">Find Collection</button>
+      <button class="btn secondary block" onclick="showManual()">No SO number? Count it anyway</button>
       <div class="err" id="findErr"></div>
       <p class="find-hint">Type the Sales Order number from the paperwork that came with the crate.
-      The C is added automatically. Counting is only possible against a live collection — if it doesn't match, check the number and try again.</p>
+      The C is added automatically. Some customers — Chubb, for one — don't come in on an SO at all:
+      use <b>No SO number? Count it anyway</b> and the office attaches the real number later.</p>
       <div id="manualFallback" style="display:none;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line-dark)">
-        <p class="find-hint" style="margin-top:0">Still not showing up? You can count it anyway — the office will attach the real SO number once it's raised.</p>
+        <p class="find-hint" style="margin-top:0">Count it now — the office will attach the real SO number once it's raised.</p>
         <label>Customer name</label>
         <input id="manualCust" placeholder="e.g. Chubb" autocomplete="off">
         <label>How many cages / pallet boxes are in this delivery?</label>
@@ -206,7 +208,12 @@ async function findOrder(){
   document.getElementById('matchCard').style.display='none';
   document.getElementById('manualFallback').style.display='none';
   const number=document.getElementById('soInput').value.trim();
-  if(!number){err.textContent='Enter the collection number from the paperwork';err.style.display='block';return;}
+  if(!number){
+    /* No number to type usually means there is no SO — offer the fallback rather
+       than a dead end asking for something the paperwork doesn't have. */
+    err.textContent='Enter the collection number, or use "No SO number? Count it anyway" below';
+    err.style.display='block';showManual();return;
+  }
   const r=await fetch('/api/find-order',{method:'POST',body:JSON.stringify({number})});
   const j=await r.json();
   if(!j.ok){
@@ -232,6 +239,12 @@ function groupsFromProducts(){
 }
 const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
 
+function showManual(){
+  const box=document.getElementById('manualFallback');
+  box.style.display='block';
+  box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  setTimeout(()=>document.getElementById('manualCust').focus(),250);
+}
 async function startManual(){
   const err=document.getElementById('findErr');
   const cust=document.getElementById('manualCust').value.trim();
