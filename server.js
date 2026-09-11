@@ -31,14 +31,29 @@ const LOGO_B64 = fs.existsSync(path.join(__dirname, 'assets', 'logo.jpg'))
   ? fs.readFileSync(path.join(__dirname, 'assets', 'logo.jpg')).toString('base64') : '';
 
 /* ---------------- storage ---------------- */
-let db = loadDb();
+/* Starts EMPTY on purpose. Reading the file on disk here is what made the 11/09
+   wipe invisible: the app served a stale snapshot that looked plausible while the
+   real store was unreachable. db is only ever filled from a confirmed source.
+   Nothing may be written until we know for certain where the live data came from.
+   On 11/09/2026 a restart took a transient GitHub read failure, silently fell back
+   to the stale data.json baked into the code repo, ran the NetSuite sync on top and
+   pushed the result over the real file — every counted collection and drop-off of
+   the day was replaced. Read failure and "first ever run" must never look alike
+   again, and a store we could not read is never a store we are allowed to write. */
+let STORE = { ready: false, state: 'starting', source: 'starting', error: null };
+let db = { orders: [], seq: 0, wtnSeq: {}, lastSync: null };
 function loadDb() {
   try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
   catch (e) { return { orders: [], seq: 0, wtnSeq: {}, lastSync: null }; }
 }
 function saveDb() {
+  if (!STORE.ready) {
+    console.error('[store] REFUSING TO SAVE — data source is', STORE.source, STORE.error || '');
+    return false;
+  }
   fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
   if (GH_REPO && GH_TOKEN) { clearTimeout(ghTimer); ghTimer = setTimeout(ghPush, 2500); }
+  return true;
 }
 
 /* ---------------- GitHub-backed persistence (free hosting) ----------------
@@ -68,13 +83,15 @@ async function ghApi(method, url, body) {
   });
   return { status: r.status, json: await r.json().catch(() => null) };
 }
+/* Returns {status, data}. A 404 is a genuine first run; every other failure is a
+   read failure and must NOT be mistaken for an empty store. */
 async function ghLoad() {
   const r = await ghApi('GET', `/repos/${GH_REPO}/contents/data.json?ref=${GH_BRANCH}`);
   if (r.status === 200 && r.json && r.json.content) {
     ghSha = r.json.sha;
-    return JSON.parse(Buffer.from(r.json.content, 'base64').toString('utf8'));
+    return { status: 200, data: JSON.parse(Buffer.from(r.json.content, 'base64').toString('utf8')) };
   }
-  return null;
+  return { status: r.status, data: null };
 }
 async function ghPush() {
   if (ghBusy) { ghDirty = true; return; }
@@ -94,12 +111,43 @@ async function ghPush() {
   ghBusy = false;
   if (ghDirty) setTimeout(ghPush, 3000);
 }
-if (GH_REPO && GH_TOKEN) {
-  ghLoad().then(remote => {
-    if (remote) { db = remote; console.log('[github-store] data.json loaded from', GH_REPO); }
-    else console.log('[github-store] no data.json in', GH_REPO, 'yet — it will be created on first save');
-  }).catch(e => console.error('[github-store] load failed:', e.message));
+/* Retry a few times before giving up — a single blip must not cost us the store.
+   Only a confirmed 404 (no data.json in the repo at all) counts as a first run. */
+async function openStore() {
+  if (!GH_REPO || !GH_TOKEN) {
+    db = loadDb();                       // no remote store configured — the file IS the store
+    STORE = { ready: true, state: 'ready', source: 'local file (' + DATA_FILE + ')', error: null };
+    console.log('[store] local file only — no GH_DATA_REPO/GH_TOKEN set');
+    return startSync();
+  }
+  let last = null;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const r = await ghLoad();
+      if (r.status === 200) {
+        db = r.data;
+        STORE = { ready: true, state: 'ready', source: GH_REPO, error: null };
+        console.log('[store] loaded', (db.orders || []).length, 'orders from', GH_REPO);
+        return startSync();
+      }
+      if (r.status === 404) {
+        STORE = { ready: true, state: 'ready', source: GH_REPO + ' (new, empty)', error: null };
+        console.log('[store] no data.json in', GH_REPO, 'yet — it will be created on first save');
+        return startSync();
+      }
+      last = 'HTTP ' + r.status;
+    } catch (e) { last = e.message; }
+    console.error('[store] read attempt', attempt, 'failed:', last);
+    await new Promise(s => setTimeout(s, attempt * 2000));
+  }
+  /* Could not read the store. Stay up so the dashboard can explain itself, but do
+     not sync and do not write — the live data is still safe in the repo. */
+  db = { orders: [], seq: 0, wtnSeq: {}, lastSync: null };
+  STORE = { ready: false, state: 'failed', source: GH_REPO, error: 'could not read data.json (' + last + ')' };
+  console.error('[store] READ-ONLY — ' + STORE.error + '. No sync, no writes, live data untouched.');
 }
+/* Called once the whole module has evaluated — startSync() and its state live below. */
+setImmediate(openStore);
 
 /* ---------------- helpers ---------------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -265,10 +313,16 @@ if (SELF_URL) {
   }, 10 * 60 * 1000);
 }
 
-if (CONFIG.netsuite.autoSyncMinutes > 0) {
-  setInterval(() => syncFromNetSuite(() => {}), CONFIG.netsuite.autoSyncMinutes * 60 * 1000);
-  // sync shortly after startup too
-  setTimeout(() => syncFromNetSuite(() => {}), 5000);
+/* Called only once openStore() knows where the live data came from. The sync writes
+   to the store, so it must never run on a guess. */
+let syncStarted = false;
+function startSync() {
+  if (syncStarted || !STORE.ready) return;
+  syncStarted = true;
+  if (CONFIG.netsuite.autoSyncMinutes > 0) {
+    setInterval(() => syncFromNetSuite(() => {}), CONFIG.netsuite.autoSyncMinutes * 60 * 1000);
+    setTimeout(() => syncFromNetSuite(() => {}), 5000);   // and shortly after startup
+  }
 }
 
 /* ---------------- counting / completion ---------------- */
@@ -472,11 +526,17 @@ const server = http.createServer((req, res) => {
     return json(res, 200, {
       orders: db.orders.map(o => ({ ...o, counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
       lastSync: db.lastSync,
+      store: STORE,                 // the dashboard warns loudly if this is not ready
       products: CONFIG.products,
       maxCrates: CONFIG.maxCrates,
       monthlyCustomers: CONFIG.monthlyCustomers || [],
       apiEnabled: CONFIG.netsuite.api.enabled
     });
+  }
+  /* If we could not read the live data, refuse every write — including counts from
+     the tablet — and say so, rather than accepting work that will never be saved. */
+  if (req.method === 'POST' && p.startsWith('/api/') && !STORE.ready) {
+    return json(res, 503, { error: 'The recycling data store is unavailable — counts cannot be saved right now. Tell the office before counting anything else.' });
   }
   if (req.method === 'POST' && p === '/api/find-order') {
     return readBody(req, body => {

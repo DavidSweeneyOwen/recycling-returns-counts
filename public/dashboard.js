@@ -102,6 +102,21 @@ function renderOrders(){
   stDrop.textContent=nosoAll.length;   // drop-offs still waiting on an SO from the office
   stMonthly.textContent=STATE.orders.filter(o=>monthlyInfo(o)&&!o.invoicedAt).length;
 
+  /* If the server could not read the live data store it is running read-only.
+     Say so in the loudest place on the page rather than showing an empty dashboard
+     that looks like the day's work has vanished. */
+  const st=STATE.store||{},warn=document.getElementById('storeWarn');
+  if(st.ready){warn.style.display='none';}
+  else if(st.state==='starting'){
+    warn.style.display='block';warn.style.background='var(--amber)';
+    warn.textContent='Connecting to the data store — the figures below are not live yet.';
+  }else{
+    warn.style.display='block';warn.style.background='var(--red)';
+    warn.innerHTML='Data store unavailable — this dashboard is READ-ONLY and the figures below are NOT the live data. '
+      +'Nothing is being saved and the Rec team cannot count. '+esc(st.error||'')
+      +'<br>The live data is safe in the store; the app will pick it up on the next restart.';
+  }
+
   const ls=STATE.lastSync;
   document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
   document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
