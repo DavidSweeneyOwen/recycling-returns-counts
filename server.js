@@ -83,15 +83,37 @@ async function ghApi(method, url, body) {
   });
   return { status: r.status, json: await r.json().catch(() => null) };
 }
+/* Raw fetch — the only way to read a blob larger than the contents API will inline. */
+async function ghRawBlob(sha) {
+  const r = await fetch(`${GH_API}/repos/${GH_REPO}/git/blobs/${sha}`, {
+    headers: { 'Authorization': 'Bearer ' + GH_TOKEN, 'User-Agent': 'recycling-returns',
+               'Accept': 'application/vnd.github.raw' }
+  });
+  return { status: r.status, text: r.ok ? await r.text() : null };
+}
 /* Returns {status, data}. A 404 is a genuine first run; every other failure is a
-   read failure and must NOT be mistaken for an empty store. */
+   read failure and must NOT be mistaken for an empty store.
+
+   The contents API only inlines `content` for files up to 1,048,576 bytes. Past
+   that it still returns the metadata but with content empty — which the old code
+   read as "no data.json yet". data.json crossed 1MB at 08:56 on 11/09/2026 and the
+   next restart wiped the store. Over the limit we fetch the blob raw instead. */
 async function ghLoad() {
-  const r = await ghApi('GET', `/repos/${GH_REPO}/contents/data.json?ref=${GH_BRANCH}`);
-  if (r.status === 200 && r.json && r.json.content) {
-    ghSha = r.json.sha;
-    return { status: 200, data: JSON.parse(Buffer.from(r.json.content, 'base64').toString('utf8')) };
+  const meta = await ghApi('GET', `/repos/${GH_REPO}/contents/data.json?ref=${GH_BRANCH}`);
+  if (meta.status !== 200 || !meta.json || !meta.json.sha) return { status: meta.status, data: null };
+  ghSha = meta.json.sha;
+  let text = null;
+  if (meta.json.content && meta.json.encoding === 'base64') {
+    text = Buffer.from(meta.json.content, 'base64').toString('utf8');
+  } else {
+    const blob = await ghRawBlob(ghSha);
+    if (blob.status !== 200 || !blob.text) return { status: blob.status || 502, data: null };
+    text = blob.text;
+    console.log('[store] data.json is', text.length, 'bytes — read as a raw blob (over the inline limit)');
   }
-  return { status: r.status, data: null };
+  const data = JSON.parse(text);
+  if (!data || !Array.isArray(data.orders)) return { status: 502, data: null };   // never accept a shapeless store
+  return { status: 200, data };
 }
 async function ghPush() {
   if (ghBusy) { ghDirty = true; return; }
@@ -124,7 +146,7 @@ async function openStore() {
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       const r = await ghLoad();
-      if (r.status === 200) {
+      if (r.status === 200 && r.data) {          // 200 without data is a failure, not an empty store
         db = r.data;
         STORE = { ready: true, state: 'ready', source: GH_REPO, error: null };
         console.log('[store] loaded', (db.orders || []).length, 'orders from', GH_REPO);
