@@ -232,6 +232,11 @@
       "code": "CLY0821",
       "name": "Clymac Limited",
       "match": "clymac"
+    },
+    {
+      "code": "",
+      "name": "Jacobs Douwe Egberts",
+      "match": "douwe"
     }
   ]
 }

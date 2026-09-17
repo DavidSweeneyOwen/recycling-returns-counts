@@ -48,7 +48,7 @@ function counterNames(o){return [...new Set(o.counts.map(c=>c.by))].join(', ');}
 function matchesFilter(o,f){if(!f)return true;return o.so.toLowerCase().includes(f)||o.cust.toLowerCase().includes(f);}
 /* A drop-off still on its DROP- placeholder — the office hasn't attached the real
    SO yet. Keyed off the reference, not o.source, so it clears the moment one is. */
-function noSo(o){return /^DROP-/.test(String(o.so||''))&&!o.noSoExpected;}
+function noSo(o){return /^(DROP|MANUAL)-/.test(String(o.so||''))&&!o.noSoExpected;}
 /* Every open, un-WTN'd drop-off for the same customer — one collection as far as
    the WTN, sales order and invoice are concerned. */
 function openDropSiblings(o){
@@ -57,6 +57,18 @@ function openDropSiblings(o){
   if(!k)return [];
   return STATE.orders.filter(x=>x.dropOff&&x.status==='open'&&!x.wtn&&String(x.cust||'').trim().toLowerCase()===k)
     .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||a.id-b.id);   // oldest first, same as the server merges
+}
+/* A monthly customer gets ONE sales order a month, so every un-invoiced collection
+   of theirs in the same calendar month belongs together. Returns them oldest first,
+   with the one already carrying a real SO (if any) identified as the target. */
+function monthlySiblings(o){
+  if(!STATE)return [];
+  const m=monthlyInfo(o);if(!m)return [];
+  const key=m.code||m.name, month=String(o.date||'').slice(0,7);
+  if(!/^\d{4}-\d{2}$/.test(month))return [];
+  return STATE.orders.filter(x=>!x.invoicedAt&&String(x.date||'').slice(0,7)===month
+      &&(()=>{const mi=monthlyInfo(x);return mi&&(mi.code||mi.name)===key;})())
+    .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||a.id-b.id);
 }
 const AGED_DAYS=90;   // three months on Awaiting Count and it archives itself
 function isAged(o){return o.status==='open'&&!o.keepOpen&&ageDays(o.date)>AGED_DAYS;}
@@ -100,7 +112,12 @@ function renderOrders(){
   pillNoso.textContent=nosoAll.length;pillArch.textContent=archAll.length;
   stCredit.textContent=STATE.orders.filter(o=>o.status==='done'&&o.co2>0&&!o.creditAt).length;
   stDrop.textContent=nosoAll.length;   // drop-offs still waiting on an SO from the office
-  stMonthly.textContent=STATE.orders.filter(o=>monthlyInfo(o)&&!o.invoicedAt).length;
+  /* Monthly ACCOUNTS — distinct customers on the monthly list with uninvoiced work,
+     keyed on the account code so two spellings of the same account (e.g. "Firemark"
+     and "Firemark Limited", or the MARL01 / "DO NOT USE" Mitie pair) count once.
+     This used to count ORDERS, which is why it read 579 against a 6-account list. */
+  stMonthly.textContent=new Set(STATE.orders.filter(o=>!o.invoicedAt).map(monthlyInfo)
+    .filter(Boolean).map(m=>m.code||m.name)).size;
 
   /* If the server could not read the live data store it is running read-only.
      Say so in the loudest place on the page rather than showing an empty dashboard
@@ -128,7 +145,7 @@ function renderOrders(){
     const mInfo=monthlyInfo(o);
     const tag=(rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>')
       +(o.dropOff?' <span class="status-tag drop">Dropped off by customer</span>':'')
-      +(mInfo?' <span class="status-tag monthly">MONTHLY • '+esc(mInfo.code)+'</span>':'');
+      +(mInfo?' <span class="status-tag monthly">MONTHLY • '+esc(mInfo.code||mInfo.name)+'</span>':'');
     const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
     const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
       :'<div class="nocounts">No crates counted yet</div>';
@@ -178,7 +195,7 @@ function renderOrders(){
           </div>
           <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
           ${o.dropOff?'<span class="status-tag drop">Dropped off by customer</span>':''}
-          ${mInfo?`<span class="status-tag monthly">MONTHLY • ${esc(mInfo.code)}</span>`:''}
+          ${mInfo?`<span class="status-tag monthly">MONTHLY • ${esc(mInfo.code||mInfo.name)}</span>`:''}
           ${o.amended?`<span class="status-tag amended" title="${esc(o.amendments&&o.amendments.length?o.amendments[o.amendments.length-1].reason:'')}">Amended — resend WTN</span>`:''}
           ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
           ${o.co2>0?`<span class="status-tag co2">CO2 buy-back — ${o.co2} unit${o.co2===1?'':'s'}</span>`:''}
@@ -251,6 +268,9 @@ function renderOrders(){
           <input id="nosoSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
           <button class="btn small" onclick="attachSo(${o.id},'nosoSo${o.id}')">Attach</button>
         </div>
+        ${(()=>{const sibs=monthlySiblings(o);if(sibs.length<2)return '';
+          const tgt=sibs.find(x=>!/^(DROP|MANUAL)-/.test(String(x.so||'')));
+          return `<button class="btn small" style="margin-top:6px;width:100%" onclick="monthlyMerge(${o.id})" title="Monthly customer — fold this month's collections onto one sales order">Consolidate ${esc(String(o.date||'').slice(0,7))} — ${sibs.length} collections${tgt?' onto '+esc(tgt.so):''}</button>`;})()}
         <button class="btn small ghost" style="margin-top:6px;width:100%" onclick="noSoExpected(${o.id})" title="This customer only ever drops off — take it off this queue and remember them">No SO expected — drop-off customer</button></td>
       </tr>`);
   });
@@ -330,6 +350,26 @@ async function mergeDrops(id){
   if(j.error){toast(j.error);return;}
   toast(j.completed?`Merged into ${j.into} — ${j.crates} crates, complete, ${j.wtn} issued`
                    :`Merged ${j.merged+1} drop-offs into ${j.into} — ${j.crates} crates`);
+  refresh();
+}
+/* Monthly customer — fold a whole month's collections onto that month's sales order.
+   Crates sum, counts are re-sequenced, and any WTNs already issued are kept on the
+   record rather than discarded. */
+async function monthlyMerge(id){
+  const o=STATE.orders.find(x=>x.id===id)||{};
+  const sibs=monthlySiblings(o), month=String(o.date||'').slice(0,7);
+  const tgt=sibs.find(x=>!/^(DROP|MANUAL)-/.test(String(x.so||'')));
+  const crates=sibs.reduce((a,x)=>a+(x.counted||0),0);
+  const wtns=sibs.filter(x=>x.wtn&&x.id!==(tgt||{}).id).map(x=>x.wtn);
+  if(!confirm(`Consolidate ${sibs.length} ${o.cust} collections from ${month} into one`
+    +`${tgt?' on '+tgt.so:''}?\n\n${crates} crate(s) counted across the month.`
+    +(wtns.length?`\n\n${wtns.length} waste transfer note(s) already issued (${wtns.join(', ')}) will be recorded against the consolidated collection.`:'')
+    +`\n\nThis cannot be undone.`))return;
+  const r=await fetch('/api/monthly-merge',{method:'POST',body:JSON.stringify({orderId:id})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(`${j.account} ${j.month} consolidated onto ${j.into} — ${j.folded+1} collections, ${j.counted}/${j.crates} crates`
+    +(j.completed?`, complete`:''));
   refresh();
 }
 /* This customer only ever drops off — no SO is ever raised, so take the collection

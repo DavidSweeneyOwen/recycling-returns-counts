@@ -211,6 +211,24 @@ function co2Units(o) {
   }));
   return n;
 }
+/* A reference the Rec team's app minted because no SO was on the tablet — DROP- from
+   the drop-off route, MANUAL- from the older counter fallback. Both mean "not a real
+   sales order yet". */
+function isPlaceholderRef(so) { return /^(DROP|MANUAL)-/.test(String(so || '')); }
+/* The monthly-customer entry a customer name belongs to, matched the same way the
+   dashboard matches it so the two never disagree. */
+function monthlyAccount(cust) {
+  const c = String(cust || '').toLowerCase();
+  if (!c) return null;
+  return (CONFIG.monthlyCustomers || []).find(m => {
+    const k = String(m.match || m.name || '').toLowerCase();
+    return k && c.includes(k);
+  }) || null;
+}
+function sameMonthlyAccount(cust, acct) {
+  const m = monthlyAccount(cust);
+  return !!m && (m.code || m.name) === (acct.code || acct.name);
+}
 function nextWTN() {
   const yr = String(new Date().getFullYear());
   db.wtnSeq[yr] = (db.wtnSeq[yr] || 0) + 1;
@@ -723,6 +741,68 @@ const server = http.createServer((req, res) => {
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
+  /* Monthly customers (config.monthlyCustomers) get ONE sales order a month covering
+     every collection in that month. This folds a month's collections for one monthly
+     account onto that month's SO: crates sum, counts are re-sequenced, and any waste
+     transfer notes already issued against the folded collections are kept on the
+     record — a WTN is a legal document and is never thrown away. */
+  if (req.method === 'POST' && p === '/api/monthly-merge') {
+    return readBody(req, body => {
+      try {
+        const { orderId } = JSON.parse(body);
+        const target = db.orders.find(x => x.id === Number(orderId));
+        if (!target) return json(res, 404, { error: 'Order not found' });
+        const acct = monthlyAccount(target.cust);
+        if (!acct) return json(res, 400, { error: `${target.cust || 'That customer'} is not on the monthly customer list` });
+        const month = String(target.date || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(month)) return json(res, 400, { error: 'That collection has no usable date' });
+
+        const group = db.orders.filter(o => !o.invoicedAt
+          && String(o.date || '').slice(0, 7) === month
+          && sameMonthlyAccount(o.cust, acct));
+        if (group.length < 2) return json(res, 400, { error: `Only one ${acct.name} collection in ${month} — nothing to consolidate` });
+
+        /* The month's SO is whichever record already carries a real reference. More
+           than one means the month has been split across SOs already — that needs a
+           human, not a guess. */
+        const withSo = group.filter(o => !isPlaceholderRef(o.so));
+        if (withSo.length > 1)
+          return json(res, 400, { error: `${acct.name} has ${withSo.length} sales orders in ${month} (${withSo.map(o => o.so).join(', ')}) — monthly customers take one, so fix that first` });
+
+        const keep = withSo[0] || group.slice().sort((a, b) =>
+          String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id)[0];
+        const rest = group.filter(o => o.id !== keep.id);
+        const folded = [], keptWtns = [];
+        rest.forEach(o => {
+          let at = countedCrates(keep);
+          (o.counts || []).forEach(c => {
+            const n = c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1;
+            keep.counts.push(Object.assign({}, c, { crateFrom: at + 1, crateTo: at + n }));
+            at += n;
+          });
+          if (!keep.collectionAddress && o.collectionAddress) keep.collectionAddress = o.collectionAddress;
+          if (o.wtn) keptWtns.push(o.wtn);
+          folded.push(o.dropRef || o.so);
+          db.orders.splice(db.orders.indexOf(o), 1);
+        });
+        /* Crates on a monthly SO are what actually came in over the month, not the one
+           line NetSuite billed — the app is the record of receipt until the API lands. */
+        keep.crates = Math.max(countedCrates(keep), keep.crates || 0);
+        keep.mergedFrom = (keep.mergedFrom || []).concat(folded);
+        keep.mergedWtns = (keep.mergedWtns || []).concat(keptWtns);
+        keep.mergedAt = nowStamp().split(',')[0];
+        keep.monthlyMonth = month;
+        if (countedCrates(keep) >= keep.crates) {
+          keep.status = 'done';
+          if (!keep.wtn) keep.wtn = nextWTN();
+        }
+        saveDb();
+        json(res, 200, { ok: true, into: keep.so, account: acct.name, month,
+          folded: folded.length, crates: keep.crates, counted: countedCrates(keep),
+          keptWtns, completed: keep.status === 'done', wtn: keep.wtn });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
   /* Mark a collection as never going to get an SO — customers who only ever drop
      off. It leaves the No SO Yet queue, and the customer is remembered so their
      future drop-offs skip the queue on arrival. */
@@ -776,8 +856,17 @@ const server = http.createServer((req, res) => {
              blocking the match — but only ever an untouched open order. */
           if (clash.status !== 'open' || countedCrates(clash) > 0)
             return json(res, 400, { error: `${norm} already has counts against it — check the number` });
-          o.cust = clash.cust; o.date = clash.date; o.by = clash.by;   // NetSuite owns the header
-          if (o.status === 'open') o.crates = Math.max(clash.crates, countedCrates(o) || 1);
+          /* Guard: a collection that is already closed and WTN'd cannot take on a bigger
+             SO — its crate count is frozen, so attaching it would silently shrink the SO
+             and strand the other crates with nowhere to go. Merge first, then match. */
+          if (o.wtn && clash.crates > (countedCrates(o) || 0))
+            return json(res, 400, { error: `${norm} is a ${clash.crates}-crate order but this collection is closed with ${countedCrates(o) || 0} crate(s) counted — merge the other crates into it before matching` });
+          o.cust = clash.cust; o.by = clash.by;        // NetSuite owns the customer and raiser
+          o.soDate = clash.date;                        // keep the SO's own date for reference
+          /* Do NOT overwrite o.date when crates have already been counted: that is the date
+             the collection was physically counted, and month-end reporting runs off it. */
+          if (!countedCrates(o)) o.date = clash.date;
+          o.crates = Math.max(clash.crates, countedCrates(o) || 1, o.crates || 1);
           db.orders.splice(db.orders.indexOf(clash), 1);
           absorbed = true;
         }
