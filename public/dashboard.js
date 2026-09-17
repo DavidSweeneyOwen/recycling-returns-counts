@@ -256,6 +256,7 @@ function renderOrders(){
       : `<span class="status-tag complete">Counted${o.invoicedAt?' &middot; invoiced':''}</span>`;
     nbody.insertAdjacentHTML('beforeend',`
       <tr${dup?' style="background:var(--amber-soft)"':''}>
+        <td><input type="checkbox" class="nosoPick" value="${o.id}" ${nosoPicks.has(o.id)?'checked':''} onchange="toggleNosoPick(${o.id},this.checked)" style="width:17px;height:17px"></td>
         <td class="so-cell">${esc(o.so)}</td>
         <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}
           ${dup?`<br><span class="status-tag short" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(dup.so)}</span>`:''}</td>
@@ -274,6 +275,9 @@ function renderOrders(){
         <button class="btn small ghost" style="margin-top:6px;width:100%" onclick="noSoExpected(${o.id})" title="This customer only ever drops off — take it off this queue and remember them">No SO expected — drop-off customer</button></td>
       </tr>`);
   });
+  /* rows the office had ticked may have just been folded away — drop them, then repaint */
+  [...nosoPicks].forEach(id=>{ if(!noso.some(o=>o.id===id)) nosoPicks.delete(id); });
+  paintNosoPicks();
 
   /* ---- Archive: still awaiting a count three months on ---- */
   const abody=document.getElementById('archBody');abody.innerHTML='';
@@ -350,6 +354,47 @@ async function mergeDrops(id){
   if(j.error){toast(j.error);return;}
   toast(j.completed?`Merged into ${j.into} — ${j.crates} crates, complete, ${j.wtn} issued`
                    :`Merged ${j.merged+1} drop-offs into ${j.into} — ${j.crates} crates`);
+  refresh();
+}
+/* ---- Ticking collections that are really one delivery ----
+   The Rec team raise a fresh drop-off per crate, so one collection arrives as five or
+   six rows under five or six spellings of the customer. Nothing can group those safely
+   by name, so the office ticks them and the server folds exactly those. */
+const nosoPicks=new Set();
+function toggleNosoPick(id,on){on?nosoPicks.add(id):nosoPicks.delete(id);paintNosoPicks();}
+function clearNosoPicks(){nosoPicks.clear();document.querySelectorAll('.nosoPick').forEach(c=>c.checked=false);paintNosoPicks();}
+function paintNosoPicks(){
+  const bar=document.getElementById('nosoPickBar');if(!bar)return;
+  const picked=[...nosoPicks].map(id=>(STATE.orders||[]).find(o=>o.id===id)).filter(Boolean);
+  if(picked.length<2){bar.style.display='none';return;}
+  bar.style.display='flex';
+  const keeper=nosoKeeper(picked);
+  const crates=picked.reduce((a,o)=>a+(o.counted||0),0);
+  const units=picked.reduce((a,o)=>a+o.totals.reduce((s,t)=>s+t.q,0),0);
+  document.getElementById('nosoPickMsg').textContent=
+    `${picked.length} collections ticked — ${crates} crate(s), ${units} units, keeping ${keeper.so}`;
+}
+/* The keeper is whichever ticked row already carries a real SO; failing that the
+   oldest, so the collection date stays the earliest of the set. */
+function nosoKeeper(picked){
+  return picked.find(o=>!/^(DROP|MANUAL)-/.test(String(o.so||'')))
+      || picked.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||a.id-b.id)[0];
+}
+async function consolidatePicked(){
+  const picked=[...nosoPicks].map(id=>STATE.orders.find(o=>o.id===id)).filter(Boolean);
+  if(picked.length<2){toast('Tick at least two collections');return;}
+  const keeper=nosoKeeper(picked), sources=picked.filter(o=>o.id!==keeper.id);
+  const wtns=sources.filter(o=>o.wtn).map(o=>o.wtn);
+  const crates=picked.reduce((a,o)=>a+(o.counted||0),0);
+  if(!confirm(`Fold ${sources.length} collection(s) into ${keeper.so} (${keeper.cust})?\n\n`
+    +`${crates} crate(s) counted in total.`
+    +(wtns.length?`\n\n${wtns.length} waste transfer note(s) already issued (${wtns.join(', ')}) will be recorded against the result.`:'')
+    +`\n\nThis cannot be undone.`))return;
+  const r=await fetch('/api/consolidate',{method:'POST',body:JSON.stringify({targetId:keeper.id,sourceIds:sources.map(o=>o.id)})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  nosoPicks.clear();
+  toast(`Folded ${j.folded} into ${j.into} — ${j.counted}/${j.crates} crates${j.completed?', complete':''}`);
   refresh();
 }
 /* Monthly customer — fold a whole month's collections onto that month's sales order.

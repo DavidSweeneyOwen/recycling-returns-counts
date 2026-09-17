@@ -728,7 +728,10 @@ const server = http.createServer((req, res) => {
             keep.counts.push(Object.assign({}, c, { crateFrom: at + 1, crateTo: at + n }));
             at += n;
           });
-          keep.crates += o.crates;
+          /* Crates: what actually came in, never the sum of what was declared. The Rec
+             team often enters the WHOLE delivery size on every crate they count, so
+             adding the declared figures turned an 8-crate Rhino order into 14. */
+          keep.crates = Math.max(keep.crates, o.crates);
           if (!keep.collectionAddress && o.collectionAddress) keep.collectionAddress = o.collectionAddress;
           merged.push(o.so);
           db.orders.splice(db.orders.indexOf(o), 1);
@@ -738,6 +741,55 @@ const server = http.createServer((req, res) => {
         if (countedCrates(keep) >= keep.crates) { keep.status = 'done'; keep.wtn = nextWTN(); }
         saveDb();
         json(res, 200, { ok: true, into: keep.so, merged: merged.length, crates: keep.crates, completed: keep.status === 'done', wtn: keep.wtn });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  /* Fold a hand-picked set of collections into one. The office ticks the rows on the
+     No SO Yet tab, so nothing is guessed from customer spelling — which matters when
+     the same account was typed six different ways on the tablet. Works on collections
+     that are already closed and WTN'd, unlike merge-drops: the notes already issued
+     are recorded against the result rather than thrown away. */
+  if (req.method === 'POST' && p === '/api/consolidate') {
+    return readBody(req, body => {
+      try {
+        const { targetId, sourceIds } = JSON.parse(body);
+        const keep = db.orders.find(x => x.id === Number(targetId));
+        if (!keep) return json(res, 404, { error: 'Target collection not found' });
+        if (keep.invoicedAt) return json(res, 400, { error: `${keep.so} is already invoiced — nothing can be folded into it` });
+        const ids = [...new Set((sourceIds || []).map(Number))].filter(i => i !== keep.id);
+        if (!ids.length) return json(res, 400, { error: 'Pick at least one other collection to fold in' });
+
+        const sources = ids.map(i => db.orders.find(x => x.id === i));
+        const missing = ids.filter((i, n) => !sources[n]);
+        if (missing.length) return json(res, 404, { error: `Collection ${missing.join(', ')} not found — refresh and try again` });
+        const invoiced = sources.filter(o => o.invoicedAt);
+        if (invoiced.length) return json(res, 400, { error: `${invoiced.map(o => o.so).join(', ')} already invoiced — leave those out` });
+
+        const folded = [], keptWtns = [];
+        sources.forEach(o => {
+          let at = countedCrates(keep);
+          (o.counts || []).forEach(c => {
+            const n = c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1;
+            keep.counts.push(Object.assign({}, c, { crateFrom: at + 1, crateTo: at + n }));
+            at += n;
+          });
+          if (!keep.collectionAddress && o.collectionAddress) keep.collectionAddress = o.collectionAddress;
+          if (o.wtn) keptWtns.push(o.wtn);
+          folded.push(o.dropRef || o.so);
+          db.orders.splice(db.orders.indexOf(o), 1);
+        });
+        keep.crates = Math.max(countedCrates(keep), keep.crates || 0);
+        keep.mergedFrom = (keep.mergedFrom || []).concat(folded);
+        keep.mergedWtns = (keep.mergedWtns || []).concat(keptWtns);
+        keep.mergedAt = nowStamp().split(',')[0];
+        if (countedCrates(keep) >= keep.crates) {
+          keep.status = 'done';
+          if (!keep.wtn) keep.wtn = nextWTN();
+        }
+        saveDb();
+        json(res, 200, { ok: true, into: keep.so, cust: keep.cust, folded: folded.length,
+          crates: keep.crates, counted: countedCrates(keep), keptWtns,
+          completed: keep.status === 'done', wtn: keep.wtn });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }

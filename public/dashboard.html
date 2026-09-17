@@ -240,8 +240,14 @@
   </section>
 
   <section id="viewNoso" style="display:none">
+    <div id="nosoPickBar" style="display:none;align-items:center;gap:10px;margin-bottom:10px;padding:9px 12px;background:var(--amber-soft);border:1px solid var(--line-dark)">
+      <span id="nosoPickMsg" style="font-family:var(--sans);font-weight:600"></span>
+      <button class="btn small" id="nosoPickGo" onclick="consolidatePicked()">Consolidate into the ticked keeper</button>
+      <button class="btn small ghost" onclick="clearNosoPicks()">Clear</button>
+    </div>
     <table class="inv-table" id="nosoTable" style="display:none">
       <thead><tr>
+        <th style="width:34px" title="Tick the collections that are one delivery">✓</th>
         <th>Ref</th><th>Customer</th><th>Counted</th><th>Counted By</th><th>Crates</th><th>Units</th>
         <th>Status</th><th style="width:290px">Attach the real SO</th>
       </tr></thead>
