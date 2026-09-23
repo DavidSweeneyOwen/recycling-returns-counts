@@ -106,22 +106,45 @@
 
   <!-- STEP 1: find the collection -->
   <div id="stepFind" style="display:none">
-    <div class="step-title">Enter the collection number</div>
-    <div class="find-card">
-      <input id="soInput" class="big-in" placeholder="e.g. SO824039" autocomplete="off"
-        onkeydown="if(event.key==='Enter')findOrder()">
-      <button class="btn block" onclick="findOrder()">Find Collection</button>
-      <div class="err" id="findErr"></div>
-      <p class="find-hint">Type the Sales Order number from the paperwork that came with the crate.
-      The C is added automatically. Counting is only possible against a live collection — if it doesn't match, check the number and try again.</p>
+    <div class="step-title">Photograph the paperwork</div>
+    <div class="find-card" id="photoCard">
+      <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none" onchange="onPhotoChosen(event)">
+      <button class="btn block" id="photoBtn" onclick="document.getElementById('photoInput').click()">Take Photo</button>
+      <div id="photoPreviewWrap" style="display:none;margin-top:12px">
+        <img id="photoPreview" style="width:100%;display:block;border:1px solid var(--line-dark)">
+        <button class="btn secondary block" onclick="document.getElementById('photoInput').click()">Retake</button>
+      </div>
+      <p class="find-hint">Photograph the label or paperwork on every collection &mdash; if the number doesn't match anything the office can still trace it from the photo.</p>
     </div>
-    <div class="match" id="matchCard">
-      <div class="so" id="mSo"></div>
-      <div class="cust" id="mCust"></div>
-      <div class="meta" id="mMeta"></div>
-      <div class="frac" id="mFrac"></div>
-      <button class="btn block" onclick="startCount()">Start Counting</button>
+
+    <div id="soCard" style="display:none">
+      <div class="step-title" style="margin-top:18px">Enter the collection number</div>
+      <div class="find-card">
+        <input id="soInput" class="big-in" placeholder="e.g. SO824039" autocomplete="off"
+          onkeydown="if(event.key==='Enter')findOrder()">
+        <button class="btn block" onclick="findOrder()">Find Collection</button>
+        <div class="err" id="findErr"></div>
+        <p class="find-hint">Type the Sales Order (or transfer order) number from the paperwork. The C is added automatically for SOs.</p>
+      </div>
+      <div class="match" id="matchCard">
+        <div class="so" id="mSo"></div>
+        <div class="cust" id="mCust"></div>
+        <div class="meta" id="mMeta"></div>
+        <div class="frac" id="mFrac"></div>
+        <button class="btn block" onclick="startCount()">Start Counting</button>
+      </div>
+      <div class="match" id="unresolvedCard" style="border-color:var(--red);display:none">
+        <div class="so" style="color:#a8200f">DOESN'T MATCH A LIVE COLLECTION</div>
+        <div class="meta" id="uMeta" style="margin:6px 0 10px"></div>
+        <label style="margin-top:0">Customer name (if you know it)</label>
+        <input id="uCust" placeholder="Leave blank if you don't know it — the photo will help" autocomplete="off">
+        <label>How many crates in total?</label>
+        <input id="uCrates" type="number" min="1" value="1" inputmode="numeric">
+        <button class="btn block" style="background:var(--red);border-color:var(--red)" onclick="startUnresolved()">Log it anyway &mdash; office will check it</button>
+        <div class="err" id="uErr"></div>
+      </div>
     </div>
+
     <button class="btn secondary block" onclick="showDropOff()" style="border-color:var(--amber);color:#9c6206">+ Customer drop-off (no SO number)</button>
     <div class="match" id="dropCard" style="border-color:var(--amber);display:none">
       <div class="so" style="color:#9c6206">DROPPED OFF BY CUSTOMER</div>
@@ -170,7 +193,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let STATE=null,active=null,counter=null;
+let STATE=null,active=null,counter=null,photoId=null;
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
@@ -206,6 +229,7 @@ function logout(){
 
 function showDropOff(){
   document.getElementById('matchCard').style.display='none';
+  document.getElementById('unresolvedCard').style.display='none';
   document.getElementById('findErr').style.display='none';
   document.getElementById('dropCard').style.display='block';
   setTimeout(()=>document.getElementById('dropCust').focus(),60);
@@ -216,27 +240,124 @@ async function startDropOff(){
   if(!cust){err.textContent='Enter the customer name — Sarah needs it to send the WTN and invoice.';err.style.display='block';return;}
   const crates=parseInt(document.getElementById('dropCrates').value,10)||1;
   const address=document.getElementById('dropAddr').value.trim();
-  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,address})});
+  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,address,photoId})});
   const j=await r.json();
   if(!j.ok){toast(j.error||'Could not create drop-off');return;}
   active=j.order;
   document.getElementById('dropCard').style.display='none';
   startCount();
 }
+
+/* ---- photo capture: taken first, on every SO-based count. Compressed client-side
+   before upload (both for the yard WiFi and to stay well under the store's 1MB
+   inline limit — see recycling_app project notes). A free, best-effort local OCR
+   pass tries to pre-fill the SO box; it is silent and non-blocking — if it can't
+   read the label (shrink wrap, glare, angle) the counter just types it as before. */
+function fileToCompressedDataUrl(file,maxDim,quality){
+  maxDim=maxDim||1280;quality=quality||0.72;
+  return new Promise((resolve,reject)=>{
+    const img=new Image();const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>=h&&w>maxDim){h=Math.round(h*maxDim/w);w=maxDim;}
+      else if(h>w&&h>maxDim){w=Math.round(w*maxDim/h);h=maxDim;}
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg',quality));
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Could not read the photo'));};
+    img.src=url;
+  });
+}
+async function uploadPhoto(dataUrl){
+  const r=await fetch('/api/photo',{method:'POST',body:JSON.stringify({dataUrl})});
+  const j=await r.json();
+  if(!j.ok)throw new Error(j.error||'Photo upload failed');
+  return j.photoId;
+}
+let tesseractLoading=null;
+function loadTesseract(){
+  if(window.Tesseract)return Promise.resolve();
+  if(tesseractLoading)return tesseractLoading;
+  tesseractLoading=new Promise(resolve=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=resolve;s.onerror=resolve;   // a failed CDN load must never block the counter
+    document.head.appendChild(s);
+  });
+  return tesseractLoading;
+}
+async function tryAutoRead(dataUrl){
+  try{
+    await Promise.race([loadTesseract(),new Promise(r=>setTimeout(r,4000))]);
+    if(!window.Tesseract)return null;
+    const timeout=new Promise(r=>setTimeout(()=>r(null),8000));
+    const ocr=window.Tesseract.recognize(dataUrl,'eng').then(r=>r.data.text).catch(()=>null);
+    const text=await Promise.race([ocr,timeout]);
+    if(!text)return null;
+    const m=text.toUpperCase().match(/\b(?:SO|TFO|TO)-?\s?\d{4,8}[A-Z]?\b/);
+    return m?m[0].replace(/[\s-]/g,''):null;
+  }catch(e){return null;}
+}
+async function onPhotoChosen(ev){
+  const file=ev.target.files&&ev.target.files[0];
+  if(!file)return;
+  const btn=document.getElementById('photoBtn');const orig=btn.textContent;
+  btn.textContent='Saving photo…';btn.disabled=true;
+  try{
+    const dataUrl=await fileToCompressedDataUrl(file);
+    document.getElementById('photoPreview').src=dataUrl;
+    document.getElementById('photoPreviewWrap').style.display='block';
+    photoId=await uploadPhoto(dataUrl);
+    document.getElementById('soCard').style.display='block';
+    const soBox=document.getElementById('soInput');
+    tryAutoRead(dataUrl).then(guess=>{ if(guess&&!soBox.value)soBox.value=guess; });
+    setTimeout(()=>soBox.focus(),100);
+  }catch(e){
+    toast('Could not save the photo — try again');
+    photoId=null;
+  }
+  btn.textContent=orig;btn.disabled=false;
+}
+
 async function findOrder(){
   const err=document.getElementById('findErr');err.style.display='none';
   document.getElementById('matchCard').style.display='none';
+  document.getElementById('unresolvedCard').style.display='none';
   const number=document.getElementById('soInput').value.trim();
   if(!number){err.textContent='Enter the collection number from the paperwork';err.style.display='block';return;}
   const r=await fetch('/api/find-order',{method:'POST',body:JSON.stringify({number})});
   const j=await r.json();
-  if(!j.ok){err.textContent=j.error;err.style.display='block';return;}
+  if(!j.ok){
+    err.textContent=j.error;err.style.display='block';
+    document.getElementById('uMeta').textContent=j.error;
+    document.getElementById('uCust').value=j.knownCust||'';
+    document.getElementById('unresolvedCard').style.display='block';
+    return;
+  }
   active=j.order;
   document.getElementById('mSo').textContent=active.so;
   document.getElementById('mCust').textContent=active.cust;
   document.getElementById('mMeta').innerHTML=`Created ${esc(ukDate(active.date))} &middot; ${esc(active.by)}`;
   document.getElementById('mFrac').textContent=`${active.counted} of ${active.crates} crates counted so far`;
   document.getElementById('matchCard').style.display='block';
+}
+/* The number on the tablet doesn't match a live collection — rather than block the
+   counter, log it against the photo instead. The office resolves it from the No SO
+   Yet tab exactly as they already do for a drop-off, using the same "Attach" box. */
+async function startUnresolved(){
+  const err=document.getElementById('uErr');err.style.display='none';
+  if(!photoId){err.textContent="Take a photo first — it's the only way the office can trace this.";err.style.display='block';return;}
+  const cust=document.getElementById('uCust').value.trim();
+  const crates=parseInt(document.getElementById('uCrates').value,10)||1;
+  const claimedRef=document.getElementById('soInput').value.trim();
+  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,claimedRef,photoId,unmatched:true})});
+  const j=await r.json();
+  if(!j.ok){err.textContent=j.error||'Could not log this';err.style.display='block';return;}
+  active=j.order;
+  document.getElementById('unresolvedCard').style.display='none';
+  startCount();
 }
 
 function groupsFromProducts(){
@@ -297,7 +418,7 @@ async function submitCount(){
   });
   if(!lines.length){toast('Enter at least one count');return;}
   const crates=parseInt(document.getElementById('batchSel').value,10)||1;
-  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines,crates})});
+  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines,crates,photoId})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
   document.getElementById('submitBar').style.display='none';
@@ -314,12 +435,17 @@ function backToFind(){
   document.getElementById('submitBar').style.display='none';
   document.getElementById('soInput').value='';
   document.getElementById('matchCard').style.display='none';
+  document.getElementById('unresolvedCard').style.display='none';
+  document.getElementById('uCust').value='';
   document.getElementById('findErr').style.display='none';
   document.getElementById('dropCard').style.display='none';
   document.getElementById('dropCust').value='';
   document.getElementById('dropAddr').value='';
+  document.getElementById('soCard').style.display='none';
+  document.getElementById('photoPreviewWrap').style.display='none';
+  document.getElementById('photoInput').value='';
+  photoId=null;
   show('stepFind');window.scrollTo(0,0);
-  setTimeout(()=>document.getElementById('soInput').focus(),100);
 }
 init();
 </script>

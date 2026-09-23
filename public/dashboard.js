@@ -145,6 +145,8 @@ function renderOrders(){
     const mInfo=monthlyInfo(o);
     const tag=(rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>')
       +(o.dropOff?' <span class="status-tag drop">Dropped off by customer</span>':'')
+      +(o.needsReview?' <span class="status-tag short" style="background:var(--red-soft);color:#a8200f" title="Photographed on the tablet but the number didn\'t match a live collection">Needs review'+(o.claimedRef?' — tried '+esc(o.claimedRef):'')+'</span>':'')
+      +(o.photoId?' <a class="btn small ghost" href="/api/photo/'+encodeURIComponent(o.photoId)+'" target="_blank">View photo</a>':'')
       +(mInfo?' <span class="status-tag monthly">MONTHLY • '+esc(mInfo.code||mInfo.name)+'</span>':'');
     const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
     const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
@@ -156,7 +158,7 @@ function renderOrders(){
     const mergeBtn=(sibs.length>1&&sibs[0].id===o.id)
       ? `<button class="btn small ghost" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>` : '';
     grid.insertAdjacentHTML('beforeend',`
-      <div class="so-card age-${age.cls} ${o.dropOff?'drop':''}">
+      <div class="so-card age-${age.cls} ${o.dropOff?'drop':''}"${o.needsReview?' style="border-left:4px solid var(--red)"':''}>
         <div class="so-top">
           <div>
             <div class="so-num">${esc(o.so)}</div>
@@ -251,22 +253,27 @@ function renderOrders(){
   noso.forEach(o=>{
     const units=o.totals.reduce((a,t)=>a+t.q,0);
     const dup=likelyDuplicate(o);
+    const flagged=!!o.needsReview;
+    const rowStyle=flagged?' style="background:var(--red-soft)"':(dup?' style="background:var(--amber-soft)"':'');
+    const photoLink=o.photoId?`<br><a class="btn small ghost" href="/api/photo/${encodeURIComponent(o.photoId)}" target="_blank">View photo</a>`:'';
     const status=o.status==='open'
       ? `<span class="status-tag partial">Counting — ${o.counted} of ${o.crates}</span>`
       : `<span class="status-tag complete">Counted${o.invoicedAt?' &middot; invoiced':''}</span>`;
     nbody.insertAdjacentHTML('beforeend',`
-      <tr${dup?' style="background:var(--amber-soft)"':''}>
+      <tr${rowStyle}>
         <td><input type="checkbox" class="nosoPick" value="${o.id}" ${nosoPicks.has(o.id)?'checked':''} onchange="toggleNosoPick(${o.id},this.checked)" style="width:17px;height:17px"></td>
         <td class="so-cell">${esc(o.so)}</td>
         <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}
-          ${dup?`<br><span class="status-tag short" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(dup.so)}</span>`:''}</td>
+          ${flagged?`<br><span class="status-tag short" title="Photographed on the tablet but the number didn't match a live collection">Needs review${o.claimedRef?' — tried '+esc(o.claimedRef):''}</span>`:''}
+          ${dup?`<br><span class="status-tag short" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(dup.so)}</span>`:''}
+          ${photoLink}</td>
         <td>${esc(lastCountDate(o)||ukDate(o.date))}<br>${ageBadge(o).html}</td>
         <td>${esc(counterNames(o)||o.by||'—')}</td>
         <td>${o.counted} / ${o.crates}</td>
         <td>${units}</td>
         <td>${status}</td>
         <td><div style="display:flex;gap:6px">
-          <input id="nosoSo${o.id}" placeholder="e.g. SO824039" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
+          <input id="nosoSo${o.id}" placeholder="e.g. SO824039" value="${o.claimedRef?esc(o.claimedRef):''}" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
           <button class="btn small" onclick="attachSo(${o.id},'nosoSo${o.id}')">Attach</button>
         </div>
         ${(()=>{const sibs=monthlySiblings(o);if(sibs.length<2)return '';
@@ -301,12 +308,14 @@ function renderOrders(){
   });
 }
 function detailBlock(o,inv){
+  const photos=[...new Set([o.photoId,...o.counts.map(c=>c.photoId)].filter(Boolean))];
   return `
     <div class="detail-grid">
       <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
       <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
       <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry-l">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
     </div>
+    ${photos.length?`<div style="margin-top:10px">${photos.map(id=>`<a class="btn small ghost" href="/api/photo/${encodeURIComponent(id)}" target="_blank" style="margin:0 6px 6px 0;display:inline-block">View photo</a>`).join('')}</div>`:''}
     <div class="actions">
       <div><label>SO created against count (manual until API)</label>
         <input value="${esc(o.finalSo||'')}" placeholder="pending API" onchange="setFinalSO(${o.id},this.value)"></div>
