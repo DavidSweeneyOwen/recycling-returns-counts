@@ -91,6 +91,43 @@ async function ghRawBlob(sha) {
   });
   return { status: r.status, text: r.ok ? await r.text() : null };
 }
+/* Binary-safe version of the same raw-blob read, for photos rather than JSON text. */
+async function ghRawBlobBuffer(sha) {
+  const r = await fetch(`${GH_API}/repos/${GH_REPO}/git/blobs/${sha}`, {
+    headers: { 'Authorization': 'Bearer ' + GH_TOKEN, 'User-Agent': 'recycling-returns',
+               'Accept': 'application/vnd.github.raw' }
+  });
+  return { status: r.status, buf: r.ok ? Buffer.from(await r.arrayBuffer()) : null };
+}
+/* ---------------- photo storage (separate from data.json — see 11/09 incident) ----------------
+   Photos are committed as their own files under photos/ in the SAME private data repo used for
+   data.json, one file per photo, never inlined into the JSON store. A photo that happened to land
+   near or past the 1MB contents-API inline cliff is exactly the failure mode that wiped live data
+   on 11/09, so reads fall back to the raw blob endpoint the same way ghLoad() does for data.json.
+   With no GH_DATA_REPO configured (local/dev use) photos fall back to a local photos/ folder next
+   to data.json, mirroring how data.json itself falls back to the local file. */
+async function ghPutFile(filePath, base64Content, message) {
+  let sha;
+  const cur = await ghApi('GET', `/repos/${GH_REPO}/contents/${filePath}?ref=${GH_BRANCH}`);
+  if (cur.status === 200 && cur.json && cur.json.sha) sha = cur.json.sha;
+  const body = { message, content: base64Content, branch: GH_BRANCH };
+  if (sha) body.sha = sha;
+  return ghApi('PUT', `/repos/${GH_REPO}/contents/${filePath}`, body);
+}
+async function ghGetFileBuffer(filePath) {
+  const meta = await ghApi('GET', `/repos/${GH_REPO}/contents/${filePath}?ref=${GH_BRANCH}`);
+  if (meta.status !== 200 || !meta.json || !meta.json.sha) return { status: meta.status, buf: null };
+  if (meta.json.content && meta.json.encoding === 'base64') {
+    return { status: 200, buf: Buffer.from(meta.json.content, 'base64') };
+  }
+  const blob = await ghRawBlobBuffer(meta.json.sha);
+  return { status: blob.status || 502, buf: blob.buf };
+}
+function photoDir() {
+  const d = path.join(process.env.DATA_DIR || __dirname, 'photos');
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  return d;
+}
 /* Returns {status, data}. A 404 is a genuine first run; every other failure is a
    read failure and must NOT be mistaken for an empty store.
 
@@ -366,7 +403,7 @@ function startSync() {
 }
 
 /* ---------------- counting / completion ---------------- */
-function addCount(orderId, by, lines, crates) {
+function addCount(orderId, by, lines, crates, photoId) {
   const o = db.orders.find(x => x.id === Number(orderId));
   if (!o) return { error: 'Order not found' };
   if (o.status !== 'open') return { error: 'Order already completed' };
@@ -375,7 +412,11 @@ function addCount(orderId, by, lines, crates) {
   const remaining = o.crates - already;
   if (remaining < 1) return { error: 'All crates already counted' };
   const n = Math.max(1, Math.min(parseInt(crates, 10) || 1, remaining));
-  o.counts.push({ crateFrom: already + 1, crateTo: already + n, by, when: nowStamp(), lines });
+  /* The photo isn't a replacement for the count — it's evidence of what was on the
+     paperwork for this batch, kept alongside it so the office can check a claimed
+     SO/TFO number against the label later. */
+  const clean = photoId ? String(photoId).replace(/[^\w.-]/g, '') : null;
+  o.counts.push({ crateFrom: already + 1, crateTo: already + n, by, when: nowStamp(), lines, ...(clean ? { photoId: clean } : {}) });
   let completed = false;
   if (countedCrates(o) >= o.crates) {
     o.status = 'done';
@@ -529,7 +570,7 @@ const server = http.createServer((req, res) => {
      never see a password; the dashboard (with its Reports and Amendments
      tabs), WTNs and office APIs are all gated behind the access key. */
   const OPEN_PATHS = ['/count', '/api/ping', '/api/counter-config', '/api/find-order', '/api/count', '/api/dropoff'];
-  if (ACCESS_KEY && !authed(req) && !OPEN_PATHS.includes(p)) {
+  if (ACCESS_KEY && !authed(req) && !OPEN_PATHS.includes(p) && !p.startsWith('/api/photo')) {
     if (req.method === 'POST' && p === '/unlock') {
       return readBody(req, body => {
         const key = decodeURIComponent((body.match(/key=([^&]*)/) || [])[1] || '').trim();
@@ -585,17 +626,62 @@ const server = http.createServer((req, res) => {
         const so = normaliseSO(number);
         if (!so) return json(res, 200, { error: 'Enter the collection number from the paperwork' });
         const o = db.orders.find(x => x.so === so);
+        /* Neither case blocks the counter any more — the tablet logs the photo and
+           whatever number was on it either way, and the office resolves it from the
+           No SO Yet tab (same place a drop-off gets its real SO attached). */
         if (!o) return json(res, 200, { error: `No collection found for ${so} — check the number on the paperwork`, tried: so });
-        if (o.status === 'done') return json(res, 200, { error: `${so} is already fully counted (${o.crates} of ${o.crates} crates)`, tried: so });
+        if (o.status === 'done') return json(res, 200, { error: `${so} is already fully counted (${o.crates} of ${o.crates} crates)`, tried: so, knownCust: o.cust });
         json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: countedCrates(o) } });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  if (req.method === 'POST' && p === '/api/photo') {
+    return readBody(req, async body => {
+      try {
+        const { dataUrl } = JSON.parse(body);
+        const m = /^data:image\/(\w+);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+        if (!m) return json(res, 400, { error: 'No image received — try taking the photo again' });
+        const ext = m[1] === 'jpeg' ? 'jpg' : m[1].replace(/[^a-z0-9]/gi, '');
+        const b64 = m[2];
+        if (Math.ceil(b64.length * 3 / 4) > 4 * 1024 * 1024) return json(res, 400, { error: 'Photo too large — try again' });
+        const fname = `ph${Date.now()}${Math.random().toString(36).slice(2, 7)}.${ext}`;
+        if (GH_REPO && GH_TOKEN) {
+          const r = await ghPutFile(`photos/${fname}`, b64, 'photo ' + fname);
+          if (!(r.status === 200 || r.status === 201)) return json(res, 502, { error: 'Could not save the photo — try again' });
+        } else {
+          fs.writeFileSync(path.join(photoDir(), fname), Buffer.from(b64, 'base64'));
+        }
+        json(res, 200, { ok: true, photoId: fname });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  if (req.method === 'GET' && /^\/api\/photo\/[\w.-]+$/.test(p)) {
+    const fname = decodeURIComponent(p.split('/').pop());
+    const ct = /\.png$/i.test(fname) ? 'image/png' : 'image/jpeg';
+    if (GH_REPO && GH_TOKEN) {
+      return ghGetFileBuffer(`photos/${fname}`).then(r => {
+        if (r.status !== 200 || !r.buf) { res.writeHead(404); return res.end('Not found'); }
+        res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'private, max-age=86400' });
+        res.end(r.buf);
+      }).catch(() => { res.writeHead(502); res.end('Photo store error'); });
+    }
+    return fs.readFile(path.join(photoDir(), fname), (err, data) => {
+      if (err) { res.writeHead(404); return res.end('Not found'); }
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'private, max-age=86400' });
+      res.end(data);
     });
   }
   if (req.method === 'POST' && p === '/api/dropoff') {
     return readBody(req, body => {
       try {
-        const { cust, by, crates, address } = JSON.parse(body);
-        const customer = String(cust || '').trim();
+        const { cust, by, crates, address, claimedRef, photoId, unmatched } = JSON.parse(body);
+        const isUnmatched = !!unmatched;
+        let customer = String(cust || '').trim();
+        /* The unmatched-from-the-tablet path (a photo whose number didn't match a live
+           collection) may genuinely have no customer name yet — the photo is what lets
+           the office trace it, same principle as a normal drop-off but starting from a
+           failed match instead of a deliberate no-SO delivery. */
+        if (!customer && isUnmatched) customer = 'Unknown — see photo';
         if (!customer) return json(res, 200, { error: 'Customer name is required so the WTN and invoice can be sent.' });
         const n = Math.max(1, Math.min(CONFIG.maxCrates, parseInt(crates, 10) || 1));
         const o = {
@@ -603,11 +689,15 @@ const server = http.createServer((req, res) => {
           date: new Date().toISOString().slice(0, 10), by: String(by || '').trim(),
           collectionAddress: String(address || '').trim(),
           crates: n, counts: [], status: 'open', wtn: null, finalSo: null,
-          source: 'dropoff', dropOff: true,
+          source: isUnmatched ? 'unmatched' : 'dropoff', dropOff: true,
+          claimedRef: isUnmatched ? (String(claimedRef || '').trim() || null) : null,
+          photoId: photoId ? String(photoId).replace(/[^\w.-]/g, '') : null,
+          needsReview: isUnmatched,
           /* Customers who only ever drop off never get an SO raised, so their
              collections skip the No SO Yet queue. The list learns itself from
-             the "No SO expected" button on that tab. */
-          noSoExpected: (db.dropOnly || []).includes(customer.toLowerCase()) ? nowStamp().split(',')[0] : null
+             the "No SO expected" button on that tab. Not offered for the unmatched
+             path — a failed SO match is not the same thing as "never has an SO". */
+          noSoExpected: (!isUnmatched && (db.dropOnly || []).includes(customer.toLowerCase())) ? nowStamp().split(',')[0] : null
         };
         db.orders.unshift(o);
         saveDb();
@@ -651,7 +741,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && p === '/api/sync') return syncFromNetSuite(r => json(res, 200, r));
   if (req.method === 'POST' && p === '/api/count') {
     return readBody(req, body => {
-      try { const { orderId, by, lines, crates } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines, crates)); }
+      try { const { orderId, by, lines, crates, photoId } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines, crates, photoId)); }
       catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
