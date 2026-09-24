@@ -993,16 +993,39 @@ const server = http.createServer((req, res) => {
         const clash = db.orders.find(x => x.so === norm && x.id !== o.id);
         let absorbed = false;
         if (clash) {
+          if (clash.invoicedAt)
+            return json(res, 400, { error: `${norm} is already invoiced — nothing can be added to it` });
+          /* The SO is already live on the dashboard — part-counted, fully counted, or
+             bigger than a closed drop-off. Add the drop-off's crates to the SO rather
+             than refusing: the SO keeps its own record, date and WTN, the drop-off's
+             counts join its crate log, and any WTN the drop-off had is kept on record. */
+          if (clash.status !== 'open' || countedCrates(clash) > 0
+              || (o.wtn && clash.crates > (countedCrates(o) || 0))) {
+            const keep = clash;
+            let at = countedCrates(keep);
+            (o.counts || []).forEach(c => {
+              const n = c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1;
+              keep.counts.push(Object.assign({}, c, { crateFrom: at + 1, crateTo: at + n }));
+              at += n;
+            });
+            if (!keep.collectionAddress && o.collectionAddress) keep.collectionAddress = o.collectionAddress;
+            if (!keep.photoId && o.photoId) keep.photoId = o.photoId;
+            keep.crates = Math.max(countedCrates(keep), keep.crates || 0);
+            keep.mergedFrom = (keep.mergedFrom || []).concat(o.dropRef || o.so);
+            if (o.wtn) keep.mergedWtns = (keep.mergedWtns || []).concat(o.wtn);
+            keep.mergedAt = nowStamp().split(',')[0];
+            if (countedCrates(keep) >= keep.crates) {
+              keep.status = 'done';
+              if (!keep.wtn) keep.wtn = nextWTN();
+            }
+            db.orders.splice(db.orders.indexOf(o), 1);
+            saveDb();
+            return json(res, 200, { ok: true, so: norm, added: true, from: o.so,
+              counted: countedCrates(keep), crates: keep.crates, completed: keep.status === 'done' });
+          }
           /* Normal case: the drop-off was counted before NetSuite raised the SO, so a
-             later sync pulled that SO in as its own empty order. Absorb it rather than
-             blocking the match — but only ever an untouched open order. */
-          if (clash.status !== 'open' || countedCrates(clash) > 0)
-            return json(res, 400, { error: `${norm} already has counts against it — check the number` });
-          /* Guard: a collection that is already closed and WTN'd cannot take on a bigger
-             SO — its crate count is frozen, so attaching it would silently shrink the SO
-             and strand the other crates with nowhere to go. Merge first, then match. */
-          if (o.wtn && clash.crates > (countedCrates(o) || 0))
-            return json(res, 400, { error: `${norm} is a ${clash.crates}-crate order but this collection is closed with ${countedCrates(o) || 0} crate(s) counted — merge the other crates into it before matching` });
+             later sync pulled that SO in as its own empty order. Absorb it — the
+             drop-off record takes the SO number. */
           o.cust = clash.cust; o.by = clash.by;        // NetSuite owns the customer and raiser
           o.soDate = clash.date;                        // keep the SO's own date for reference
           /* Do NOT overwrite o.date when crates have already been counted: that is the date
