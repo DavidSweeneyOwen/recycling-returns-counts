@@ -317,7 +317,7 @@ function detailBlock(o,inv){
     <div class="detail-grid">
       <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
       <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
-      <div><h4>Crate log</h4><div class="crate-log">${o.counts.map(c=>`<div class="entry-l">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
+      <div><h4>Crate log</h4><div class="crate-log">${o.counts.map((c,ci)=>`<div class="entry-l">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}${o.invoicedAt?'':` <a href="#" onclick="event.preventDefault();event.stopPropagation();moveCrate(${o.id},${ci})" style="font-size:11px;margin-left:6px">move to another SO</a>`}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
     </div>
     ${photos.length?`<div style="margin-top:10px">${photos.map(id=>`<a class="btn small ghost" href="/api/photo/${encodeURIComponent(id)}" target="_blank" style="margin:0 6px 6px 0;display:inline-block">View photo</a>`).join('')}</div>`:''}
     <div class="actions">
@@ -356,6 +356,17 @@ async function attachSo(id,inputId){
   toast(j.added?`${j.from} added to ${j.so} — now ${j.counted} of ${j.crates} crates${j.completed?', complete':''}`
        :j.absorbed?`${j.so} attached — merged with the collection NetSuite had raised`:`${j.so} attached`);
   refresh();
+}
+/* Move one counted crate onto the SO/TFO it really came in on — for undoing a wrong
+   attach or merge. The Pallex consignment number is usually the answer. */
+async function moveCrate(id,ci){
+  const o=STATE.orders.find(x=>x.id===id)||{};const c=(o.counts||[])[ci];if(!c)return;
+  const so=(prompt(`Move ${crateLabel(c).toLowerCase()} (${c.lines.map(l=>l.p+' ×'+l.q).join(', ')}) off ${o.so} onto which SO / TFO?`,'')||'').trim();
+  if(!so)return;
+  const r=await fetch('/api/move-crate',{method:'POST',body:JSON.stringify({orderId:id,countIndex:ci,so})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(`Crate moved from ${j.from} to ${j.to} — now ${j.toCounted} of ${j.toCrates}`);refresh();
 }
 /* Fold every open drop-off for one customer into a single collection, so the admin
    raises one WTN, one sales order and one invoice rather than six. */

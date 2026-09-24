@@ -349,6 +349,10 @@ function upsertRows(rows) {
         if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date || (addr && existing.collectionAddress !== addr)) {
           existing.crates = newCrates; existing.cust = cust; existing.by = by; existing.date = date;
           if (addr) existing.collectionAddress = addr;
+          /* NetSuite lowered the crate count to what has already come in (e.g. a
+             wrongly merged crate was moved off) — it is complete, so close it. */
+          const got = countedCrates(existing);
+          if (got > 0 && got >= newCrates) { existing.status = 'done'; if (!existing.wtn) existing.wtn = nextWTN(); }
           updated++;
         } else skipped++;
       } else skipped++;
@@ -977,6 +981,78 @@ const server = http.createServer((req, res) => {
         if (o.status !== 'open') return json(res, 400, { error: 'Order is already counted' });
         o.keepOpen = nowStamp().split(',')[0];
         saveDb(); json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
+  /* Move ONE counted crate from wherever it sits onto the right SO/TFO. For putting
+     right a crate that was merged or attached to the wrong collection — the Pallex
+     consignment is the proof of which SO it really travelled on. The target is found
+     by reference or, if the app has never seen it (TFO refs aren't in the NetSuite
+     feed), created as a counted collection under that reference. */
+  if (req.method === 'POST' && p === '/api/move-crate') {
+    return readBody(req, body => {
+      try {
+        const { orderId, countIndex, so, cust } = JSON.parse(body);
+        const src = db.orders.find(x => x.id === Number(orderId));
+        if (!src) return json(res, 404, { error: 'Order not found' });
+        const norm = normaliseSO(so);
+        if (!norm) return json(res, 400, { error: 'Enter the SO / TFO number' });
+        const i = Number(countIndex);
+        const c = (src.counts || [])[i];
+        if (!c) return json(res, 400, { error: 'That crate is not on this collection — refresh and try again' });
+        if (src.invoicedAt) return json(res, 400, { error: `${src.so} is already invoiced — crates can't be moved off it` });
+        let dst = db.orders.find(x => x.so === norm);
+        if (dst && dst.id === src.id) return json(res, 400, { error: 'That crate is already on ' + norm });
+        if (dst && dst.invoicedAt) return json(res, 400, { error: `${norm} is already invoiced` });
+        const n = c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1;
+        const stamp = nowStamp().split(',')[0];
+        const countDay = isoDate(String(c.when || '').split(',')[0]);
+        let created = false;
+        if (!dst) {
+          dst = { id: ++db.seq, so: norm, cust: cust || src.cust,
+            date: /^\d{4}-\d{2}-\d{2}$/.test(countDay) ? countDay : src.date,
+            by: src.by, collectionAddress: '', crates: n, counts: [], status: 'open', wtn: null,
+            finalSo: null, source: 'moved', dropOff: true };
+          db.orders.unshift(dst); created = true;
+        }
+        /* A drop-off that was wrongly attached to an SO carries its own WTN. When its
+           only crate leaves, the WTN goes with the crate and the SO goes back to being
+           the untouched NetSuite order it was before the mistake. */
+        const srcWasDrop = !!src.dropRef || /^(DROP|MANUAL)-/.test(String(src.so || ''));
+        const srcEmptied = src.counts.length === 1;
+        let at = countedCrates(dst);
+        dst.counts.push(Object.assign({}, c, { crateFrom: at + 1, crateTo: at + n }));
+        dst.crates = Math.max(countedCrates(dst), dst.crates || 0);
+        dst.movedIn = (dst.movedIn || []).concat({ from: src.dropRef || src.so, when: stamp });
+        if (srcEmptied && srcWasDrop && src.wtn) {
+          if (!dst.wtn) dst.wtn = src.wtn; else dst.mergedWtns = (dst.mergedWtns || []).concat(src.wtn);
+          src.wtn = null;
+        }
+        if (countedCrates(dst) >= dst.crates) { dst.status = 'done'; if (!dst.wtn) dst.wtn = nextWTN(); }
+        dst.noSoExpected = null;
+        /* take it off the source and re-number what's left */
+        src.counts.splice(i, 1);
+        let k = 0;
+        src.counts.forEach(x => { const m = x.crateTo ? (x.crateTo - x.crateFrom + 1) : 1; x.crateFrom = k + 1; x.crateTo = k + m; k += m; });
+        let removed = false;
+        if (srcEmptied && /^(DROP|MANUAL)-/.test(String(src.so || ''))) {
+          db.orders.splice(db.orders.indexOf(src), 1); removed = true;   // an empty placeholder has nothing left to keep
+        } else if (srcEmptied && src.dropRef) {
+          /* back to a clean, uncounted NetSuite order */
+          src.status = 'open'; src.wtn = null; src.amended = false; src.dropOff = false;
+          src.movedOut = (src.movedOut || []).concat({ to: norm, from: src.dropRef, when: stamp });
+          delete src.dropRef; delete src.matchedAt; delete src.photoId; delete src.wtnSentAt;
+        } else {
+          src.movedOut = (src.movedOut || []).concat({ to: norm, when: stamp });
+          src.mergedFrom = (src.mergedFrom || []);
+          if (countedCrates(src) < src.crates) {
+            src.status = 'open';
+            if (src.wtn) src.amended = true;   // WTN already out for the old count — flag it to resend
+          }
+        }
+        saveDb();
+        json(res, 200, { ok: true, from: src.so, to: norm, created,
+          toCounted: countedCrates(dst), toCrates: dst.crates, removed });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
