@@ -79,7 +79,7 @@ function dmy(s){const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s||'');return m?`$
 function likelyDuplicate(o){
   if(!noSo(o)||!STATE)return null;
   const key=String(o.cust||'').trim().toLowerCase();
-  if(key.length<3)return null;
+  if(key.replace(/[^a-z0-9]/g,'').length<4)return null;   // "E e" was matching inside "firE Extinguishers"
   const t1=new Date(dmy(lastCountDate(o))||o.date).getTime();
   return STATE.orders.find(x=>{
     if(x.id===o.id||noSo(x)||x.status!=='done')return false;
@@ -201,6 +201,10 @@ function renderOrders(){
           ${o.amended?`<span class="status-tag amended" title="${esc(o.amendments&&o.amendments.length?o.amendments[o.amendments.length-1].reason:'')}">Amended — resend WTN</span>`:''}
           ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
           ${o.co2>0?`<span class="status-tag co2">CO2 buy-back — ${o.co2} unit${o.co2===1?'':'s'}</span>`:''}
+          ${/^(DROP|MANUAL)-/.test(String(o.so||''))?`<span onclick="event.stopPropagation()" style="display:flex;gap:6px;align-items:center">
+            <span class="status-tag short">No SO</span>
+            <input id="cntSo${o.id}" placeholder="SO / TFO no." style="width:130px;padding:6px 8px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'cntSo${o.id}')">
+            <button class="btn small" onclick="attachSo(${o.id},'cntSo${o.id}')">Attach</button></span>`:''}
           <div class="head-right" onclick="event.stopPropagation()">
             <a class="btn small wtn" href="/wtn/${o.id}" target="_blank">View WTN</a>
             <label class="tickbox">
@@ -349,7 +353,8 @@ async function attachSo(id,inputId){
   const r=await fetch('/api/set-so',{method:'POST',body:JSON.stringify({orderId:id,so})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
-  toast(j.absorbed?`${j.so} attached — merged with the collection NetSuite had raised`:`${j.so} attached`);
+  toast(j.added?`${j.from} added to ${j.so} — now ${j.counted} of ${j.crates} crates${j.completed?', complete':''}`
+       :j.absorbed?`${j.so} attached — merged with the collection NetSuite had raised`:`${j.so} attached`);
   refresh();
 }
 /* Fold every open drop-off for one customer into a single collection, so the admin

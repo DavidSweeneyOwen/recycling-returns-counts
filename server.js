@@ -992,6 +992,14 @@ const server = http.createServer((req, res) => {
         if (!norm) return json(res, 400, { error: 'Enter an SO number' });
         const clash = db.orders.find(x => x.so === norm && x.id !== o.id);
         let absorbed = false;
+        /* An SO turning up proves this was never a drop-off-only customer — usually a
+           site name (Safestore, Big Yellow) that one of our customers raises SOs for.
+           Take the name back off the drop-only list so its next drop-off queues again. */
+        if (o.noSoExpected || (db.dropOnly || []).length) {
+          const key = String(o.cust || '').trim().toLowerCase();
+          if (db.dropOnly) db.dropOnly = db.dropOnly.filter(k => k !== key);
+          o.noSoExpected = null;
+        }
         if (clash) {
           if (clash.invoicedAt)
             return json(res, 400, { error: `${norm} is already invoiced — nothing can be added to it` });
