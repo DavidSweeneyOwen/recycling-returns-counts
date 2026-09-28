@@ -24,6 +24,7 @@ if (fs.existsSync(LOCAL_CONF)) deepMerge(CONFIG, JSON.parse(fs.readFileSync(LOCA
 /* Cloud hosting: secrets come from environment variables instead of config.local.json */
 if (process.env.NETSUITE_WEBQUERY_URL) CONFIG.netsuite.webQueryUrl = process.env.NETSUITE_WEBQUERY_URL;
 if (process.env.NETSUITE_EMAIL) CONFIG.netsuite.email = process.env.NETSUITE_EMAIL;
+if (process.env.NETSUITE_TFO_WEBQUERY_URL) CONFIG.netsuite.tfoWebQueryUrl = process.env.NETSUITE_TFO_WEBQUERY_URL;
 const ACCESS_KEY = process.env.ACCESS_KEY || '';   // optional shared key — empty = open access
 
 const DATA_FILE = path.join(process.env.DATA_DIR || __dirname, 'data.json');
@@ -213,6 +214,7 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '
 function normaliseSO(s) {
   s = String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');   // keep only letters/digits — tolerates spaces, dashes, #, etc.
   if (!s) return '';
+  if (/^TFO\d+C?$/.test(s)) return s.replace(/C$/, '');   // transfer orders carry no C suffix
   if (/^\d+C?$/.test(s)) s = 'SO' + s;            // digits only → assume SO prefix
   if (!s.endsWith('C')) s += 'C';                  // collection SOs carry a C suffix
   return s;
@@ -316,8 +318,44 @@ function parseHtmlTable(html) {
   return rows;
 }
 
-/* Upsert: adds new SOs AND updates header fields on existing open orders
-   (NetSuite is the source of truth for crates expected, customer, etc.) */
+/* Upsert ONE collection from a NetSuite feed. Adds new ones and updates header fields
+   on open ones (NetSuite is the source of truth for crates expected, customer, etc.). */
+function upsertOrder({ so, cust, date, by, addr, crates, source }) {
+  let existing = db.orders.find(o => o.so === so);
+  /* TFOs used to be keyed with a C on the end (normaliseSO added it to everything),
+     so one entered by hand before the TFO feed existed is found and re-keyed. */
+  if (!existing && /^TFO/.test(so)) {
+    existing = db.orders.find(o => o.so === so + 'C');
+    if (existing) existing.so = so;
+  }
+  if (existing) {
+    if (existing.status !== 'open') return 'skipped';
+    // never set crates below what's already been counted
+    const newCrates = Math.max(crates, countedCrates(existing) || 1);
+    if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date || (addr && existing.collectionAddress !== addr)) {
+      existing.crates = newCrates; existing.cust = cust; existing.by = by; existing.date = date;
+      if (addr) existing.collectionAddress = addr;
+      /* NetSuite lowered the crate count to what has already come in (e.g. a
+         wrongly merged crate was moved off) — it is complete, so close it. */
+      const got = countedCrates(existing);
+      if (got > 0 && got >= newCrates) { existing.status = 'done'; if (!existing.wtn) existing.wtn = nextWTN(); }
+      return 'updated';
+    }
+    return 'skipped';
+  }
+  db.orders.unshift({
+    id: ++db.seq, so, cust, date, by, collectionAddress: addr || '',
+    crates, counts: [], status: 'open', wtn: null, finalSo: null, source
+  });
+  return 'added';
+}
+function tally(results) {
+  const t = { added: 0, updated: 0, skipped: 0 };
+  results.forEach(r => t[r]++);
+  return t;
+}
+
+/* The "Just Crate SO's" report — one crate line per SO. */
 function upsertRows(rows) {
   const hIdx = rows.findIndex(r => r.some(c => /document\s*number/i.test(c)));
   if (hIdx < 0) return { error: 'No "Document Number" column found', added: 0, updated: 0, skipped: 0 };
@@ -330,51 +368,88 @@ function upsertRows(rows) {
                  : [CONFIG.netsuite.addressColumn || 'address'];
   const iAds = [];
   addrCols.forEach(c => { const i = ix(new RegExp(c, 'i')); if (i > -1 && !iAds.includes(i)) iAds.push(i); });
-  let added = 0, updated = 0, skipped = 0;
+  const results = [];
   rows.slice(hIdx + 1).forEach(r => {
     const raw = r[iSo];
     if (!raw || !/^so/i.test(String(raw).trim())) return;
-    const so = normaliseSO(raw);
     const qty = cleanNum(r[iQt]);
-    const crates = Math.min(CONFIG.maxCrates, Math.max(1, isNaN(qty) ? 1 : qty));
-    const cust = iCu > -1 ? r[iCu] : 'Unknown';
-    const date = isoDate(iDa > -1 ? r[iDa] : '') || new Date().toISOString().slice(0, 10);
-    const by = iBy > -1 ? r[iBy] : '';
-    const addr = iAds.map(i => String(r[i] || '').trim()).filter(Boolean).join(', ');
-    const existing = db.orders.find(o => o.so === so);
-    if (existing) {
-      if (existing.status === 'open') {
-        // never set crates below what's already been counted
-        const newCrates = Math.max(crates, countedCrates(existing) || 1);
-        if (existing.crates !== newCrates || existing.cust !== cust || existing.by !== by || existing.date !== date || (addr && existing.collectionAddress !== addr)) {
-          existing.crates = newCrates; existing.cust = cust; existing.by = by; existing.date = date;
-          if (addr) existing.collectionAddress = addr;
-          /* NetSuite lowered the crate count to what has already come in (e.g. a
-             wrongly merged crate was moved off) — it is complete, so close it. */
-          const got = countedCrates(existing);
-          if (got > 0 && got >= newCrates) { existing.status = 'done'; if (!existing.wtn) existing.wtn = nextWTN(); }
-          updated++;
-        } else skipped++;
-      } else skipped++;
-      return;
-    }
-    db.orders.unshift({
-      id: ++db.seq, so, cust, date, by, collectionAddress: addr,
-      crates, counts: [], status: 'open', wtn: null, finalSo: null, source: 'netsuite'
-    });
-    added++;
+    results.push(upsertOrder({
+      so: normaliseSO(raw),
+      cust: iCu > -1 ? r[iCu] : 'Unknown',
+      date: isoDate(iDa > -1 ? r[iDa] : '') || new Date().toISOString().slice(0, 10),
+      by: iBy > -1 ? r[iBy] : '',
+      addr: iAds.map(i => String(r[i] || '').trim()).filter(Boolean).join(', '),
+      crates: Math.min(CONFIG.maxCrates, Math.max(1, isNaN(qty) ? 1 : qty)),
+      source: 'netsuite'
+    }));
   });
-  return { added, updated, skipped };
+  return tally(results);
+}
+
+/* The TFO report (transfer orders, quarter to date). It carries EVERY line on every TFO —
+   extinguishers going out, signs, delivery notes — so only the collection lines count:
+   "Firemark site crate collection charge" and "PHS COLLECTION…". Their Qty is the crate
+   count, summed per TFO. Transfer orders have no customer, so the inventory location
+   (Firemark Scrap Warehouse / PHS Consignment Stock) stands in for it. */
+const TFO_COLLECTION_LINE = /^(firemark site crate collection charge|phs collection)/i;
+function upsertTfoRows(rows) {
+  const hIdx = rows.findIndex(r => r.some(c => /document\s*number/i.test(c)));
+  if (hIdx < 0) return { error: 'TFO report: no "Document Number" column found', added: 0, updated: 0, skipped: 0 };
+  const head = rows[hIdx].map(h => h.toLowerCase().trim());
+  const ix = re => head.findIndex(h => re.test(h));
+  const iDoc = ix(/document\s*number/), iName = ix(/^name$/), iQty = ix(/^qty$|^quantity$/),
+        iLoc = ix(/inventory\s*location/), iDate = ix(/^date$/);
+  if (iName < 0 || iQty < 0) return { error: 'TFO report: missing Name or Qty column', added: 0, updated: 0, skipped: 0 };
+  const tfos = new Map();
+  rows.slice(hIdx + 1).forEach(r => {
+    const raw = String(r[iDoc] || '').trim();
+    if (!/^tfo/i.test(raw) || !TFO_COLLECTION_LINE.test(String(r[iName] || '').trim())) return;
+    const qty = cleanNum(r[iQty]);
+    if (isNaN(qty) || qty <= 0) return;
+    const so = normaliseSO(raw);
+    /* Only TFOs from the go-live date: the report is quarter-to-date, and older
+       collections were handled outside the app. */
+    const d = iDate > -1 ? isoDate(r[iDate]) : '';
+    if (CONFIG.netsuite.tfoFromDate && d && d < CONFIG.netsuite.tfoFromDate) return;
+    const t = tfos.get(so) || { so, crates: 0, cust: '', date: '' };
+    t.crates += qty;
+    if (!t.cust && iLoc > -1) t.cust = String(r[iLoc] || '').trim();
+    if (!t.date && iDate > -1) t.date = isoDate(r[iDate]);
+    tfos.set(so, t);
+  });
+  const results = [...tfos.values()].map(t => upsertOrder({
+    so: t.so, cust: t.cust || 'Unknown', date: t.date || new Date().toISOString().slice(0, 10),
+    by: '', addr: '', crates: Math.min(CONFIG.maxCrates, Math.max(1, t.crates)), source: 'netsuite-tfo'
+  }));
+  return tally(results);
+}
+
+function fetchReport(url, cb) {
+  const u = url.replace('[EMAIL]', encodeURIComponent(CONFIG.netsuite.email));
+  fetchUrl(u, (err, status, body) => {
+    if (err) return cb('Connection failed: ' + err.message);
+    if (status !== 200) return cb('NetSuite returned HTTP ' + status);
+    cb(null, parseHtmlTable(body));
+  });
 }
 
 function syncFromNetSuite(cb) {
-  const u = CONFIG.netsuite.webQueryUrl.replace('[EMAIL]', encodeURIComponent(CONFIG.netsuite.email));
-  fetchUrl(u, (err, status, body) => {
-    if (err) { db.lastSync = { when: nowStamp(), ok: false, msg: 'Connection failed: ' + err.message }; saveDb(); return cb(db.lastSync); }
-    if (status !== 200) { db.lastSync = { when: nowStamp(), ok: false, msg: 'NetSuite returned HTTP ' + status }; saveDb(); return cb(db.lastSync); }
-    const res = upsertRows(parseHtmlTable(body));
-    db.lastSync = { when: nowStamp(), ok: !res.error, msg: res.error || `${res.added} new, ${res.updated} updated, ${res.skipped} unchanged`, ...res };
-    saveDb(); cb(db.lastSync);
+  fetchReport(CONFIG.netsuite.webQueryUrl, (err, rows) => {
+    if (err) { db.lastSync = { when: nowStamp(), ok: false, msg: err }; saveDb(); return cb(db.lastSync); }
+    const res = upsertRows(rows);
+    const finish = tfoMsg => {
+      const msg = (res.error || `${res.added} new, ${res.updated} updated, ${res.skipped} unchanged`) + (tfoMsg ? ' · TFOs: ' + tfoMsg : '');
+      db.lastSync = { when: nowStamp(), ok: !res.error, msg, ...res };
+      saveDb(); cb(db.lastSync);
+    };
+    const tfoUrl = CONFIG.netsuite.tfoWebQueryUrl;
+    if (!tfoUrl || /^SET-IN/.test(tfoUrl)) return finish('');
+    /* A TFO feed failure never fails the SO sync — it is reported alongside it. */
+    fetchReport(tfoUrl, (terr, trows) => {
+      if (terr) return finish('failed (' + terr + ')');
+      const t = upsertTfoRows(trows);
+      finish(t.error || `${t.added} new, ${t.updated} updated, ${t.skipped} unchanged`);
+    });
   });
 }
 

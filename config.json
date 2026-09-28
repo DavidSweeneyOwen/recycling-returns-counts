@@ -4,6 +4,8 @@
     "webQueryUrl": "SET-IN-config.local.json",
     "email": "SET-IN-config.local.json",
     "autoSyncMinutes": 15,
+    "tfoWebQueryUrl": "SET-IN-config.local.json",
+    "tfoFromDate": "2026-09-01",
     "api": {
       "enabled": false,
       "comment": "Phase 3: set enabled=true once the NetSuite integration record + token exist. See README."
@@ -239,4 +241,4 @@
       "match": "douwe"
     }
   ]
-}
+}
