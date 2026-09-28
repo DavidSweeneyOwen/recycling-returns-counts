@@ -387,7 +387,7 @@ function upsertRows(rows) {
 }
 
 /* The TFO report (transfer orders, quarter to date). It carries EVERY line on every TFO —
-   extinguishers going out, signs, delivery notes — so only the collection lines count:
+   extinguishers going out, signs, delivery notes — so only the collection lines (by Memo) count:
    "Firemark site crate collection charge" and "PHS COLLECTION…". Their Qty is the crate
    count, summed per TFO. Transfer orders have no customer, so the inventory location
    (Firemark Scrap Warehouse / PHS Consignment Stock) stands in for it. */
@@ -397,13 +397,16 @@ function upsertTfoRows(rows) {
   if (hIdx < 0) return { error: 'TFO report: no "Document Number" column found', added: 0, updated: 0, skipped: 0 };
   const head = rows[hIdx].map(h => h.toLowerCase().trim());
   const ix = re => head.findIndex(h => re.test(h));
-  const iDoc = ix(/document\s*number/), iName = ix(/^name$/), iQty = ix(/^qty$|^quantity$/),
+  const iDoc = ix(/document\s*number/), iName = ix(/^name$/), iMemo = ix(/^memo$/), iQty = ix(/^qty$|^quantity$/),
         iLoc = ix(/inventory\s*location/), iDate = ix(/^date$/);
-  if (iName < 0 || iQty < 0) return { error: 'TFO report: missing Name or Qty column', added: 0, updated: 0, skipped: 0 };
+  if ((iName < 0 && iMemo < 0) || iQty < 0) return { error: 'TFO report: missing Memo/Name or Qty column', added: 0, updated: 0, skipped: 0 };
   const tfos = new Map();
   rows.slice(hIdx + 1).forEach(r => {
     const raw = String(r[iDoc] || '').trim();
-    if (!/^tfo/i.test(raw) || !TFO_COLLECTION_LINE.test(String(r[iName] || '').trim())) return;
+    /* The collection wording is in Memo on this report (Name is blank on TFO lines);
+       check both so a change to the report layout doesn't silently drop everything. */
+    const isCollection = [iMemo, iName].some(i => i > -1 && TFO_COLLECTION_LINE.test(String(r[i] || '').trim()));
+    if (!/^tfo/i.test(raw) || !isCollection) return;
     const qty = cleanNum(r[iQty]);
     if (isNaN(qty) || qty <= 0) return;
     const so = normaliseSO(raw);
@@ -1133,6 +1136,27 @@ const server = http.createServer((req, res) => {
   }
   /* Attach the real SO to a drop-off once NetSuite raises it. The office does this
      from the No SO Yet tab; the collection keeps its counts, WTN and audit trail. */
+  /* Undo a wrongly attached SO/TFO: the collection goes back to its DROP- reference
+     (and onto No SO Yet) with its counts, WTN and audit trail intact. Only possible
+     for a drop-off that had an SO attached (it has a dropRef) and is not invoiced.
+     If attaching had absorbed an empty NetSuite order, the next sync brings it back. */
+  if (req.method === 'POST' && p === '/api/unset-so') {
+    return readBody(req, body => {
+      try {
+        const { orderId } = JSON.parse(body);
+        const o = db.orders.find(x => x.id === Number(orderId));
+        if (!o) return json(res, 404, { error: 'Order not found' });
+        if (!o.dropRef) return json(res, 400, { error: `${o.so} came from NetSuite, not a drop-off — there is nothing to undo` });
+        if (o.invoicedAt) return json(res, 400, { error: `${o.so} is already invoiced — untick Invoiced first` });
+        const was = o.so;
+        o.unsetSo = (o.unsetSo || []).concat({ so: was, when: nowStamp().split(',')[0] });
+        o.so = o.dropRef;
+        delete o.dropRef; delete o.matchedAt; delete o.soDate;
+        saveDb();
+        json(res, 200, { ok: true, from: was, to: o.so });
+      } catch (e) { json(res, 400, { error: 'Bad request' }); }
+    });
+  }
   if (req.method === 'POST' && p === '/api/set-so') {
     return readBody(req, body => {
       try {
