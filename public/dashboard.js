@@ -147,7 +147,8 @@ function renderOrders(){
       +(o.dropOff?' <span class="status-tag drop">Dropped off by customer</span>':'')
       +(o.needsReview?' <span class="status-tag short" style="background:var(--red-soft);color:#a8200f" title="Photographed on the tablet but the number didn\'t match a live collection">Needs review'+(o.claimedRef?' — tried '+esc(o.claimedRef):'')+'</span>':'')
       +(o.photoId?' <a class="btn small ghost" href="/api/photo/'+encodeURIComponent(o.photoId)+'" target="_blank">View photo</a>':'')
-      +(mInfo?' <span class="status-tag monthly">MONTHLY • '+esc(mInfo.code||mInfo.name)+'</span>':'');
+      +(mInfo?' <span class="status-tag monthly">MONTHLY • '+esc(mInfo.code||mInfo.name)+'</span>':'')
+      +(o.dropRef&&!o.invoicedAt?` <button class="btn small ghost" onclick="unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:'');
     const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
     const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
       :'<div class="nocounts">No crates counted yet</div>';
@@ -197,6 +198,7 @@ function renderOrders(){
           </div>
           <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
           ${o.dropOff?'<span class="status-tag drop">Dropped off by customer</span>':''}
+          ${o.dropRef&&!o.invoicedAt?`<button class="btn small ghost" onclick="event.stopPropagation();unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:''}
           ${mInfo?`<span class="status-tag monthly">MONTHLY • ${esc(mInfo.code||mInfo.name)}</span>`:''}
           ${o.amended?`<span class="status-tag amended" title="${esc(o.amendments&&o.amendments.length?o.amendments[o.amendments.length-1].reason:'')}">Amended — resend WTN</span>`:''}
           ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
@@ -346,6 +348,15 @@ async function mark(id,field,value){
 }
 async function setFinalSO(id,v){await fetch('/api/final-so',{method:'POST',body:JSON.stringify({orderId:id,finalSo:v})});toast('SO number saved');refresh();}
 /* Attach the real SO to a drop-off from the No SO Yet tab. */
+/* Take a wrongly attached SO/TFO back off a drop-off — it returns to its DROP- number. */
+async function unsetSo(id,so,drop){
+  if(!confirm(`Take ${so} off this collection? It goes back to ${drop} (No SO Yet) with its counts kept.`))return;
+  const r=await fetch('/api/unset-so',{method:'POST',body:JSON.stringify({orderId:id})});
+  const j=await r.json();
+  if(j.error){toast(j.error);return;}
+  toast(`${j.from} removed — back to ${j.to}`);
+  refresh();
+}
 async function attachSo(id,inputId){
   const inp=document.getElementById(inputId||('nosoSo'+id));
   const so=(inp&&inp.value||'').trim();
