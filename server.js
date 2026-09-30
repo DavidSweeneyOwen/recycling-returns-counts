@@ -401,8 +401,11 @@ function upsertTfoRows(rows) {
         iLoc = ix(/inventory\s*location/), iDate = ix(/^date$/);
   if ((iName < 0 && iMemo < 0) || iQty < 0) return { error: 'TFO report: missing Memo/Name or Qty column', added: 0, updated: 0, skipped: 0 };
   const tfos = new Map();
+  const tfoLoc = new Map();   // every TFO on the report → its location, whatever the line
   rows.slice(hIdx + 1).forEach(r => {
     const raw = String(r[iDoc] || '').trim();
+    if (/^tfo\d+$/i.test(raw) && iLoc > -1 && String(r[iLoc] || '').trim() && !tfoLoc.has(normaliseSO(raw)))
+      tfoLoc.set(normaliseSO(raw), String(r[iLoc]).trim());
     /* The collection wording is in Memo on this report (Name is blank on TFO lines);
        check both so a change to the report layout doesn't silently drop everything. */
     const isCollection = [iMemo, iName].some(i => i > -1 && TFO_COLLECTION_LINE.test(String(r[i] || '').trim()));
@@ -420,11 +423,27 @@ function upsertTfoRows(rows) {
     if (!t.date && iDate > -1) t.date = isoDate(r[iDate]);
     tfos.set(so, t);
   });
+  /* Collections already counted against a TFO (typed on the tablet, attached from No SO
+     Yet, or moved onto one) carry whatever customer was guessed at the time. Put the
+     report's location on them — Firemark Scrap Warehouse / PHS Consignment Stock — and
+     drop the old C suffix. Runs BEFORE the upsert so a counted TFO is never duplicated
+     as a new empty one. Invoiced collections are left exactly as billed. */
+  let relabelled = 0;
+  db.orders.forEach(o => {
+    if (!/^TFO\d+C?$/.test(String(o.so || '')) || o.status === 'open' || o.invoicedAt) return;
+    const key = o.so.replace(/C$/, '');
+    if (key !== o.so && !db.orders.some(x => x !== o && x.so === key)) o.so = key;
+    const loc = tfoLoc.get(key);
+    if (loc && o.cust !== loc) {
+      o.custBefore = o.cust; o.cust = loc; o.custFromTfoReport = nowStamp().split(',')[0];
+      relabelled++;
+    }
+  });
   const results = [...tfos.values()].map(t => upsertOrder({
     so: t.so, cust: t.cust || 'Unknown', date: t.date || new Date().toISOString().slice(0, 10),
     by: '', addr: '', crates: Math.min(CONFIG.maxCrates, Math.max(1, t.crates)), source: 'netsuite-tfo'
   }));
-  return tally(results);
+  return Object.assign(tally(results), { relabelled });
 }
 
 function fetchReport(url, cb) {
@@ -451,7 +470,7 @@ function syncFromNetSuite(cb) {
     fetchReport(tfoUrl, (terr, trows) => {
       if (terr) return finish('failed (' + terr + ')');
       const t = upsertTfoRows(trows);
-      finish(t.error || `${t.added} new, ${t.updated} updated, ${t.skipped} unchanged`);
+      finish(t.error || `${t.added} new, ${t.updated} updated, ${t.skipped} unchanged` + (t.relabelled ? `, ${t.relabelled} counted matched to PHS/Firemark` : ''));
     });
   });
 }
