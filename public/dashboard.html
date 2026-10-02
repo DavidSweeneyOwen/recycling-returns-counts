@@ -326,6 +326,17 @@
       </div>
       <div class="meta-line" id="metaLine"></div>
     </div>
+    <div class="panel" id="rowPanel">
+      <h3>Defra &mdash; Report receipt of waste</h3>
+      <div class="filters">
+        <div><label>Received from</label><input type="date" id="rowFrom" onchange="rowInfo()"></div>
+        <div><label>Received to</label><input type="date" id="rowTo" onchange="rowInfo()"></div>
+        <div><a class="btn x" onclick="rowDownload()">&#10515; Download spreadsheet</a>
+             <a class="btn small ghost" onclick="rowAll()">All dates</a></div>
+      </div>
+      <div class="meta-line" id="rowMeta"></div>
+      <div class="meta-line" id="rowWarn" style="color:var(--red)"></div>
+    </div>
     <div class="kpis" id="kpis"></div>
     <div class="grid2">
       <div class="panel"><h3>Units by type</h3><div class="chartbox"><canvas id="chartTypeCanvas"></canvas></div></div>

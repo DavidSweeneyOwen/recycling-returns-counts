@@ -18,7 +18,7 @@ function switchTab(t){
     document.getElementById('tab'+v).classList.toggle('active',k===t);
   });
   document.getElementById('orderToolbar').style.display=(t==='await'||t==='counted'||t==='inv'||t==='noso'||t==='arch')?'flex':'none';
-  if(t==='reports'){ if(!reportsReady){populateReportFilters();reportsReady=true;} renderReports(); }
+  if(t==='reports'){ if(!reportsReady){populateReportFilters();reportsReady=true;} renderReports(); rowInfo(); }
   if(t==='admin'){ renderAdminList(); }
 }
 
@@ -878,3 +878,42 @@ function closeEdit(){document.getElementById('editPanel').style.display='none';E
 
 refresh();
 setInterval(refresh,30000);
+
+/* ============ Defra "Report receipt of waste" ============
+   The server fills Defra's own spreadsheet from the waste transfer notes — this
+   only picks the dates and fetches it. Both dates blank = every WTN on record.
+   Defra's sheet has a fixed number of rows, so a long range comes down as
+   several files. */
+let ROW_INFO=null;
+function rowQuery(){
+  const f=document.getElementById('rowFrom').value,t=document.getElementById('rowTo').value;
+  return '?from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t);
+}
+async function rowInfo(){
+  const meta=document.getElementById('rowMeta'),warn=document.getElementById('rowWarn');
+  ROW_INFO=null;
+  try{
+    const r=await fetch('/api/receipt-of-waste-info'+rowQuery());const d=await r.json();
+    if(d.error){meta.textContent='';warn.textContent=d.error;return;}
+    ROW_INFO=d;
+    const uk=s=>s?s.split('-').reverse().join('/'):'';
+    meta.textContent=d.count
+      ?d.count+' waste transfer note'+(d.count===1?'':'s')+' received '+uk(d.first)+(d.last!==d.first?' to '+uk(d.last):'')
+        +' · '+d.files+' file'+(d.files===1?'':'s')+(d.files>1?' ('+d.rowsPerFile+' rows each — Defra\'s sheet holds no more)':'')
+      :'No waste transfer notes in that date range.';
+    warn.textContent=d.missing.length?'Left blank until set up (not on the WTN): '+d.missing.join(' · '):'';
+  }catch(e){meta.textContent='';warn.textContent='Could not reach the server.';}
+}
+function rowAll(){document.getElementById('rowFrom').value='';document.getElementById('rowTo').value='';rowInfo();}
+async function rowDownload(){
+  if(!ROW_INFO)await rowInfo();
+  if(!ROW_INFO)return;
+  if(!ROW_INFO.count){toast('No waste transfer notes in that date range');return;}
+  for(let part=1;part<=ROW_INFO.files;part++){
+    const a=document.createElement('a');
+    a.href='/api/receipt-of-waste'+rowQuery()+'&part='+part;
+    document.body.appendChild(a);a.click();a.remove();
+    if(part<ROW_INFO.files)await new Promise(s=>setTimeout(s,1200));
+  }
+  toast(ROW_INFO.files>1?'Downloading '+ROW_INFO.files+' files':'Downloading spreadsheet');
+}
