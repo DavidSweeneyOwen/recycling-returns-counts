@@ -5,6 +5,7 @@
      /            office dashboard — Awaiting / Counted / Invoiced / Reports / Amendments
      /count       Rec team counter form (PIN login + collection number match)
      /wtn/:id     printable Duty of Care Waste Transfer Note
+     /api/receipt-of-waste   Defra 'Report receipt of waste' spreadsheet, filled from the WTNs (receipt-of-waste.js)
    Data:    data.json (created automatically next to this file)
    Config:  config.json (products, codes, WTN settings)
             config.local.json (secrets: web query URL, email, counters, tokens)
@@ -222,7 +223,8 @@ function normaliseSO(s) {
 function cleanNum(v) { return parseInt(String(v == null ? '' : v).replace(/[^\d-]/g, ''), 10); } // strips =, quotes, commas
 function ukDate(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || ''); }
 function isoDate(uk) { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(uk || ''); return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : (uk || ''); }
-function nowStamp() { return new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }); }
+/* Always UK time — the host runs on UTC, and Defra's receipt of waste report wants London time. */
+function nowStamp() { return new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/London' }); }
 
 function countedCrates(o) {
   return o.counts.reduce((a, c) => a + (c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1), 0);
@@ -714,6 +716,29 @@ const server = http.createServer((req, res) => {
       monthlyCustomers: CONFIG.monthlyCustomers || [],
       apiEnabled: CONFIG.netsuite.api.enabled
     });
+  }
+  /* Defra "Report receipt of waste": the WTNs on the store, written into Defra's own
+     spreadsheet for any date range (from/to are inclusive, either may be left off).
+     Read-only — it never touches the store. Loaded on demand so a missing module or
+     template is reported here instead of taking the whole app down. */
+  if (req.method === 'GET' && (p === '/api/receipt-of-waste' || p === '/api/receipt-of-waste-info')) {
+    if (!STORE.ready) return json(res, 503, { error: 'The recycling data store is unavailable — nothing to export right now.' });
+    const day = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : '';
+    const from = day(u.searchParams.get('from')), to = day(u.searchParams.get('to'));
+    try {
+      const row = require('./receipt-of-waste.js');
+      if (p === '/api/receipt-of-waste-info') return json(res, 200, row.summary(db.orders, CONFIG, from, to));
+      const out = row.build(db.orders, CONFIG, { from, to, part: u.searchParams.get('part'), appDir: __dirname, wtnTotals });
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${out.filename}"`,
+        'Content-Length': out.buffer.length, 'Cache-Control': 'no-store'
+      });
+      return res.end(out.buffer);
+    } catch (e) {
+      console.error('[receipt-of-waste]', e.message);
+      return json(res, 500, { error: 'Could not build the receipt of waste spreadsheet: ' + e.message });
+    }
   }
   /* If we could not read the live data, refuse every write — including counts from
      the tablet — and say so, rather than accepting work that will never be saved. */

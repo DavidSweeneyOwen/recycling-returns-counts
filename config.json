@@ -24,6 +24,32 @@
     "carrierIssuedBy": "Natural Resources Wales",
     "sicCode": "32990"
   },
+  "receiptOfWaste": {
+    "comment": "Defra 'Report receipt of waste' export. Values below mirror the printed WTN. Anything left blank is NOT on the WTN and is left blank in the export until filled in here.",
+    "template": "assets/receipt-of-waste-template.xlsx",
+    "siteName": "Checkfire Ltd",
+    "siteAddress": "Pontygwindy Industrial Estate, Caerphilly",
+    "sitePostcode": "CF83 3HU",
+    "receiverAuthorisationNumber": "",
+    "receiverEmail": "",
+    "receiverPhone": "029 2086 8333",
+    "carrierName": "Checkfire Ltd",
+    "carrierAddress": "Pontygwindy Industrial Estate, Caerphilly",
+    "carrierPostcode": "CF83 3HU",
+    "carrierEmail": "",
+    "carrierPhone": "029 2086 8333",
+    "meansOfTransport": "Road",
+    "vehicleRegistration": "",
+    "hazardous": "No",
+    "reasonNoConsignmentCode": "NON_HAZ_WASTE_TRANSFER",
+    "containerType": "[BOX] Box, Carton, Crate",
+    "physicalForm": "",
+    "containsPops": "",
+    "disposalRecoveryCode": "",
+    "weightUnit": "Kilograms",
+    "weightEstimated": "Yes",
+    "unitWeightsKg": {}
+  },
   "maxCrates": 60,
   "products": [
     {
