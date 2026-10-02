@@ -62,5 +62,9 @@ console.log(`  INFO maxCrates=${cfg.maxCrates} products=${cfg.products.length} m
 for (const f of ['Reports','Amendments','dropoff','set-so','keep-open'])
   (html + js + server).includes(f) ? ok(f + ' present') : bad(f + ' MISSING');
 
+/* The Defra receipt of waste export needs its module and Defra's template uploaded too. */
+for (const f of ['receipt-of-waste.js', (cfg.receiptOfWaste || {}).template || 'assets/receipt-of-waste-template.xlsx'])
+  fs.existsSync(p(f)) ? ok(f + ' present') : bad(f + ' MISSING — the receipt of waste download will fail');
+
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nALL CHECKS PASSED');
 process.exit(fail ? 1 : 0);
