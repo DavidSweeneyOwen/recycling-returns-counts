@@ -18,6 +18,16 @@ One small app, three screens, no manual re-keying:
 5a. **If the counter form can't find the SO** (not synced yet, or genuinely not raised for this delivery), the Rec team can tap *Count anyway — no SO yet* on the counter form: they enter the customer name and how many cages/pallet boxes are in the delivery, and counting proceeds against a placeholder order (`MANUAL-<id>`, tagged `source: "manual"`) instead of falling back to paper. It shows on the dashboard with a **No SO yet** badge and an inline field — type the real SO number in once it's raised in NetSuite and it replaces the placeholder (matched by `so` from then on, so a later NetSuite sync will keep it updated same as any other order).
 6. **SO against the count**: the completed card shows the rolled-up NetSuite scrapping-charge lines (SC-WAT-000, SC-FOA-006, SC-POW-000…). Until the API lands, raise the SO in NetSuite from those lines and type its number into the card. Phase 3 automates this — the hook is already in `server.js` (`createNetSuiteSalesOrder`).
 
+## Defra "Report receipt of waste" export
+
+Reports tab → **Defra — Report receipt of waste**. Pick a received-from / received-to date (or **All dates**) and download. The server fills Defra's own spreadsheet (`assets/receipt-of-waste-template.xlsx`, untouched apart from the values) with one row per WTN on tabs 7 and 8, using the same details the printed WTN carries: WTN number as the unique reference, site and carrier details, carrier registration, EWC code, crate count and the Section E item totals. The received date/time is the last count — the WTN's "Date of Collection".
+
+- Every WTN on record is included, so it is backdated automatically.
+- Defra's sheet has 330 usable rows; a longer range downloads as several files.
+- Answers Defra wants that are **not on the WTN** live in `config.json` → `receiptOfWaste` and stay blank in the export until filled in there: receiver's authorisation number, vehicle registration, physical form, POPs yes/no, disposal/recovery code and `unitWeightsKg` (kg per extinguisher, keyed by product name — weight is only calculated when every product on a collection has one).
+- When Defra issue a new template, replace the file in `assets/` — nothing else changes.
+- Files to deploy for this feature: `receipt-of-waste.js`, `assets/receipt-of-waste-template.xlsx`, `server.js`, `config.json`, `public/dashboard.html`, `public/dashboard.js`.
+
 ## Running it
 
 Needs only [Node.js](https://nodejs.org) (LTS). No other installs.
