@@ -56,10 +56,17 @@
   .ghead{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;padding:8px 14px}
   .water .ghead{background:#b02318}.foam .ghead{background:#b29a6b}.powder .ghead{background:#3a536b}
   .co2steel .ghead{background:#1c1f23}.alu .ghead{background:#5e6670}.otherg .ghead{background:#6b6f75}
-  .gcells{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}
+  .gcells{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
   .gcell{border-right:1px solid var(--line);border-top:1px solid var(--line);padding:10px;text-align:center}
   .gcell .sz{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;display:block}
   .gcell input{text-align:center;font-size:18px;padding:10px 4px}
+  .stepper{display:flex;align-items:stretch}
+  .stepper input{flex:1;min-width:0;border-left:none;border-right:none;-moz-appearance:textfield}
+  .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .pm{width:42px;flex:0 0 42px;border:1px solid var(--line-dark);background:#f7f5f0;font-family:var(--display);
+    font-size:22px;font-weight:700;color:var(--ink);cursor:pointer;touch-action:manipulation;user-select:none}
+  .pm:active{background:var(--ink);color:#fff}
+  .pm.minus{color:var(--red)}
   .other-line{display:grid;grid-template-columns:1fr 86px 40px;gap:8px;padding:10px;align-items:center;border-top:1px solid var(--line)}
   .other-line .rm{border:1px solid var(--line-dark);background:#fff;cursor:pointer;height:44px;color:var(--red);font-weight:700;font-size:18px}
   .addother{margin:10px;padding:9px 14px;font-family:var(--display);font-size:11px;font-weight:700;text-transform:uppercase;
@@ -382,7 +389,7 @@ function startCount(){
         <div class="ghead">${esc(grp.g)}</div>
         <div class="gcells">${grp.items.map(pr=>`
           <div class="gcell"><span class="sz">${esc(pr.size)}</span>
-          <input type="number" min="0" inputmode="numeric" placeholder="0" data-prod="${esc(pr.p)}"></div>`).join('')}
+          <div class="stepper"><button type="button" class="pm minus" onclick="bump(this,-1)" aria-label="Take one away">&minus;</button><input type="number" min="0" inputmode="numeric" placeholder="0" data-prod="${esc(pr.p)}"><button type="button" class="pm" onclick="bump(this,1)" aria-label="Add one">+</button></div></div>`).join('')}
         </div>
       </div>`);
   });
@@ -397,6 +404,12 @@ function updateHint(){
   const hint=document.getElementById('hint');
   if(left<=0){hint.className='hint final';hint.textContent='FINAL CRATE(S) — saving this count completes the order, generates the WTN reference and updates the office dashboard.';}
   else{hint.className='hint';hint.textContent=`${left} crate(s) will still be outstanding after this count.`;}
+}
+/* +/- either side of each product box: adjusts whatever is typed in by one, never below 0. */
+function bump(btn,d){
+  const inp=btn.parentElement.querySelector('input');
+  const v=Math.max(0,(parseInt(inp.value,10)||0)+d);
+  inp.value=v?String(v):'';
 }
 function addOther(){
   document.getElementById('otherLines').insertAdjacentHTML('beforeend',`
