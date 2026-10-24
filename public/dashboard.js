@@ -277,7 +277,7 @@ function renderChrome(){
   document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
 }
 function toggleMenu(){menuOpen=!menuOpen;document.getElementById('navwrap').classList.toggle('open',menuOpen);document.getElementById('menuBtn').setAttribute('aria-expanded',menuOpen);}
-function go(k){VIEW=k;SHOW_ALL=false;try{localStorage.setItem('rrView',k);}catch(e){}if(menuOpen)toggleMenu();render(true);window.scrollTo(0,0);}
+function go(k){VIEW=k;SHOW_ALL=false;try{localStorage.setItem('rrView',k);history.replaceState(null,'','#'+k);}catch(e){}if(menuOpen)toggleMenu();render(true);window.scrollTo(0,0);}
 function render(entering){
   if(!STATE)return;
   B=buckets();renderNav();renderChrome();
@@ -332,7 +332,16 @@ function card(o,stage,foot,opts){
 const detailsBtn=o=>`<button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
 const undoBtn=o=>o.dropRef&&!o.invoicedAt?`<button class="lbtn" onclick="unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:'';
 const creditBox=o=>o.co2>0?`<label class="tickbox"><input type="checkbox" ${o.creditAt?'checked':''} onchange="mark(${o.id},'credit',this.checked)">CO2 credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}</label>`:'';
-function grid(list,fn,none){return list.length?`<div class="grid">${list.map(fn).join('')}</div>`:none;}
+/* Deep links: /#monthly, /#wtn … open that view. */
+window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(v!==VIEW&&(VIEWS[v]||v==='reports'||v==='amend'))go(v);});
+/* Long queues (Awaiting runs to thousands) draw the oldest 120 first, then all on request. */
+const PAGE=120;
+function grid(list,fn,none){
+  if(!list.length)return none;
+  const shown=SHOW_ALL?list:list.slice(0,PAGE);
+  return `<div class="grid">${shown.map(fn).join('')}</div>`
+    +(list.length>shown.length?`<p style="margin-top:16px"><button class="btn quiet" onclick="SHOW_ALL=true;render()">Show all ${list.length}</button> <span class="meta">Showing the oldest ${shown.length} — search to find a specific one</span></p>`:'');
+}
 
 /* ============ views ============ */
 const VIEWS={
@@ -417,11 +426,12 @@ const VIEWS={
   const all=B.archive.slice().sort(byDate),l=all.filter(o=>matches(o,Q.archive));
   return head('s-neutral','Archive',`<b>${plural(all.length,'collection')}</b> still awaiting a count three months after the SO was raised`,
     'If the delivery is still expected, put it back on Awaiting count and it picks up where it left off.',searchBox('archive','Search SO or customer'))
-   +(l.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>SO</th><th>Customer</th><th>Raised</th><th>Age</th><th>Counted so far</th><th></th></tr></thead><tbody>${l.map(o=>`<tr>
+   +(l.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>SO</th><th>Customer</th><th>Raised</th><th>Age</th><th>Counted so far</th><th></th></tr></thead><tbody>${(SHOW_ALL?l:l.slice(-PAGE).reverse()).map(o=>`<tr>
       <td class="mono" data-label="SO">${esc(o.so)}</td><td data-label="Customer">${esc(o.cust)}</td><td data-label="Raised">${esc(ukDate(o.date))}</td>
       <td data-label="Age"><span class="age old">${plural(Math.floor(P.ageDays(o.date)/30.4),'month')}</span></td>
       <td data-label="Counted so far">${o.counted} of ${o.crates} crates · ${units(o)?plural(units(o),'unit'):'nothing counted'}</td>
       <td style="text-align:right"><button class="btn quiet sm" onclick="keepOpen(${o.id})">Still expected — back to Awaiting</button>${o.counted>0?` <button class="btn quiet sm" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close short</button>`:''}</td></tr>`).join('')}</tbody></table></div>`
+     +(!SHOW_ALL&&l.length>PAGE?`<p style="margin-top:16px"><button class="btn quiet" onclick="SHOW_ALL=true;render()">Show all ${l.length}</button> <span class="meta">Showing the most recently archived ${PAGE} — search to find a specific one</span></p>`:'')
      :empty('Nothing archived','Collections still uncounted three months after the SO was raised move here on their own.'));
  },
  customers(){
@@ -1088,6 +1098,6 @@ async function rowDownload(){
   toast(ROW_INFO.files>1?'Downloading '+ROW_INFO.files+' files':'Downloading spreadsheet');
 }
 /* ============ start ============ */
-try{const v=localStorage.getItem('rrView');if(v&&(VIEWS[v]||v==='reports'||v==='amend'))VIEW=v;}catch(e){}
+try{const v=location.hash.slice(1)||localStorage.getItem('rrView');if(v&&(VIEWS[v]||v==='reports'||v==='amend'))VIEW=v;}catch(e){}
 refresh();
 setInterval(refresh,30000);
