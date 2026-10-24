@@ -513,7 +513,7 @@ function processDialog(code){
 async function rollupProcess(code){
   const j=await api('/api/rollup-process',{code,by:adminName()});
   if(j.error){toast(j.error);return;}
-  await refresh();packDialog(j.rollup);
+  closeDialog();await refresh();packDialog(j.rollup);
 }
 function packDialog(r){
   openDialog(`<h3 id="dTitle">Pack generated</h3><p class="lead">${esc(r.wtn)} for ${esc(r.name)} is ready. Download the pack, send it yourself, then mark it as sent.</p>
