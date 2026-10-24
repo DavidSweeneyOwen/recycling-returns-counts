@@ -71,9 +71,14 @@ t('admin: right key accepted', P.adminCheck('k1', 'k1').ok);
 console.log('     ' + passed + ' rule checks run');
 
 /* ---------------- 2. end to end on a throwaway store ---------------- */
+/* The test servers run with ACCESS_KEY set, like Render: every office call carries the
+   access cookie, and one check below proves the gate still refuses without it. */
+const ACC = 'acc-test-key';
 function req(port, method, p, body, headers) {
+  const h = Object.assign({ 'Content-Type': 'application/json', Cookie: 'appkey=' + ACC }, headers || {});
+  if (h.Cookie === null) delete h.Cookie;
   return new Promise((res, rej) => {
-    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: Object.assign({ 'Content-Type': 'application/json' }, headers || {}) }, s => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: h }, s => {
       let b = ''; s.on('data', d => b += d); s.on('end', () => { let j = null; try { j = JSON.parse(b); } catch (e) {} res({ status: s.statusCode, json: j, text: b }); });
     });
     r.on('error', rej); if (body) r.write(JSON.stringify(body)); r.end();
@@ -83,7 +88,7 @@ async function boot(port, adminKey) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-logic-'));
   fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({ orders: [], seq: 0, wtnSeq: {}, lastSync: null }));
   const env = Object.assign({}, process.env, { PORT: String(port), DATA_DIR: dir, ADMIN_KEY: adminKey || '', GH_DATA_REPO: '', GH_TOKEN: '',
-    ACCESS_KEY: '', RENDER_EXTERNAL_URL: '', KEEP_ALIVE_URL: '', NETSUITE_WEBQUERY_URL: 'http://127.0.0.1:9/unreachable' });
+    ACCESS_KEY: ACC, RENDER_EXTERNAL_URL: '', KEEP_ALIVE_URL: '', NETSUITE_WEBQUERY_URL: 'http://127.0.0.1:9/unreachable' });
   const child = spawn(process.execPath, [path.join(APP, 'server.js')], { env, stdio: 'ignore' });
   for (let i = 0; i < 50; i++) {
     try { const r = await req(port, 'GET', '/api/state'); if (r.json && r.json.store && r.json.store.ready) return { child, dir }; } catch (e) {}
@@ -97,6 +102,7 @@ async function e2e() {
   const { child, dir } = await boot(port, 'test-admin-key');
   try {
     const st0 = (await req(port, 'GET', '/api/state')).json;
+    t('e2e: /count picker is open and lists only monthly accounts, without billing data', (j => j.customers.length === 1 && j.customers[0].code === 'CNI0222' && !('billing' in j.customers[0]))((await req(port, 'GET', '/api/count-customers', null, { Cookie: null })).json));
     t('e2e: customers seeded on a store that had none', st0.customers.length >= 2 && st0.customers[0].code === 'CNI0222' && st0.adminEnabled === true);
     const drop = async (b) => (await req(port, 'POST', '/api/dropoff', Object.assign({ by: 'Tester', crates: 1 }, b))).json.order;
     const count = async (o) => (await req(port, 'POST', '/api/count', { orderId: o.id, by: 'Tester', crates: 1, lines: [{ p: 'Water 6L', q: 5 }, { p: 'Powder 2KG', q: 3 }] })).json;
@@ -111,8 +117,35 @@ async function e2e() {
     t('e2e: unknown name goes to No SO yet', P.stageOf(by(c.id)) === 'noso' && !by(c.id).rollCode);
     t('e2e: a counted visit still gets its own WTN (live behaviour)', /^WTN-\d{4}-\d{4}$/.test(by(a.id).wtn || ''));
     t('e2e: confirm', (await req(port, 'POST', '/api/roll-confirm', { orderId: b.id, confirm: true, by: 'Tester' })).json.ok);
+    st = (await req(port, 'GET', '/api/state')).json;
+    t('e2e: confirm keeps what was typed', by(b.id).typedCust === 'Chubb' && by(b.id).cust === 'Chubb Fire and Security Ltd');
+    t('e2e: roll-up visits are hidden from /classic No SO Yet (noSoExpected)', [a.id, b.id, d.id].every(id => by(id).noSoExpected));
+    t('e2e: office APIs still refuse without the access key', (await req(port, 'POST', '/api/rollup-process', { code: 'CNI0222' }, { Cookie: null })).status === 401);
+    const h = await drop({ cust: 'chubb' }); await count(h);   // alias, left waiting for Confirm
     const pr = (await req(port, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'Tester' })).json;
-    t('e2e: Process takes the confirmed, counted visits only', pr.ok && pr.rollup.visitIds.slice().sort().join() === [a.id, b.id].sort().join() && pr.left === 1);
+    /* ---- blocking path 1: a visit on a season pack cannot be billed on its own ---- */
+    const r409 = async (p, body) => (await req(port, 'POST', p, body)).status === 409;
+    t('guard 1: classic Invoiced tick refused on a packed visit', await r409('/api/mark', { orderId: a.id, field: 'invoiced', value: true }));
+    t('guard 1: classic WTN-sent tick refused on a packed visit', await r409('/api/mark', { orderId: a.id, field: 'wtnSent', value: true }));
+    t('guard 1: per-order Processed refused on a packed visit', await r409('/api/process', { orderId: b.id, nsRef: 'SO1' }));
+    /* ---- blocking path 2: no real SO on a packed or pending visit ---- */
+    t('guard 2: set-so refused on a packed visit', await r409('/api/set-so', { orderId: b.id, so: 'SO12345' }));
+    t('guard 2: set-so refused on a visit waiting for Confirm', await r409('/api/set-so', { orderId: h.id, so: 'SO99999' }));
+    /* ---- blocking path 3: never folded away or moved while a pack holds it ---- */
+    t('guard 3: consolidate refuses a packed visit as a source', await r409('/api/consolidate', { targetId: c.id, sourceIds: [a.id] }));
+    t('guard 3: consolidate refuses a packed visit as the target', await r409('/api/consolidate', { targetId: a.id, sourceIds: [c.id] }));
+    t('guard 3: move-crate refuses a packed visit', await r409('/api/move-crate', { orderId: a.id, countIndex: 0, so: 'SO777777' }));
+    t('guard 3: merge-drops refuses an open roll-up visit', await r409('/api/merge-drops', { orderId: d.id }));
+    t('guard 3: amend refused once a visit is on a pack', await r409('/api/amend', { orderId: a.id, reason: 'x', crates: 1 }));
+    st = (await req(port, 'GET', '/api/state')).json;
+    t('guard 3: every packed visit still exists and is unbilled', pr.rollup.visitIds.every(id => by(id) && !by(id).invoicedAt && by(id).so.startsWith('DROP-')));
+    /* ---- blocking path 4: revert cannot strand an unsent pack ---- */
+    const rv0 = await req(port, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'Tester' }, { 'X-Admin-Key': 'test-admin-key' });
+    t('guard 4: revert refused while a pack is unsent', rv0.status === 400 && rv0.json.error === 'Mark the pack sent or void it first');
+    t('e2e: reject the alias visit -> No SO yet', (await req(port, 'POST', '/api/roll-confirm', { orderId: h.id, confirm: false })).json.ok);
+    st = (await req(port, 'GET', '/api/state')).json;
+    t('e2e: rejected visit shows on No SO yet again', P.stageOf(by(h.id)) === 'noso' && !by(h.id).noSoExpected);
+    t('e2e: Process takes the confirmed, counted visits only', pr.ok && pr.rollup.visitIds.slice().sort().join() === [a.id, b.id].sort().join() && pr.left === 2);
     t('e2e: season WTN numbered in sequence', /^WTN-\d{4}-\d{4}$/.test(pr.rollup.wtn) && pr.rollup.wtn !== by(a.id).wtn);
     const wtnPage = await req(port, 'GET', '/wtn/rollup/' + pr.rollup.id);
     t('e2e: season WTN page renders with the visit list', wtnPage.status === 200 && wtnPage.text.includes(pr.rollup.wtn) && wtnPage.text.includes('Visits covered'));
@@ -124,6 +157,8 @@ async function e2e() {
     st = (await req(port, 'GET', '/api/state')).json;
     t('e2e: visits carry wtnSentAt/invoicedAt/nsRef so /classic reads them as invoiced', [a.id, b.id].every(id => { const o = by(id); return o.wtnSentAt && o.invoicedAt && o.nsRef === 'SO48300' && P.stageOf(o) === 'rolled'; }));
     t('e2e: roll-up is Processed', P.rollupStage(st.rollups[0]) === 'processed');
+    t('guard: a processed pack cannot be voided', (await req(port, 'POST', '/api/rollup-undo', { id: pr.rollup.id })).status === 400);
+    t('guard: a processed pack cannot be un-sent', (await req(port, 'POST', '/api/rollup-mark', { id: pr.rollup.id, field: 'sent', value: false })).status === 400);
     await req(port, 'POST', '/api/set-so', { orderId: c.id, so: 'SO900001' });
     await req(port, 'POST', '/api/mark', { orderId: c.id, field: 'wtnSent', value: true });
     const po = (await req(port, 'POST', '/api/process', { orderId: c.id, nsRef: 'inv-190300', by: 'Tester' })).json;
@@ -139,6 +174,9 @@ async function e2e() {
     t('e2e: revert with the key splits the OPEN roll-up (d, e, f)', rv.json.ok && rv.json.split === 3);
     t('e2e: reverted visits go back to their own stages', P.stageOf(by(e.id)) === 'noso' && P.stageOf(by(d.id)) === 'awaiting' && P.stageOf(by(f.id)) === 'awaiting');
     t('e2e: processed roll-up untouched by revert', by(a.id).rollupId === pr.rollup.id && P.rollupStage(st.rollups[0]) === 'processed');
+    const rp2 = await req(port, 'POST', '/api/rollup-process', { code: 'CNI0222' });
+    t('guard 4: Process refused once the account is per order', rp2.status === 400 && /per order/.test(rp2.json.error));
+    t('e2e: /count picker lists monthly accounts only', (await req(port, 'GET', '/api/count-customers', null, { Cookie: null })).json.customers.length === 0);
     t('e2e: change history recorded', st.customers[0].billing === 'per-order' && st.customers[0].history[0].from === 'monthly' && st.customers[0].history[0].by === 'Tester');
     const g = await drop({ cust: 'x', custCode: 'CNI0222' });
     st = (await req(port, 'GET', '/api/state')).json;

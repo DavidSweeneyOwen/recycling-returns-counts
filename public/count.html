@@ -219,7 +219,8 @@ let STATE=null,active=null,counter=null,photoId=null;
    trusted; anything typed is sent as typed and the office sorts it out. */
 let CUSTS=[],dropPick=null;
 function loadCustomers(){fetch('/api/count-customers').then(r=>r.json()).then(j=>{CUSTS=j.customers||[];}).catch(()=>{});}
-function billingLabel(c){return c.billing==='monthly'?'<span class="mo">Monthly rolling</span>':'Per order';}
+/* /api/count-customers only lists monthly-rolling accounts */
+function billingLabel(c){return '<span class="mo">Monthly rolling</span>';}
 function dropTyped(){dropPick=null;renderDropSugg();}
 function renderDropSugg(){
   const box=document.getElementById('dropSugg'),q=document.getElementById('dropCust').value.trim();

@@ -672,6 +672,19 @@ function rollupAsOrder(r) {
     crates: visits.reduce((a, v) => a + (Number(v.crates) || 0), 0), counts, dropOff: false, date: r.from,
     collectionAddress: (visits.find(v => v.collectionAddress) || {}).collectionAddress || '' } };
 }
+/* Roll-up guard. A visit waiting for Confirm, on an open roll-up, or on a season pack is
+   changed ONLY through the roll-up endpoints (Confirm / Not this account / Process / pack /
+   void / Revert). Every legacy endpoint that changes an order calls this first, so a visit
+   can never be billed twice, folded into another account, or deleted under a pack.
+   allowOpen: amendments may still correct the counts of a visit on the OPEN roll-up
+   (before Process) — never once it is on a pack. */
+function rollLocked(o) { return !!o && (!!o.rollupId || !!Pipeline.rollState(o)); }
+function rollGuard(res, orders, opts) {
+  const o = (orders || []).find(x => x && (opts && opts.allowOpen ? !!x.rollupId : rollLocked(x)));
+  if (!o) return false;
+  json(res, 409, { error: `${o.so} is on the ${o.rollCode || ''} monthly roll-up${o.rollupId ? ' (season pack)' : ''} — change it from Monthly accounts` });
+  return true;
+}
 function seasonWtnHtml(r) {
   const { visits, o } = rollupAsOrder(r);
   const units = v => (v.counts || []).reduce((a, c) => a + c.lines.reduce((s, l) => s + Number(l.q), 0), 0);
@@ -805,7 +818,7 @@ const server = http.createServer((req, res) => {
   }
   /* The /count drop-off picker: just enough to suggest an account. Open like /count. */
   if (req.method === 'GET' && p === '/api/count-customers') {
-    return json(res, 200, { customers: (db.customers || []).map(c => ({ code: c.code, name: c.name, aliases: c.aliases || [], billing: c.billing })) });
+    return json(res, 200, { customers: (db.customers || []).filter(c => c.billing === 'monthly').map(c => ({ code: c.code, name: c.name, aliases: c.aliases || [] })) });
   }
   /* Defra "Report receipt of waste": the WTNs on the store, written into Defra's own
      spreadsheet for any date range (from/to are inclusive, either may be left off).
@@ -922,8 +935,10 @@ const server = http.createServer((req, res) => {
           const k = Pipeline.classifyDropoff(db.customers || [], custCode, customer);
           if (k.customer) {
             o.custCode = k.customer.code; o.custMatch = k.match;
+            o.typedCust = customer;
             if (k.match === 'picked') o.cust = k.customer.name;
-            if (k.roll) { o.rollCode = k.customer.code; o.noSoExpected = null; }
+            /* noSoExpected keeps it off /classic's No SO Yet tab — it is billed through the roll-up */
+            if (k.roll) { o.rollCode = k.customer.code; o.noSoExpected = nowStamp().split(',')[0]; }
           }
         }
         db.orders.unshift(o);
@@ -938,6 +953,7 @@ const server = http.createServer((req, res) => {
         const { orderId, counts, crates, reason, by, clearFinalSo, clearInvoiced, clearCredit } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o], { allowOpen: true })) return;
         if (!reason || !String(reason).trim()) return json(res, 400, { error: 'A reason is required to amend a count' });
         const before = aggregate(o);
         if (Array.isArray(counts)) {
@@ -998,6 +1014,7 @@ const server = http.createServer((req, res) => {
         const { orderId, field, value } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (field !== 'credit' && rollGuard(res, [o])) return;
         if (o.status !== 'done') return json(res, 400, { error: 'Order not counted yet' });
         const stamp = value ? nowStamp().split(',')[0] : null;
         if (field === 'wtnSent') o.wtnSentAt = stamp;
@@ -1014,6 +1031,7 @@ const server = http.createServer((req, res) => {
         const { orderId, finalSo } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o])) return;
         o.finalSo = String(finalSo || '').trim() || null;
         saveDb(); json(res, 200, { ok: true });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
@@ -1031,9 +1049,10 @@ const server = http.createServer((req, res) => {
         const { orderId } = JSON.parse(body);
         const target = db.orders.find(x => x.id === Number(orderId));
         if (!target) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [target])) return;
         const key = String(target.cust || '').trim().toLowerCase();
         if (!key) return json(res, 400, { error: 'That collection has no customer name to group on' });
-        const group = db.orders.filter(o => o.dropOff && o.status === 'open' && !o.wtn
+        const group = db.orders.filter(o => !rollLocked(o) && o.dropOff && o.status === 'open' && !o.wtn
           && String(o.cust || '').trim().toLowerCase() === key);
         if (group.length < 2) return json(res, 400, { error: 'Nothing to merge — only one open drop-off for this customer' });
         group.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id);
@@ -1072,6 +1091,7 @@ const server = http.createServer((req, res) => {
         const { targetId, sourceIds } = JSON.parse(body);
         const keep = db.orders.find(x => x.id === Number(targetId));
         if (!keep) return json(res, 404, { error: 'Target collection not found' });
+        if (rollGuard(res, [keep])) return;
         if (keep.invoicedAt) return json(res, 400, { error: `${keep.so} is already invoiced — nothing can be folded into it` });
         const ids = [...new Set((sourceIds || []).map(Number))].filter(i => i !== keep.id);
         if (!ids.length) return json(res, 400, { error: 'Pick at least one other collection to fold in' });
@@ -1079,6 +1099,7 @@ const server = http.createServer((req, res) => {
         const sources = ids.map(i => db.orders.find(x => x.id === i));
         const missing = ids.filter((i, n) => !sources[n]);
         if (missing.length) return json(res, 404, { error: `Collection ${missing.join(', ')} not found — refresh and try again` });
+        if (rollGuard(res, sources)) return;
         const invoiced = sources.filter(o => o.invoicedAt);
         if (invoiced.length) return json(res, 400, { error: `${invoiced.map(o => o.so).join(', ')} already invoiced — leave those out` });
 
@@ -1121,12 +1142,13 @@ const server = http.createServer((req, res) => {
         const { orderId } = JSON.parse(body);
         const target = db.orders.find(x => x.id === Number(orderId));
         if (!target) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [target])) return;
         const acct = monthlyAccount(target.cust);
         if (!acct) return json(res, 400, { error: `${target.cust || 'That customer'} is not on the monthly customer list` });
         const month = String(target.date || '').slice(0, 7);
         if (!/^\d{4}-\d{2}$/.test(month)) return json(res, 400, { error: 'That collection has no usable date' });
 
-        const group = db.orders.filter(o => !o.invoicedAt
+        const group = db.orders.filter(o => !rollLocked(o) && !o.invoicedAt
           && String(o.date || '').slice(0, 7) === month
           && sameMonthlyAccount(o.cust, acct));
         if (group.length < 2) return json(res, 400, { error: `Only one ${acct.name} collection in ${month} — nothing to consolidate` });
@@ -1181,6 +1203,7 @@ const server = http.createServer((req, res) => {
         const { orderId, value } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o])) return;
         const on = value !== false;
         o.noSoExpected = on ? nowStamp().split(',')[0] : null;
         const key = String(o.cust || '').trim().toLowerCase();
@@ -1201,6 +1224,7 @@ const server = http.createServer((req, res) => {
         const { orderId } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o])) return;
         if (o.status !== 'open') return json(res, 400, { error: 'Order is already counted' });
         o.keepOpen = nowStamp().split(',')[0];
         saveDb(); json(res, 200, { ok: true });
@@ -1218,6 +1242,7 @@ const server = http.createServer((req, res) => {
         const { orderId, countIndex, so, cust } = JSON.parse(body);
         const src = db.orders.find(x => x.id === Number(orderId));
         if (!src) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [src])) return;
         const norm = normaliseSO(so);
         if (!norm) return json(res, 400, { error: 'Enter the SO / TFO number' });
         const i = Number(countIndex);
@@ -1225,6 +1250,7 @@ const server = http.createServer((req, res) => {
         if (!c) return json(res, 400, { error: 'That crate is not on this collection — refresh and try again' });
         if (src.invoicedAt) return json(res, 400, { error: `${src.so} is already invoiced — crates can't be moved off it` });
         let dst = db.orders.find(x => x.so === norm);
+        if (dst && rollGuard(res, [dst])) return;
         if (dst && dst.id === src.id) return json(res, 400, { error: 'That crate is already on ' + norm });
         if (dst && dst.invoicedAt) return json(res, 400, { error: `${norm} is already invoiced` });
         const n = c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1;
@@ -1291,6 +1317,7 @@ const server = http.createServer((req, res) => {
         const { orderId } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o])) return;
         if (!o.dropRef) return json(res, 400, { error: `${o.so} came from NetSuite, not a drop-off — there is nothing to undo` });
         if (o.invoicedAt) return json(res, 400, { error: `${o.so} is already invoiced — untick Invoiced first` });
         const was = o.so;
@@ -1308,9 +1335,11 @@ const server = http.createServer((req, res) => {
         const { orderId, so } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o])) return;
         const norm = normaliseSO(so);
         if (!norm) return json(res, 400, { error: 'Enter an SO number' });
         const clash = db.orders.find(x => x.so === norm && x.id !== o.id);
+        if (clash && rollGuard(res, [clash])) return;
         let absorbed = false;
         /* An SO turning up proves this was never a drop-off-only customer — usually a
            site name (Safestore, Big Yellow) that one of our customers raises SOs for.
@@ -1385,6 +1414,7 @@ const server = http.createServer((req, res) => {
   if (post('/api/process', b => {
     const o = db.orders.find(x => x.id === Number(b.orderId));
     if (!o) return json(res, 404, { error: 'Order not found' });
+    if (rollGuard(res, [o])) return;
     if (o.status !== 'done') return json(res, 400, { error: 'Order not counted yet' });
     const ref = String(b.nsRef || '').trim().toUpperCase();
     if (!ref) return json(res, 400, { error: 'Enter the NetSuite SO or invoice number' });
@@ -1399,8 +1429,8 @@ const server = http.createServer((req, res) => {
     if (!o) return json(res, 404, { error: 'Order not found' });
     if (Pipeline.rollState(o) !== 'pending') return json(res, 400, { error: `${o.so} is not waiting for a confirm` });
     const by = String(b.by || '').trim() || 'Rec admin';
-    if (b.confirm === false) { o.rollOutAt = day(); o.rollOutWhy = 'rejected by ' + by; }
-    else { o.rollConfirmedAt = day(); o.rollConfirmedBy = by; o.cust = (Pipeline.findCustomer(db.customers, o.rollCode) || {}).name || o.cust; }
+    if (b.confirm === false) { o.rollOutAt = day(); o.rollOutWhy = 'rejected by ' + by; o.noSoExpected = null; }
+    else { o.typedCust = o.typedCust || o.cust; o.rollConfirmedAt = day(); o.rollConfirmedBy = by; o.cust = (Pipeline.findCustomer(db.customers, o.rollCode) || {}).name || o.cust; }
     saveDb(); json(res, 200, { ok: true, so: o.so, confirmed: b.confirm !== false });
   })) return;
 
@@ -1409,6 +1439,7 @@ const server = http.createServer((req, res) => {
   if (post('/api/rollup-process', b => {
     const c = Pipeline.findCustomer(db.customers, b.code);
     if (!c) return json(res, 404, { error: 'Customer not found' });
+    if (c.billing !== 'monthly') return json(res, 400, { error: `${c.name} is billed per order now — switch it back to monthly before processing a roll-up` });
     const r0 = Pipeline.openRollup(db.orders, c.code);
     if (!r0.ready.length) return json(res, 400, { error: `No counted, confirmed visits on the ${c.name} roll-up` });
     db.rollups = db.rollups || [];
@@ -1429,6 +1460,7 @@ const server = http.createServer((req, res) => {
     if (!r || r.voidedAt) return json(res, 404, { error: 'Roll-up not found' });
     const visits = r.visitIds.map(id => db.orders.find(o => o.id === id)).filter(Boolean);
     const on = b.value !== false, stamp = on ? day() : null;
+    if (b.field === 'sent' && !on && r.processedAt) return json(res, 400, { error: `${r.wtn} is processed on NetSuite — undo that first` });
     if (b.field === 'sent') {
       r.sentAt = stamp; visits.forEach(o => { o.wtnSentAt = stamp; });
     } else if (b.field === 'processed') {
@@ -1446,9 +1478,12 @@ const server = http.createServer((req, res) => {
   if (post('/api/rollup-undo', b => {
     const r = (db.rollups || []).find(x => x.id === Number(b.id));
     if (!r || r.voidedAt) return json(res, 404, { error: 'Roll-up not found' });
+    if (r.processedAt) return json(res, 400, { error: `${r.wtn} is processed on NetSuite — it cannot be voided` });
     if (r.sentAt) return json(res, 400, { error: `${r.wtn} is marked as sent — untick that first` });
     r.voidedAt = nowStamp(); r.voidedBy = String(b.by || '').trim() || 'Rec admin';
-    db.orders.forEach(o => { if (o.rollupId === r.id) delete o.rollupId; });
+    const still = (Pipeline.findCustomer(db.customers, r.code) || {}).billing === 'monthly';
+    db.orders.forEach(o => { if (o.rollupId !== r.id) return; delete o.rollupId;
+      if (!still) { o.rollOutAt = day(); o.rollOutWhy = 'pack voided after revert to per order'; o.noSoExpected = null; } });
     saveDb(); json(res, 200, { ok: true, wtn: r.wtn });
   })) return;
 
@@ -1462,8 +1497,10 @@ const server = http.createServer((req, res) => {
     const to = b.billing === 'monthly' ? 'monthly' : 'per-order';
     if (c.billing === to) return json(res, 400, { error: `${c.name} is already ${to}` });
     let split = 0;
+    if (to === 'per-order' && (db.rollups || []).some(r => r.code === c.code && !r.sentAt && !r.voidedAt))
+      return json(res, 400, { error: 'Mark the pack sent or void it first' });
     if (to === 'per-order') {
-      db.orders.forEach(o => { if (o.rollCode === c.code && Pipeline.rollState(o)) { o.rollOutAt = day(); o.rollOutWhy = 'reverted to per order'; split++; } });
+      db.orders.forEach(o => { if (o.rollCode === c.code && Pipeline.rollState(o)) { o.rollOutAt = day(); o.rollOutWhy = 'reverted to per order'; o.noSoExpected = null; split++; } });
     }
     c.history = c.history || [];
     c.history.unshift({ by: String(b.by || '').trim() || 'Admin', when: nowStamp(), from: c.billing, to });

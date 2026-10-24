@@ -13,7 +13,9 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 /* ============ LIVE CODE: helpers, classifiers and actions (from the pre-redesign dashboard, unchanged) ============ */
 function monthlyInfo(o){return MONTHLY.find(m=>{const k=String(m.match||m.name||'').toLowerCase();return k&&o.cust&&o.cust.toLowerCase().includes(k);});}
-function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+/* A value passed as a JS string inside an onclick attribute: JSON-quoted, then HTML-escaped. */
+function jsq(s){return esc(JSON.stringify(String(s??'')));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function crateLabel(c){
   if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
@@ -330,7 +332,7 @@ function card(o,stage,foot,opts){
     <div class="card-foot">${foot}</div></article>`;
 }
 const detailsBtn=o=>`<button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
-const undoBtn=o=>o.dropRef&&!o.invoicedAt?`<button class="lbtn" onclick="unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:'';
+const undoBtn=o=>o.dropRef&&!o.invoicedAt?`<button class="lbtn" onclick="unsetSo(${o.id},${jsq(o.so)},${jsq(o.dropRef)})">Wrong SO? Undo</button>`:'';
 const creditBox=o=>o.co2>0?`<label class="tickbox"><input type="checkbox" ${o.creditAt?'checked':''} onchange="mark(${o.id},'credit',this.checked)">CO2 credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}</label>`:'';
 /* Deep links: /#monthly, /#wtn … open that view. */
 window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(v!==VIEW&&(VIEWS[v]||v==='reports'||v==='amend'))go(v);});
@@ -441,8 +443,8 @@ const VIEWS={
   hist.sort((a,b)=>String(dmy(b.when)||'').localeCompare(String(dmy(a.when)||''))||String(b.when).localeCompare(String(a.when)));
   const lock=STATE.adminEnabled?`<span class="lock-line">${ICON.lock}Changes need the admin key</span>`:`<span class="lock-line" style="color:#b42318">${ICON.lock}Set ADMIN_KEY on Render to enable changes</span>`;
   const btn=c=>!STATE.adminEnabled?`<span class="lock-line" title="Read-only">${ICON.lock}Read-only</span>`
-    :c.billing==='monthly'?`<button class="btn quiet sm" onclick="billingDialog('${esc(c.code)}','per-order')">Revert to per order</button>`
-    :`<button class="btn quiet sm" onclick="billingDialog('${esc(c.code)}','monthly')">Switch to monthly</button>`;
+    :c.billing==='monthly'?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`
+    :`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'monthly')">Switch to monthly</button>`;
   return head('s-neutral','Customers',`${lock}`,'How each customer is billed. Monthly rolling applies to drop-offs picked on /count from the moment it is switched on; counts already made stay as they are. Reverting splits the open roll-up back into its own orders.',searchBox('customers','Search name, code or alias'))
    +`<div class="tablewrap"><table class="stack"><thead><tr><th>Customer</th><th>Aliases typed on /count</th><th class="num">Visits picked on /count</th><th>Billing</th></tr></thead><tbody>${l.map(c=>{const h=(c.history||[])[0];return `<tr>
       <td data-label="Customer"><b style="font-weight:600">${esc(c.name)}</b><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(c.code||'no code')}</div>${c.note?`<div class="meta">${esc(c.note)}</div>`:''}${h?`<div class="meta">Changed by ${esc(h.by)}, ${esc(h.when)}</div>`:''}</td>
@@ -456,7 +458,7 @@ const VIEWS={
 /* ============ monthly roll-ups ============ */
 function rollSection(c){
   const R=P.openRollup(STATE.orders,c.code),vs=R.members.concat(R.pending).sort(byDate);
-  const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog('${esc(c.code)}','per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs ADMIN_KEY</span>`):'';
+  const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs ADMIN_KEY</span>`):'';
   const top=`<div><span class="badge">${c.billing==='monthly'?'Monthly rolling':'Per order now — finish or revert this roll-up'}</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${vs.length?` · open since ${esc(ukDate(vs[0].date))} · no SO until you process`:' · no visits since the last Process'}</div></div>`;
   if(!vs.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">The next ${esc(c.name)} drop-off picked on /count starts a new roll-up.</span>${revert}</div></section>`;
   const crates=R.members.reduce((a,o)=>a+o.counted,0),u=R.members.reduce((a,o)=>a+units(o),0);
@@ -477,7 +479,7 @@ function rollSection(c){
     <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Matched account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${vs.map(vrow).join('')}</div>
     <div class="roll-cols"><div><h4>Units by product</h4>${kvList(sumProducts(R.members))}</div><div><h4>Units by charge code</h4>${kvList(sumCodes(R.members))}</div></div>
     <div class="roll-foot"><span class="hint">Process raises one season WTN covering every confirmed, fully counted visit.${R.members.length>R.ready.length?` ${plural(R.members.length-R.ready.length,'visit')} still being counted stays open.`:''}</span>
-      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog('${esc(c.code)}')" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(R.ready.length,'visit')} since ${esc(first||'—')}</button></span></div></section>`;
+      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(R.ready.length,'visit')} since ${esc(first||'—')}</button></span></div></section>`;
 }
 function packCard(r){
   const vs=rollVisits(r);
@@ -508,7 +510,7 @@ function processDialog(code){
     <table><thead><tr><th>Charge code</th><th class="num">Units</th></tr></thead><tbody>${Object.keys(codes).sort().map(k=>`<tr><td class="mono">${esc(k)}</td><td class="num">${codes[k]}</td></tr>`).join('')}<tr><td><b>Total</b></td><td class="num"><b>${tot}</b></td></tr></tbody></table>
     <p class="d-note">Prices are applied in NetSuite, so none are shown here.</p>
     ${left?`<div class="warn-box">${plural(left,'visit')} still counting or awaiting confirmation ${left===1?'is':'are'} left out and stay${left===1?'s':''} on the open roll-up.</div>`:''}
-    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="rollupProcess('${esc(code)}')">Generate WTN &amp; invoice pack</button></div>`);
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="rollupProcess(${jsq(code)})">Generate WTN &amp; invoice pack</button></div>`);
 }
 async function rollupProcess(code){
   const j=await api('/api/rollup-process',{code,by:adminName()});
@@ -555,7 +557,7 @@ function billingDialog(code,to){
     <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
     <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
     <p class="d-note">Recorded in the change history. Nothing is lost — you can switch back at any time.</p>
-    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="doBilling('${esc(code)}','${to}')">${to==='monthly'?'Switch to monthly':'Revert to per order'}</button></div>`);
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="doBilling(${jsq(code)},'${to}')">${to==='monthly'?'Switch to monthly':'Revert to per order'}</button></div>`);
 }
 async function doBilling(code,to){
   const by=document.getElementById('bkBy').value.trim(),key=document.getElementById('bkKey').value;

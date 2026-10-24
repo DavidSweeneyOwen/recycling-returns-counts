@@ -76,3 +76,7 @@ Every `git push` to main redeploys automatically.
 ## Phase 3 — NetSuite API
 
 When ready: create an Integration record in NetSuite (Setup → Integration), generate TBA tokens, then implement `createNetSuiteSalesOrder()` in `server.js` (SuiteTalk REST, `POST /record/v1/salesOrder`, lines from the rolled-up codes) and set `netsuite.api.enabled` to `true` in `config.json`. The function is called automatically the moment the final crate is counted.
+
+## Monthly roll-ups and the Defra export
+
+A season WTN (one per processed monthly roll-up) takes the next WTN number, but the Defra receipt of waste export lists each visit under its own WTN, so season numbers show as gaps in the export's WTN sequence. That is expected: listing the season WTN as well would count the same waste twice.
