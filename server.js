@@ -2,7 +2,9 @@
    CheckFire Recycling Returns — Server
    Zero-dependency Node.js app. Run with:  node server.js
    Serves:
-     /            office dashboard — Awaiting / Counted / Invoiced / Reports / Amendments
+     /            office dashboard — pipeline (Awaiting / No SO / Counted / WTN sent / Processed),
+                  Monthly accounts, Amendments, Reports, Archive, Customers
+     /classic     the pre-redesign dashboard, unchanged — the fail-safe view
      /count       Rec team counter form (PIN login + collection number match)
      /wtn/:id     printable Duty of Care Waste Transfer Note
      /api/receipt-of-waste   Defra 'Report receipt of waste' spreadsheet, filled from the WTNs (receipt-of-waste.js)
@@ -27,6 +29,15 @@ if (process.env.NETSUITE_WEBQUERY_URL) CONFIG.netsuite.webQueryUrl = process.env
 if (process.env.NETSUITE_EMAIL) CONFIG.netsuite.email = process.env.NETSUITE_EMAIL;
 if (process.env.NETSUITE_TFO_WEBQUERY_URL) CONFIG.netsuite.tfoWebQueryUrl = process.env.NETSUITE_TFO_WEBQUERY_URL;
 const ACCESS_KEY = process.env.ACCESS_KEY || '';   // optional shared key — empty = open access
+/* Second key, for changing a customer's billing (per order / monthly rolling). Unset =
+   the Customers view is read-only. Checked here on the server, never in the page. */
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
+const crypto = require('crypto');
+const Pipeline = require('./public/pipeline.js');
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
 
 const DATA_FILE = path.join(process.env.DATA_DIR || __dirname, 'data.json');
 const LOGO_B64 = fs.existsSync(path.join(__dirname, 'assets', 'logo.jpg'))
@@ -179,7 +190,7 @@ async function openStore() {
     db = loadDb();                       // no remote store configured — the file IS the store
     STORE = { ready: true, state: 'ready', source: 'local file (' + DATA_FILE + ')', error: null };
     console.log('[store] local file only — no GH_DATA_REPO/GH_TOKEN set');
-    return startSync();
+    return onStoreReady();
   }
   let last = null;
   for (let attempt = 1; attempt <= 5; attempt++) {
@@ -189,12 +200,12 @@ async function openStore() {
         db = r.data;
         STORE = { ready: true, state: 'ready', source: GH_REPO, error: null };
         console.log('[store] loaded', (db.orders || []).length, 'orders from', GH_REPO);
-        return startSync();
+        return onStoreReady();
       }
       if (r.status === 404) {
         STORE = { ready: true, state: 'ready', source: GH_REPO + ' (new, empty)', error: null };
         console.log('[store] no data.json in', GH_REPO, 'yet — it will be created on first save');
-        return startSync();
+        return onStoreReady();
       }
       last = 'HTTP ' + r.status;
     } catch (e) { last = e.message; }
@@ -495,6 +506,14 @@ if (SELF_URL) {
 
 /* Called only once openStore() knows where the live data came from. The sync writes
    to the store, so it must never run on a guess. */
+/* Store confirmed — add the redesign's new top-level lists if this store has never had
+   them. Additive only: existing keys are never touched, and nothing is written here
+   (the next normal save carries them). The pre-redesign code ignores both lists. */
+function onStoreReady() {
+  if (!Array.isArray(db.customers)) db.customers = Pipeline.seedCustomers(CONFIG);
+  if (!Array.isArray(db.rollups)) db.rollups = [];
+  return startSync();
+}
 let syncStarted = false;
 function startSync() {
   if (syncStarted || !STORE.ready) return;
@@ -640,6 +659,48 @@ function wtnHtml(o) {
 </div></body></html>`;
 }
 
+/* ---------------- season WTN + batch printing (redesign) ----------------
+   Built on top of wtnHtml() without changing it. A season WTN is one Duty of Care
+   note covering every confirmed visit on a monthly customer's roll-up; the visits
+   keep their own WTN numbers on record (a WTN is never thrown away), and the Defra
+   receipt of waste export keeps listing each visit, so nothing is counted twice. */
+function rollupAsOrder(r) {
+  const visits = (r.visitIds || []).map(id => db.orders.find(o => o.id === id)).filter(Boolean);
+  const counts = [];
+  visits.forEach(v => (v.counts || []).forEach(c => counts.push(c)));
+  return { visits, o: { id: 'R' + r.id, wtn: r.wtn, cust: r.name, so: 'Season ' + (r.code || ''),
+    crates: visits.reduce((a, v) => a + (Number(v.crates) || 0), 0), counts, dropOff: false, date: r.from,
+    collectionAddress: (visits.find(v => v.collectionAddress) || {}).collectionAddress || '' } };
+}
+function seasonWtnHtml(r) {
+  const { visits, o } = rollupAsOrder(r);
+  const units = v => (v.counts || []).reduce((a, c) => a + c.lines.reduce((s, l) => s + Number(l.q), 0), 0);
+  const extra = `<div class="wtn" style="page-break-before:always">
+  <h2>Visits covered by season WTN ${esc(r.wtn)}</h2>
+  <table><tr><td class="lbl">Date counted</td><td class="lbl">Ref</td><td class="lbl">Own WTN</td><td class="lbl">Crates</td><td class="lbl">Units</td><td class="lbl">Counted by</td></tr>
+  ${visits.map(v => `<tr><td>${esc(v.counts.length ? v.counts[v.counts.length - 1].when.split(',')[0] : ukDate(v.date))}</td><td>${esc(v.so)}</td><td>${esc(v.wtn || '')}</td><td>${v.crates}</td><td>${units(v)}</td><td>${esc([...new Set(v.counts.map(c => c.by))].join(', '))}</td></tr>`).join('')}
+  </table>
+  <h2 style="margin-top:22px">Invoice lines by charge code</h2>
+  <table><tr><td class="lbl">Charge code</td><td class="lbl">Units</td></tr>
+  ${nsLines(o).map(l => `<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}
+  <tr><td class="lbl">Total</td><td class="lbl">${nsLines(o).reduce((a, l) => a + l.q, 0)}</td></tr></table>
+  <p class="small" style="margin-top:10px">${esc(r.name)} (${esc(r.code)}) &middot; ${visits.length} visit(s) &middot; prices are applied in NetSuite.</p>
+</div></body>`;
+  return wtnHtml(o).replace(/<\/body>/, extra);
+}
+/* Several WTNs in one printable page (one per sheet) — "Download selected". */
+function wtnBatchHtml(docs) {
+  const style = ((docs[0] || '').match(/<style>[\s\S]*?<\/style>/) || [''])[0];
+  const bodies = docs.map(d => { const m = d.match(/<div class="wtn"[\s\S]*<\/div><\/body>/); return m ? m[0].replace(/<\/body>$/, '') : ''; });
+  return `<!DOCTYPE html><html lang="en-GB"><head><meta charset="UTF-8"><title>${docs.length} waste transfer notes</title>${style}
+<style>.wtn{page-break-after:always}.wtn:last-child{page-break-after:auto}</style></head><body>
+<div class="bar"><span>${docs.length} waste transfer note(s)</span><button onclick="window.print()">Print / Save as PDF</button></div>
+${bodies.join('\n')}</body></html>`;
+}
+function withAutoPrint(html) {
+  return html.replace(/<\/body>(?![\s\S]*<\/body>)/, '<script>addEventListener("load",function(){setTimeout(function(){window.print()},300)})</script></body>');
+}
+
 /* ---------------- HTTP server ---------------- */
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.jpg': 'image/jpeg', '.png': 'image/png' };
 
@@ -672,7 +733,8 @@ const server = http.createServer((req, res) => {
   /* optional access gate — the counter app stays OPEN so the Rec team
      never see a password; the dashboard (with its Reports and Amendments
      tabs), WTNs and office APIs are all gated behind the access key. */
-  const OPEN_PATHS = ['/count', '/api/ping', '/api/counter-config', '/api/find-order', '/api/count', '/api/dropoff'];
+  const OPEN_PATHS = ['/count', '/api/ping', '/api/counter-config', '/api/find-order', '/api/count', '/api/dropoff',
+                      '/api/count-customers', '/pipeline.js'];
   if (ACCESS_KEY && !authed(req) && !OPEN_PATHS.includes(p) && !p.startsWith('/api/photo')) {
     if (req.method === 'POST' && p === '/unlock') {
       return readBody(req, body => {
@@ -694,11 +756,32 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && (p === '/' || p === '/dashboard')) return sendFile(res, 'dashboard.html');
   if (req.method === 'GET' && p === '/count') return sendFile(res, 'count.html');
   if (req.method === 'GET' && p === '/dashboard.js') return sendFile(res, 'dashboard.js');
+  /* Fail-safe: the pre-redesign dashboard, byte for byte, behind the same access key. */
+  if (req.method === 'GET' && p === '/classic') return sendFile(res, 'classic.html');
+  if (req.method === 'GET' && p === '/classic.js') return sendFile(res, 'classic.js');
+  if (req.method === 'GET' && p === '/pipeline.js') return sendFile(res, 'pipeline.js');
+  const printed = h => u.searchParams.get('print') === '1' ? withAutoPrint(h) : h;
   if (req.method === 'GET' && /^\/wtn\/\d+$/.test(p)) {
     const o = db.orders.find(x => x.id === Number(p.split('/')[2]));
     if (!o) return json(res, 404, { error: 'Order not found' });
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    return res.end(wtnHtml(o));
+    return res.end(printed(wtnHtml(o)));
+  }
+  if (req.method === 'GET' && /^\/wtn\/rollup\/\d+$/.test(p)) {
+    const r = (db.rollups || []).find(x => x.id === Number(p.split('/')[3]));
+    if (!r || !r.wtn) return json(res, 404, { error: 'Roll-up not found' });
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(printed(seasonWtnHtml(r)));
+  }
+  /* /wtn-batch?ids=12,15&r=3 — every listed WTN on one page, one per sheet */
+  if (req.method === 'GET' && p === '/wtn-batch') {
+    const ids = String(u.searchParams.get('ids') || '').split(',').map(Number).filter(Boolean);
+    const rids = String(u.searchParams.get('r') || '').split(',').map(Number).filter(Boolean);
+    const docs = ids.map(i => db.orders.find(o => o.id === i)).filter(o => o && o.wtn).map(wtnHtml)
+      .concat(rids.map(i => (db.rollups || []).find(r => r.id === i)).filter(r => r && r.wtn).map(seasonWtnHtml));
+    if (!docs.length) return json(res, 404, { error: 'No WTNs found for that selection' });
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(printed(wtnBatchHtml(docs)));
   }
 
   /* api */
@@ -714,8 +797,15 @@ const server = http.createServer((req, res) => {
       products: CONFIG.products,
       maxCrates: CONFIG.maxCrates,
       monthlyCustomers: CONFIG.monthlyCustomers || [],
-      apiEnabled: CONFIG.netsuite.api.enabled
+      apiEnabled: CONFIG.netsuite.api.enabled,
+      customers: db.customers || [],      // redesign: billing list (per order / monthly rolling)
+      rollups: db.rollups || [],          // redesign: season WTNs raised from monthly roll-ups
+      adminEnabled: !!ADMIN_KEY           // false = Customers is read-only
     });
+  }
+  /* The /count drop-off picker: just enough to suggest an account. Open like /count. */
+  if (req.method === 'GET' && p === '/api/count-customers') {
+    return json(res, 200, { customers: (db.customers || []).map(c => ({ code: c.code, name: c.name, aliases: c.aliases || [], billing: c.billing })) });
   }
   /* Defra "Report receipt of waste": the WTNs on the store, written into Defra's own
      spreadsheet for any date range (from/to are inclusive, either may be left off).
@@ -800,7 +890,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && p === '/api/dropoff') {
     return readBody(req, body => {
       try {
-        const { cust, by, crates, address, claimedRef, photoId, unmatched } = JSON.parse(body);
+        const { cust, by, crates, address, claimedRef, photoId, unmatched, custCode } = JSON.parse(body);
         const isUnmatched = !!unmatched;
         let customer = String(cust || '').trim();
         /* The unmatched-from-the-tablet path (a photo whose number didn't match a live
@@ -825,6 +915,17 @@ const server = http.createServer((req, res) => {
              path — a failed SO match is not the same thing as "never has an SO". */
           noSoExpected: (!isUnmatched && (db.dropOnly || []).includes(customer.toLowerCase())) ? nowStamp().split(',')[0] : null
         };
+        /* Redesign: which account this drop-off belongs to. Picked from the list on
+           /count = trusted; typed text that only matches a monthly account = joins its
+           roll-up once Rec Admin confirms; no match = No SO yet, exactly as before. */
+        if (!isUnmatched) {
+          const k = Pipeline.classifyDropoff(db.customers || [], custCode, customer);
+          if (k.customer) {
+            o.custCode = k.customer.code; o.custMatch = k.match;
+            if (k.match === 'picked') o.cust = k.customer.name;
+            if (k.roll) { o.rollCode = k.customer.code; o.noSoExpected = null; }
+          }
+        }
         db.orders.unshift(o);
         saveDb();
         json(res, 200, { ok: true, order: { id: o.id, so: o.so, cust: o.cust, date: o.date, by: o.by, crates: o.crates, counted: 0 } });
@@ -1270,6 +1371,105 @@ const server = http.createServer((req, res) => {
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
+
+  /* ================= redesign endpoints (all additive) ================= */
+  const post = (path, fn) => req.method === 'POST' && p === path
+    ? (readBody(req, body => { let b; try { b = JSON.parse(body || '{}'); } catch (e) { return json(res, 400, { error: 'Bad request' }); }
+        try { fn(b); } catch (e) { console.error('[' + path + ']', e.message); json(res, 500, { error: 'Something went wrong — nothing was saved' }); } }), true)
+    : false;
+  const day = () => nowStamp().split(',')[0];
+  const admin = () => Pipeline.adminCheck(ADMIN_KEY, req.headers['x-admin-key'], safeEqual);
+
+  /* Processed on NetSuite — the per-order end of the pipeline. Sets the same
+     invoicedAt the classic Invoiced tick sets, plus the NetSuite number. */
+  if (post('/api/process', b => {
+    const o = db.orders.find(x => x.id === Number(b.orderId));
+    if (!o) return json(res, 404, { error: 'Order not found' });
+    if (o.status !== 'done') return json(res, 400, { error: 'Order not counted yet' });
+    const ref = String(b.nsRef || '').trim().toUpperCase();
+    if (!ref) return json(res, 400, { error: 'Enter the NetSuite SO or invoice number' });
+    o.nsRef = ref; o.invoicedAt = day(); o.processedAt = nowStamp(); o.processedBy = String(b.by || '').trim() || 'Rec admin';
+    saveDb(); json(res, 200, { ok: true, so: o.so, nsRef: ref, stamp: o.invoicedAt });
+  })) return;
+
+  /* Confirm (or reject) an alias match on a monthly account. Rejected visits leave
+     the roll-up for good and go to No SO yet like any unknown drop-off. */
+  if (post('/api/roll-confirm', b => {
+    const o = db.orders.find(x => x.id === Number(b.orderId));
+    if (!o) return json(res, 404, { error: 'Order not found' });
+    if (Pipeline.rollState(o) !== 'pending') return json(res, 400, { error: `${o.so} is not waiting for a confirm` });
+    const by = String(b.by || '').trim() || 'Rec admin';
+    if (b.confirm === false) { o.rollOutAt = day(); o.rollOutWhy = 'rejected by ' + by; }
+    else { o.rollConfirmedAt = day(); o.rollConfirmedBy = by; o.cust = (Pipeline.findCustomer(db.customers, o.rollCode) || {}).name || o.cust; }
+    saveDb(); json(res, 200, { ok: true, so: o.so, confirmed: b.confirm !== false });
+  })) return;
+
+  /* Process <customer>: close the open roll-up (Rec Admin's click, not the calendar)
+     into one season WTN covering every confirmed, fully counted visit. */
+  if (post('/api/rollup-process', b => {
+    const c = Pipeline.findCustomer(db.customers, b.code);
+    if (!c) return json(res, 404, { error: 'Customer not found' });
+    const r0 = Pipeline.openRollup(db.orders, c.code);
+    if (!r0.ready.length) return json(res, 400, { error: `No counted, confirmed visits on the ${c.name} roll-up` });
+    db.rollups = db.rollups || [];
+    db.rollSeq = (db.rollSeq || 0) + 1;
+    const days = r0.ready.map(o => o.date).filter(Boolean).sort();
+    const r = { id: db.rollSeq, code: c.code, name: c.name, visitIds: r0.ready.map(o => o.id), wtn: nextWTN(),
+      from: days[0] || '', to: days[days.length - 1] || '', crates: r0.ready.reduce((a, o) => a + (Number(o.crates) || 0), 0),
+      createdAt: nowStamp(), createdBy: String(b.by || '').trim() || 'Rec admin', sentAt: null, nsRef: null, processedAt: null };
+    db.rollups.unshift(r);
+    r0.ready.forEach(o => { o.rollupId = r.id; });
+    saveDb(); json(res, 200, { ok: true, rollup: r, left: r0.members.length - r0.ready.length + r0.pending.length });
+  })) return;
+
+  /* Season WTN: sent / processed on NetSuite (and back). The visits carry the same
+     wtnSentAt / invoicedAt stamps so /classic and the reports read them correctly. */
+  if (post('/api/rollup-mark', b => {
+    const r = (db.rollups || []).find(x => x.id === Number(b.id));
+    if (!r || r.voidedAt) return json(res, 404, { error: 'Roll-up not found' });
+    const visits = r.visitIds.map(id => db.orders.find(o => o.id === id)).filter(Boolean);
+    const on = b.value !== false, stamp = on ? day() : null;
+    if (b.field === 'sent') {
+      r.sentAt = stamp; visits.forEach(o => { o.wtnSentAt = stamp; });
+    } else if (b.field === 'processed') {
+      const ref = String(b.nsRef || '').trim().toUpperCase();
+      if (on && !ref) return json(res, 400, { error: 'Enter the NetSuite SO or invoice number' });
+      if (on && !r.sentAt) return json(res, 400, { error: 'Mark the season WTN as sent first' });
+      r.processedAt = on ? nowStamp() : null; r.nsRef = on ? ref : null; r.processedBy = on ? (String(b.by || '').trim() || 'Rec admin') : null;
+      visits.forEach(o => { o.invoicedAt = stamp; o.nsRef = on ? ref : o.nsRef; });
+    } else return json(res, 400, { error: 'Unknown field' });
+    saveDb(); json(res, 200, { ok: true, id: r.id, stamp });
+  })) return;
+
+  /* A pack generated by mistake, not yet sent: void it and put the visits back on the
+     open roll-up. The season WTN number is kept on the record as void, never reused. */
+  if (post('/api/rollup-undo', b => {
+    const r = (db.rollups || []).find(x => x.id === Number(b.id));
+    if (!r || r.voidedAt) return json(res, 404, { error: 'Roll-up not found' });
+    if (r.sentAt) return json(res, 400, { error: `${r.wtn} is marked as sent — untick that first` });
+    r.voidedAt = nowStamp(); r.voidedBy = String(b.by || '').trim() || 'Rec admin';
+    db.orders.forEach(o => { if (o.rollupId === r.id) delete o.rollupId; });
+    saveDb(); json(res, 200, { ok: true, wtn: r.wtn });
+  })) return;
+
+  /* Customer billing (admin key). Per order -> monthly applies to new counts only.
+     Monthly -> per order also splits the OPEN roll-up back into its own orders. */
+  if (post('/api/customer-billing', b => {
+    const chk = admin();
+    if (!chk.ok) return json(res, chk.status, { error: chk.error });
+    const c = Pipeline.findCustomer(db.customers, b.code);
+    if (!c) return json(res, 404, { error: 'Customer not found' });
+    const to = b.billing === 'monthly' ? 'monthly' : 'per-order';
+    if (c.billing === to) return json(res, 400, { error: `${c.name} is already ${to}` });
+    let split = 0;
+    if (to === 'per-order') {
+      db.orders.forEach(o => { if (o.rollCode === c.code && Pipeline.rollState(o)) { o.rollOutAt = day(); o.rollOutWhy = 'reverted to per order'; split++; } });
+    }
+    c.history = c.history || [];
+    c.history.unshift({ by: String(b.by || '').trim() || 'Admin', when: nowStamp(), from: c.billing, to });
+    c.billing = to;
+    saveDb(); json(res, 200, { ok: true, code: c.code, billing: to, split });
+  })) return;
 
   json(res, 404, { error: 'Not found' });
 });

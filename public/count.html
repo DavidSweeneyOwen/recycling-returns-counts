@@ -80,6 +80,18 @@
     font-size:42px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
   .done-screen h2{font-family:var(--display);font-size:22px;text-transform:uppercase;margin-bottom:8px}
   .done-screen p{font-family:var(--mono);font-size:13px;color:var(--ink-soft);margin-bottom:24px;line-height:1.7}
+  /* drop-off customer picker */
+  .sugg{list-style:none;border:1px solid var(--line-dark);margin-top:6px;background:#fff}
+  .sugg button{width:100%;text-align:left;border:none;border-bottom:1px solid var(--line);background:#fff;padding:12px 14px;
+    min-height:50px;font-family:var(--sans);font-size:15px;cursor:pointer;color:var(--ink)}
+  .sugg li:last-child button{border-bottom:none}
+  .sugg button:active{background:var(--amber-soft)}
+  .sugg small{display:block;font-size:12px;color:var(--ink-faint);margin-top:2px}
+  .sugg .mo{color:#3730a3;font-weight:600}
+  .picked{margin-top:8px;padding:12px 14px;background:var(--green-soft);border:1px solid #9ccbb0;display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:15px}
+  .picked.free{background:var(--amber-soft);border-color:#ecc98a}
+  .picked small{display:block;font-size:12px;color:var(--ink-soft)}
+  .picked button{border:1px solid var(--line-dark);background:#fff;padding:8px 12px;font-family:var(--display);font-size:11px;font-weight:700;text-transform:uppercase;cursor:pointer}
   .toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
     padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--red)}
 </style>
@@ -156,7 +168,8 @@
     <div class="match" id="dropCard" style="border-color:var(--amber);display:none">
       <div class="so" style="color:#9c6206">DROPPED OFF BY CUSTOMER</div>
       <label>Customer name (required &mdash; Sarah sends the WTN and invoice to this)</label>
-      <input id="dropCust" placeholder="Company / customer name" autocomplete="off">
+      <input id="dropCust" placeholder="Type a name or account code" autocomplete="off" oninput="dropTyped()">
+      <div id="dropSugg"></div>
       <label>Collection address (optional &mdash; added to the WTN)</label>
       <input id="dropAddr" placeholder="Where the recycling came from" autocomplete="off">
       <label>How many crates in total?</label>
@@ -199,8 +212,24 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="/pipeline.js"></script>
 <script>
 let STATE=null,active=null,counter=null,photoId=null;
+/* Drop-off customer picker: suggests accounts by code, name or alias. A pick is
+   trusted; anything typed is sent as typed and the office sorts it out. */
+let CUSTS=[],dropPick=null;
+function loadCustomers(){fetch('/api/count-customers').then(r=>r.json()).then(j=>{CUSTS=j.customers||[];}).catch(()=>{});}
+function billingLabel(c){return c.billing==='monthly'?'<span class="mo">Monthly rolling</span>':'Per order';}
+function dropTyped(){dropPick=null;renderDropSugg();}
+function renderDropSugg(){
+  const box=document.getElementById('dropSugg'),q=document.getElementById('dropCust').value.trim();
+  if(dropPick){box.innerHTML=`<div class="picked"><span>${esc(dropPick.code)} &middot; ${esc(dropPick.name)}<small>${billingLabel(dropPick)}</small></span><button type="button" onclick="clearDropPick()">Change</button></div>`;return;}
+  if(!q||!window.Pipeline){box.innerHTML='';return;}
+  const m=Pipeline.suggest(CUSTS,q,6);
+  box.innerHTML=m.length?`<ul class="sugg">${m.map((c,i)=>`<li><button type="button" onclick="pickDrop(${CUSTS.indexOf(c)})">${esc(c.code)} &middot; ${esc(c.name)}<small>${billingLabel(c)}</small></button></li>`).join('')}</ul>`:'';
+}
+function pickDrop(i){dropPick=CUSTS[i]||null;if(dropPick)document.getElementById('dropCust').value=dropPick.name;renderDropSugg();}
+function clearDropPick(){dropPick=null;const c=document.getElementById('dropCust');c.value='';renderDropSugg();c.focus();}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
@@ -210,6 +239,7 @@ function show(id){
 
 async function init(){
   const r=await fetch('/api/counter-config');STATE=await r.json();
+  loadCustomers();
   counter=localStorage.getItem('recCounter')||null;
   if(counter){setWho();show('stepFind');}
   else show('stepLogin');
@@ -247,7 +277,7 @@ async function startDropOff(){
   if(!cust){err.textContent='Enter the customer name — Sarah needs it to send the WTN and invoice.';err.style.display='block';return;}
   const crates=parseInt(document.getElementById('dropCrates').value,10)||1;
   const address=document.getElementById('dropAddr').value.trim();
-  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,address,photoId})});
+  const r=await fetch('/api/dropoff',{method:'POST',body:JSON.stringify({cust,by:counter,crates,address,photoId,custCode:dropPick?dropPick.code:null})});
   const j=await r.json();
   if(!j.ok){toast(j.error||'Could not create drop-off');return;}
   active=j.order;
@@ -454,6 +484,7 @@ function backToFind(){
   document.getElementById('dropCard').style.display='none';
   document.getElementById('dropCust').value='';
   document.getElementById('dropAddr').value='';
+  dropPick=null;document.getElementById('dropSugg').innerHTML='';
   document.getElementById('soCard').style.display='none';
   document.getElementById('photoPreviewWrap').style.display='none';
   document.getElementById('photoInput').value='';
