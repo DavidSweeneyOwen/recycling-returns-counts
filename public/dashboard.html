@@ -4,407 +4,411 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Recycling Returns — Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"></script>
 <style>
-  :root{--ink:#1c1f23;--ink-soft:#4d545c;--ink-faint:#8a919a;--paper:#f4f2ed;--card:#fff;--line:#e2ded6;
-    --line-dark:#c9c4ba;--red:#d63420;--amber:#e8930c;--green:#1e7d4f;--blue:#2d5b8a;--green-soft:#e3f2ea;--amber-soft:#fdf1dc;
-    --red-soft:#fbe7e3;--blue-soft:#e4edf6;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Archivo',sans-serif;
-    --shadow:0 1px 2px rgba(28,31,35,.06),0 4px 14px rgba(28,31,35,.07)}
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh;
-    background-image:radial-gradient(circle at 1px 1px,rgba(28,31,35,.05) 1px,transparent 0);background-size:26px 26px}
-  header{background:var(--ink);color:#fff;border-bottom:4px solid var(--red)}
-  .head-inner{max-width:1320px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .logo-mark{width:42px;height:42px;background:var(--red);display:flex;align-items:center;justify-content:center;
-    font-family:var(--display);font-weight:800;font-size:21px;color:#fff}
-  h1{font-family:var(--display);font-weight:800;font-size:21px;text-transform:uppercase;letter-spacing:-.02em}
-  .head-sub{font-family:var(--mono);font-size:11px;color:#9aa2ab;margin-top:2px}
-  .head-stats{margin-left:auto;display:flex;gap:24px}
-  .hstat{text-align:right}
-  .hstat .num{font-family:var(--mono);font-size:24px;font-weight:600;line-height:1}
-  .hstat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9aa2ab;margin-top:4px}
-  .hstat.awaiting .num{color:#ffb36b}
-  .hstat.counted .num{color:#7fd6a6}
-  .hstat.invoiced .num{color:#8ab8e8}
-  .wrap{max-width:1320px;margin:0 auto;padding:22px 28px 80px}
-  nav.tabs{display:flex;border:1px solid var(--line-dark);background:var(--card);width:fit-content;box-shadow:var(--shadow);flex-wrap:wrap}
-  nav.tabs button{font-family:var(--display);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;
-    padding:13px 22px;border:none;background:transparent;color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--line)}
-  nav.tabs button:last-child{border-right:none}
-  nav.tabs button.active{background:var(--ink);color:#fff}
-  nav.tabs button .pill{font-family:var(--mono);font-size:11px;background:var(--red);color:#fff;padding:1px 7px;margin-left:8px;border-radius:99px}
-  nav.tabs button .pill.green{background:var(--green)}
-  nav.tabs button .pill.blue{background:var(--blue)}
-  .toolbar{display:flex;gap:12px;margin:18px 0;flex-wrap:wrap;align-items:center}
-  .filter{padding:10px 14px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;width:300px;background:var(--card)}
-  .filter:focus{outline:2px solid var(--red);outline-offset:-1px}
-  .sync-msg{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin-left:auto;display:flex;align-items:center;gap:8px}
-  .sync-dot{width:9px;height:9px;border-radius:99px;background:var(--ink-faint)}
-  .sync-dot.ok{background:var(--green)}.sync-dot.bad{background:var(--red)}
-  .btn{font-family:var(--display);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
-    padding:9px 16px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
-  .btn:hover{background:var(--red);border-color:var(--red)}
-  .btn.small{padding:6px 12px;font-size:11px}
-  .btn.sm{padding:6px 10px;font-size:11px}
-  .btn.wtn{background:var(--green);border-color:var(--green)}
-  .btn.wtn:hover{background:var(--red);border-color:var(--red)}
-  .btn.x{background:var(--green);border-color:var(--green)}
-  .btn.p{background:var(--amber);border-color:var(--amber)}
-  .btn.save{background:var(--amber);border-color:var(--amber)}
-  .btn.save:hover{background:var(--red);border-color:var(--red)}
-  .btn.ghost{background:transparent;color:var(--ink-soft);border-color:var(--line-dark)}
-  .btn.ghost:hover{background:var(--red);border-color:var(--red);color:#fff}
-  /* awaiting cards */
-  .so-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:16px}
-  .so-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
-  .so-top{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
-  .so-num{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--red)}
-  .so-cust{font-family:var(--display);font-weight:700;font-size:16px;margin-top:2px}
-  .so-meta{font-size:11.5px;color:var(--ink-faint);margin-top:4px;font-family:var(--mono)}
-  .crate-frac{text-align:right}
-  .crate-frac .big{font-family:var(--mono);font-size:28px;font-weight:600;line-height:1}
-  .crate-frac .big .of{color:var(--ink-faint);font-size:17px}
-  .crate-frac .sub{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);margin-top:3px}
-  .prog{height:8px;background:var(--line);margin:12px 16px 0}
-  .prog .fill{height:100%;background:var(--amber);transition:width .4s}
-  .prog .fill.full{background:var(--green)}
-  .ticks{display:flex;gap:4px;padding:7px 16px 0}
-  .tick{flex:1;height:6px;background:var(--line)}.tick.in{background:var(--green)}
-  .so-body{padding:10px 16px 14px;font-size:12px}
-  .so-body table{width:100%;border-collapse:collapse;font-family:var(--mono)}
-  .so-body td{padding:3px 0;border-bottom:1px dashed var(--line)}
-  .so-body td:last-child{text-align:right;font-weight:600}
-  .nocounts{color:var(--ink-faint);font-style:italic;font-size:12px;padding:4px 0}
-  .status-tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;padding:3px 8px;font-weight:600}
-  .status-tag.awaiting{background:var(--red-soft);color:#a8200f}
-  .status-tag.partial{background:var(--amber-soft);color:#9c6206}
-  .status-tag.complete{background:var(--green-soft);color:var(--green)}
-  .status-tag.short{background:var(--amber-soft);color:#9c6206}
-  .status-tag.co2{background:var(--blue-soft);color:var(--blue)}
-  .status-tag.drop{background:#efe3f7;color:#6b3fa0}
-  .status-tag.amended{background:#f3e8d0;color:#8a5a00}
-  .status-tag.monthly{background:#d8efe9;color:#0f6b5e}
-  .so-card.drop{border-left:4px solid #8a4fc4}
-  .comp-card.drop{border-left:4px solid #8a4fc4}
-  .comp-card.amended-c{border-left:4px solid #c79a3a}
-  .age{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap}
-  .age.g{background:var(--green-soft);color:var(--green)}
-  .age.a{background:var(--amber-soft);color:#9c6206}
-  .age.r{background:var(--red-soft);color:#a8200f}
-  .so-card.age-r{border-left:4px solid var(--red)}
-  .so-card.age-a{border-left:4px solid var(--amber)}
-  .so-card.age-g{border-left:4px solid var(--green)}
-  /* counted cards */
-  .comp-card{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);margin-bottom:13px}
-  .comp-head{display:flex;align-items:center;gap:14px;padding:13px 16px;cursor:pointer;flex-wrap:wrap}
-  .chev{font-family:var(--mono);color:var(--ink-faint);transition:transform .2s}
-  .comp-card.open .chev{transform:rotate(90deg)}
-  .ref-block{font-family:var(--mono);font-size:12px;text-align:right;line-height:1.7}
-  .ref-block .pending{color:var(--amber);font-weight:600}
-  .ref-block .set{color:var(--green);font-weight:600}
-  .tickbox{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12px;background:#fbfaf7;
-    border:1px solid var(--line-dark);padding:7px 12px;cursor:pointer;user-select:none}
-  .tickbox input{width:17px;height:17px;accent-color:var(--green);cursor:pointer}
-  .tickbox .stamp{color:var(--green);font-weight:600}
-  .head-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .comp-detail{display:none;border-top:1px solid var(--line);padding:14px 16px;background:#fbfaf7}
-  .comp-card.open .comp-detail{display:block}
-  .detail-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
-  @media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
-  .detail-grid h4{font-family:var(--display);font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-bottom:7px}
-  .detail-grid table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
-  .detail-grid td{padding:3px 0;border-bottom:1px dashed var(--line)}
-  .detail-grid td:last-child{text-align:right;font-weight:600}
-  .crate-log{font-family:var(--mono);font-size:11.5px}
-  .crate-log .entry-l{padding:5px 0;border-bottom:1px dashed var(--line)}
-  .actions{display:flex;gap:10px;margin-top:14px;align-items:flex-end;flex-wrap:wrap}
-  .actions label{display:block;font-family:var(--display);font-size:10px;font-weight:700;text-transform:uppercase;
-    letter-spacing:.07em;color:var(--ink-soft);margin-bottom:4px}
-  .actions input{padding:8px 10px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;width:200px}
-  /* invoiced table */
-  .inv-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow)}
-  .inv-table th{font-family:var(--display);font-size:11px;text-transform:uppercase;letter-spacing:.06em;text-align:left;
-    padding:11px 14px;background:var(--ink);color:#fff;white-space:nowrap}
-  .inv-table td{padding:10px 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;vertical-align:middle}
-  .inv-table tr.main{cursor:pointer}
-  .inv-table tr.main:hover{background:#fbfaf7}
-  .inv-table .so-cell{color:var(--red);font-weight:600}
-  .inv-table .chev{display:inline-block;margin-right:6px}
-  .inv-table tr.open .chev{transform:rotate(90deg)}
-  .inv-table tr.detail{display:none}
-  .inv-table tr.detail.show{display:table-row}
-  .inv-table tr.detail>td{background:#fbfaf7;padding:16px}
-  .empty{text-align:center;padding:50px 20px;color:var(--ink-faint)}
-  .empty .big{font-family:var(--display);font-size:18px;font-weight:700;color:var(--ink-soft);margin-bottom:6px}
-  /* shared panel + reports */
-  .panel{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:18px;margin-bottom:20px}
-  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;align-items:end}
-  .panel label,.filters label{display:block;font-family:var(--display);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-bottom:5px}
-  .panel select,.panel input,.panel textarea{width:100%;padding:10px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:13px;background:#fff}
-  .panel select:focus,.panel input:focus,.panel textarea:focus{outline:2px solid var(--red);outline-offset:-1px}
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border:1px solid var(--line-dark);background:#fff;cursor:pointer}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px}
-  .kpi{background:var(--card);border:1px solid var(--line-dark);box-shadow:var(--shadow);padding:16px}
-  .kpi .num{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1}
-  .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint);margin-top:6px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
-  h3{font-family:var(--display);font-size:14px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
-  table.rep{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
-  table.rep th{text-align:left;background:var(--ink);color:#fff;padding:8px 10px;font-family:var(--display);font-size:11px;text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0}
-  table.rep td{padding:7px 10px;border-bottom:1px solid var(--line)}
-  table.rep td.n,table.rep th.n{text-align:right}
-  .scrollbox{max-height:360px;overflow:auto;border:1px solid var(--line)}
-  .meta-line{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin:6px 0 14px}
-  .chartbox{position:relative;height:300px}
-  /* admin */
-  .reslist{max-height:300px;overflow:auto;border:1px solid var(--line)}
-  .resrow{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:12.5px}
-  .resrow:hover{background:#fbfaf7}
-  .resrow .so{color:var(--red);font-weight:600;min-width:120px}
-  .resrow .cust{flex:1}
-  .tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;font-weight:600}
-  .tag.open{background:var(--red-soft);color:#a8200f}.tag.done{background:var(--green-soft);color:var(--green)}
-  .tag.inv{background:var(--blue-soft);color:var(--blue)}.tag.amd{background:#f3e8d0;color:#8a5a00}
-  .entry{border:1px solid var(--line-dark);margin-top:12px}
-  .entry-head{background:#fbfaf7;padding:8px 12px;font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
-  .lrow{display:grid;grid-template-columns:1fr 110px 44px;gap:8px;padding:7px 12px;align-items:center;border-bottom:1px dashed var(--line)}
-  .lrow .pname{font-family:var(--mono);font-size:13px}
-  .lrow .rm{border:1px solid var(--line-dark);background:#fff;cursor:pointer;height:38px;color:var(--red);font-weight:700}
-  .addrow{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;padding:9px 12px;align-items:center;background:#fbfaf7}
-  .opts{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px}
-  .opt{display:flex;gap:7px;align-items:center;font-family:var(--mono);font-size:12.5px}
-  .opt input{width:17px;height:17px;accent-color:var(--amber)}
-  .note{background:var(--amber-soft);border:1px solid #ecc98a;padding:12px 14px;font-size:13px;line-height:1.6;margin-top:14px}
-  .ok{background:var(--green-soft);border:1px solid #9ccbb0;padding:14px 16px;font-size:13.5px;line-height:1.7;margin-top:14px;display:none}
-  .hist .h{padding:9px 12px;border-bottom:1px dashed var(--line);font-family:var(--mono);font-size:12px;line-height:1.6}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:700px){.row2{grid-template-columns:1fr}}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
-    padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--green)}
+:root{
+  --bg:#f6f7f9;--surface:#fff;--line:#e6e8ec;--line-2:#d5d9e0;
+  --ink:#111827;--ink-2:#4b5563;--ink-3:#667085;
+  --brand:#d63420;--ring:#2563eb;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;--display:'Archivo',system-ui,sans-serif;
+  --shadow:0 1px 2px rgba(16,24,40,.04),0 2px 8px rgba(16,24,40,.04);--shadow-2:0 8px 30px rgba(16,24,40,.16);
+  --ease:cubic-bezier(.23,1,.32,1);
+}
+.s-awaiting{--c:#b45309;--soft:#fef3e2}
+.s-noso{--c:#6d28d9;--soft:#f3edff}
+.s-counted{--c:#1d4ed8;--soft:#e8effd}
+.s-wtn{--c:#0f766e;--soft:#e0f3f0}
+.s-processed{--c:#15803d;--soft:#e4f4e9}
+.s-monthly{--c:#4338ca;--soft:#ececfd}
+.s-neutral{--c:#374151;--soft:#eef0f3}
+.s-red{--c:#b42318;--soft:#fee4e2}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-radius:4px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* shell */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100vh}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:auto}
+.side-top{display:flex;justify-content:space-between;align-items:center}
+.brand{display:flex;gap:10px;align-items:center;padding:2px 8px 18px}
+.mark{width:32px;height:32px;border-radius:8px;background:var(--brand);color:#fff;font-family:var(--display);font-weight:800;display:grid;place-items:center;font-size:16px}
+.brand h1{font-family:var(--display);font-weight:800;font-size:16px;letter-spacing:-.01em;line-height:1.1}
+.brand small{display:block;color:var(--ink-3);font-size:12px;font-weight:400;font-family:var(--sans);margin-top:2px}
+.menu-btn.btn{display:none}
+.navwrap{display:flex;flex-direction:column;flex:1}
+.navgroup{display:flex;flex-direction:column;gap:2px}
+.navlabel{font-size:12px;color:var(--ink-3);padding:4px 10px 6px;font-weight:500}
+.divider{height:1px;background:var(--line);margin:14px 6px}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;color:var(--ink-2);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;text-align:left;transition:background-color .12s ease,color .12s ease;position:relative}
+.nav-item:hover{background:#f1f3f6;color:var(--ink)}
+.nav-item[aria-selected=true]{background:var(--soft,#eef0f3);color:var(--ink)}
+.nav-item[aria-selected=true]::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--c,#374151)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none;margin:0 4px}
+.nav-item svg{width:16px;height:16px;flex:none;color:var(--ink-3);margin:0 2px}
+.nav-item .grow{flex:1;min-width:0}
+.cnt{font-family:var(--mono);font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.nav-item[aria-selected=true] .cnt{color:var(--c)}
+.flag{font-size:11px;font-weight:600;background:#fef0c7;color:#7a4a00;padding:1px 7px;border-radius:99px;white-space:nowrap}
+.side-foot{margin-top:auto;padding:14px 8px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--ink-3)}
+.syncline{display:flex;gap:8px;align-items:flex-start;line-height:1.4}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#98a2b3;flex:none;margin-top:4px}
+.sync-dot.ok{background:#15803d}.sync-dot.bad{background:#b42318}
+.side-foot a{color:var(--ink-2);text-decoration:underline}
+.side-foot a:hover{color:var(--ink)}
+
+/* main */
+.main{padding:28px 36px 90px;min-width:0;width:100%}
+.storewarn{padding:14px 18px;margin-bottom:18px;border-radius:10px;font-weight:600;line-height:1.5;color:#fff}
+.view-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap;margin-bottom:22px}
+.view-head h2{font-size:24px;font-weight:600;letter-spacing:-.015em}
+.today{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px;color:var(--ink-2);flex-wrap:wrap}
+.today .pip{width:8px;height:8px;border-radius:50%;background:var(--c,#667085);flex:none}
+.today b{color:var(--ink);font-weight:600}
+.sub{color:var(--ink-2);margin-top:6px;max-width:80ch}
+.search{height:38px;padding:0 12px 0 34px;border:1px solid var(--line-2);border-radius:8px;font:inherit;font-size:14px;width:280px;max-width:100%;background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23667085' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='m11 11 3.5 3.5'/%3E%3C/svg%3E") no-repeat 10px center;color:var(--ink)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--ink);background:var(--ink);color:#fff;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap;transition:transform .14s var(--ease),background-color .12s ease}
+.btn:hover{background:#2b3444}
+.btn:active{transform:scale(.97)}
+.btn.quiet,.btn.ghost{background:var(--surface);color:var(--ink);border-color:var(--line-2);font-weight:500}
+.btn.quiet:hover,.btn.ghost:hover{background:#f1f3f6}
+.btn.amber{background:#b45309;border-color:#b45309}.btn.amber:hover{background:#92400e}
+.btn.sm,.btn.small{min-height:32px;padding:0 12px;font-size:13px}
+.btn[disabled]{background:#eceef2;border-color:var(--line-2);color:#6b7280;cursor:not-allowed;transform:none}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:2px 9px;border-radius:99px;background:var(--soft,#eef0f3);color:var(--c,#374151);white-space:nowrap}
+.age{font-size:12px;font-weight:500;padding:2px 9px;border-radius:99px;white-space:nowrap;background:#eef0f3;color:var(--ink-2)}
+.age.mid{background:#fef0c7;color:#7a4a00}.age.old{background:#fee4e2;color:#b42318}
+.lbtn{background:none;border:none;color:var(--ink-2);font-size:13px;text-decoration:underline;cursor:pointer;padding:4px 0}
+.lbtn:hover{color:var(--ink)}
+.tickbox{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2);cursor:pointer;user-select:none}
+.tickbox input{width:17px;height:17px;accent-color:#15803d;cursor:pointer}
+.tickbox .stamp{color:#15803d;font-weight:600;font-family:var(--mono);font-size:12px}
+
+/* cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:var(--shadow),inset 3px 0 0 var(--c)}
+.card.flagged{box-shadow:var(--shadow),inset 4px 0 0 #b42318}
+.card.sel-on{box-shadow:var(--shadow),inset 3px 0 0 var(--c),0 0 0 2px var(--c)}
+.card-top{padding:16px 18px 0;display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.ref{font-family:var(--mono);font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+.cust{font-weight:600;font-size:16px;margin-top:3px;letter-spacing:-.005em}
+.meta{font-size:13px;color:var(--ink-3);margin-top:2px}
+.facts{padding:12px 18px 0;display:flex;gap:8px 18px;font-size:13px;color:var(--ink-2);flex-wrap:wrap;align-items:center}
+.facts b{font-family:var(--mono);font-weight:500;color:var(--ink)}
+.tags{padding:10px 18px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lines{padding:10px 18px 4px;display:grid;grid-template-columns:1fr 1fr;gap:2px 22px;font-size:13px;color:var(--ink-2)}
+.lines div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.lines b{font-family:var(--mono);font-weight:500;color:var(--ink)}
+.lines .none{grid-column:1/-1;color:var(--ink-3)}
+.prog{height:4px;background:#eceef2;border-radius:4px;margin:12px 18px 0;overflow:hidden}.prog i{display:block;height:100%;background:var(--c);border-radius:4px}
+.card-foot{margin-top:auto;padding:14px 18px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.card-foot .primary{margin-left:auto}
+.rowx{display:flex;gap:8px;flex-wrap:wrap;flex:1 1 100%;align-items:center}
+.field{display:flex;flex-direction:column;gap:4px;flex:1 1 100%}
+.field label{font-size:12px;color:var(--ink-2);font-weight:500}
+input.in{height:38px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--mono);font-size:13px;background:#fff;color:var(--ink);width:100%}
+.pick{display:inline-flex;align-items:center;cursor:pointer}
+.pick input{width:18px;height:18px;accent-color:var(--c,#111827);cursor:pointer}
+.empty{text-align:center;padding:56px 20px;color:var(--ink-2);background:var(--surface);border:1px dashed var(--line-2);border-radius:12px}
+.empty b,.empty .big{display:block;font-size:16px;color:var(--ink);margin-bottom:4px;font-weight:600}
+.bulk{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:16px;box-shadow:var(--shadow);font-size:13px;color:var(--ink-2)}
+.bulk .msg{flex:1;min-width:180px}.bulk .msg b{color:var(--ink);font-weight:600}
+.bulk.on{background:var(--soft);border-color:transparent}
+.notice{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:16px;color:var(--ink-2);font-size:13px}
+
+/* tables */
+.tablewrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{font-size:12px;font-weight:500;color:var(--ink-3);text-align:left;padding:11px 16px;border-bottom:1px solid var(--line);white-space:nowrap;background:#fbfbfc}
+td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+th.num{font-family:var(--sans)}
+.sec-title{font-size:13px;font-weight:600;color:var(--ink-2);margin:28px 0 12px}
+
+/* monthly roll-up */
+.roll{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow),inset 3px 0 0 var(--c);overflow:hidden;margin-bottom:18px}
+.roll-head{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;padding:22px 24px 18px}
+.roll-head h3{font-size:20px;font-weight:600;letter-spacing:-.01em;margin-top:8px}
+.stats{display:flex;gap:32px}
+.stat .v{font-family:var(--mono);font-size:28px;font-weight:500;line-height:1}.stat .k{font-size:12px;color:var(--ink-3);margin-top:6px}
+.alert{margin:0 24px 16px;padding:12px 14px;border-radius:10px;background:#fff7e6;border:1px solid #f5d28a;color:#6b4300;font-size:13px}
+.visits{padding:0 24px}
+.vh,.visit{display:grid;grid-template-columns:52px 1.1fr 1.7fr 60px 60px 1.3fr;gap:14px;align-items:center}
+.vh{font-size:12px;color:var(--ink-3);padding:8px 0;border-bottom:1px solid var(--line)}
+.vh .r{text-align:right}
+.visit{padding:10px 0;border-bottom:1px solid var(--line);font-size:13px}
+.visit.pending{background:#fff7e6;margin:0 -24px;padding:12px 24px;border-bottom-color:#f5d28a}
+.thumb{width:48px;height:48px;border-radius:8px;border:1px solid var(--line-2);overflow:hidden;background:#eef0f3;display:grid;place-items:center;font-size:10px;color:var(--ink-3);text-decoration:none}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.match small{display:block;color:var(--ink-3);font-size:12px}
+.match .tick{color:#15803d;font-weight:600}
+.roll-cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:20px 24px}
+.roll-cols h4{font-size:12px;font-weight:600;color:var(--ink-3);margin-bottom:6px}
+.kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.kv.total{font-weight:600;border-top:1px solid var(--ink-3);border-bottom:none}
+.roll-foot{padding:16px 24px;border-top:1px solid var(--line);background:#fbfbfc;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.roll-foot .hint{font-size:13px;color:var(--ink-2);max-width:60ch}
+
+/* customers */
+.alias{display:inline-block;font-family:var(--mono);font-size:12px;background:#eef0f3;color:var(--ink-2);padding:1px 7px;border-radius:5px;margin:0 4px 2px 0}
+.lock-line{display:inline-flex;gap:6px;align-items:center;color:var(--ink-2);font-size:13px}
+.lock-line svg{width:14px;height:14px}
+.hist-list{list-style:none;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+.hist-list li{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:6px 16px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}
+.hist-list li:last-child{border-bottom:none}
+.hist-list b{color:var(--ink);font-weight:600}
+
+/* panels, reports, amendments (live ids, restyled) */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:20px;margin-bottom:16px;min-width:0}
+.panel h3{font-size:15px;font-weight:600;margin-bottom:12px}
+.panel .exp,.meta-line{font-size:13px;color:var(--ink-3);margin:4px 0 12px;max-width:90ch}
+.panel.defra{border-top:3px solid var(--brand)}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px;align-items:end}
+.panel label,.filters label{display:block;font-size:12px;color:var(--ink-2);font-weight:500;margin-bottom:4px}
+.panel select,.panel input,.panel textarea{width:100%;min-height:38px;padding:6px 10px;border:1px solid var(--line-2);border-radius:8px;font:inherit;font-size:14px;background:#fff;color:var(--ink)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.chip{height:32px;padding:0 14px;border-radius:99px;border:1px solid var(--line-2);background:#fff;color:var(--ink);font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center}
+.chip:hover{background:#f1f3f6}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .num{font-family:var(--mono);font-size:24px;font-weight:500}.kpi .lbl{font-size:12px;color:var(--ink-3);margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chartbox{position:relative;height:300px}
+table.rep{font-size:13px}
+table.rep th,table.rep td{padding:8px 12px}
+table.rep td.n,table.rep th.n{text-align:right;font-family:var(--mono);white-space:nowrap}
+table.rep th.n{font-family:var(--sans)}
+.reslist{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.resrow{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:12px;align-items:center;font-size:13px;flex-wrap:wrap}
+.resrow:hover{background:#f6f7f9}
+.resrow .so{font-family:var(--mono);font-weight:500;min-width:130px}
+.resrow .cust{flex:1;font-size:13px;font-weight:500;margin:0}
+.tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:99px;background:#eef0f3;color:var(--ink-2)}
+.tag.open{background:#fef3e2;color:#b45309}.tag.done{background:#e8effd;color:#1d4ed8}
+.tag.inv{background:#e4f4e9;color:#15803d}.tag.amd{background:#fef0c7;color:#7a4a00}
+.entry{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}
+.entry-head{background:#fbfbfc;padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.lrow{display:grid;grid-template-columns:1fr 110px 44px;gap:8px;padding:7px 12px;align-items:center;border-bottom:1px solid var(--line)}
+.lrow .pname{font-family:var(--mono);font-size:13px}
+.lrow .rm{border:1px solid var(--line-2);border-radius:8px;background:#fff;cursor:pointer;height:38px;color:#b42318;font-weight:700}
+.addrow{display:grid;grid-template-columns:1fr 110px 120px;gap:8px;padding:9px 12px;align-items:center;background:#fbfbfc}
+.opts{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px}
+.opt{display:flex;gap:7px;align-items:center;font-size:13px}
+.panel .opt input{width:17px;height:17px;min-height:0}
+.note{background:#fff7e6;border:1px solid #f5d28a;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;margin-top:14px;color:#6b4300}
+.ok{background:#e4f4e9;border:1px solid #9ccbb0;border-radius:10px;padding:14px 16px;font-size:13.5px;line-height:1.7;margin-top:14px;display:none}
+.hist .h{padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.6}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* detail grid (dialog) */
+.detail-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+.detail-grid h4{font-size:12px;font-weight:600;color:var(--ink-3);margin-bottom:6px}
+.detail-grid table{font-size:13px;border:none}
+.detail-grid td{padding:4px 0;border-bottom:1px solid var(--line)}
+.detail-grid td:last-child{text-align:right;font-family:var(--mono)}
+.crate-log{font-size:12.5px}.crate-log .entry-l{padding:6px 0;border-bottom:1px solid var(--line)}
+.actions{display:flex;gap:10px;margin-top:14px;align-items:flex-end;flex-wrap:wrap}
+.actions label{display:block;font-size:12px;color:var(--ink-2);margin-bottom:4px}
+.actions input{height:38px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--mono);width:220px}
+
+/* dialog + toast */
+.scrim{position:fixed;inset:0;background:rgba(17,24,39,.5);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+.scrim.show{display:flex;animation:fade .18s ease-out}
+.dialog{background:var(--surface);border-radius:16px;width:100%;max-width:640px;max-height:92vh;overflow:auto;padding:26px;box-shadow:var(--shadow-2);animation:pop .2s var(--ease)}
+.dialog.wide{max-width:980px}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+.dialog h3{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.dialog .lead{color:var(--ink-2);margin-top:6px}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:8px 16px;margin:18px 0;font-size:14px}
+.dl dt{color:var(--ink-3);font-size:13px}
+.dl dd small{display:block;color:var(--ink-3);font-size:12px}
+.dialog table{font-size:13px}
+.dialog th,.dialog td{padding:8px 12px}
+.d-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px;flex-wrap:wrap}
+.d-note{font-size:12px;color:var(--ink-3);margin-top:10px}
+.warn-box{background:#fff7e6;border:1px solid #f5d28a;color:#6b4300;border-radius:10px;padding:12px 14px;margin-top:14px;font-size:13px}
+.dialog label{display:block;font-size:12px;color:var(--ink-2);font-weight:500;margin:12px 0 4px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,8px);background:var(--ink);color:#fff;padding:11px 16px;border-radius:10px;font-size:14px;z-index:60;max-width:92vw;box-shadow:var(--shadow-2);opacity:0;pointer-events:none;transition:opacity .18s ease-out,transform .18s var(--ease)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+[hidden]{display:none!important}
+
+@media(max-width:1100px){.shell{grid-template-columns:220px minmax(0,1fr)}.main{padding:24px 24px 80px}.detail-grid{grid-template-columns:1fr}}
+@media(max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .side{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);padding:12px 16px}
+  .brand{padding:0}
+  .menu-btn.btn{display:inline-flex}
+  .navwrap{display:none;margin-top:14px}.navwrap.open{display:flex}
+  .nav-item[aria-selected=true]::before{left:-16px}
+  .main{padding:20px 16px 80px}
+  .grid2,.row2{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .grid{grid-template-columns:1fr}
+  .view-head h2{font-size:22px}
+  .search{width:100%}
+  .roll-head{padding:18px 16px 14px}.visits{padding:0 16px}.alert{margin:0 16px 14px}.roll-cols{grid-template-columns:1fr;padding:16px}.roll-foot{padding:14px 16px}
+  .visit.pending{margin:0 -16px;padding:12px 16px}
+  .vh{display:none}
+  .visit{grid-template-columns:52px 1fr auto;gap:4px 12px}
+  .visit>:nth-child(3){grid-column:2/4}.visit>:nth-child(4){display:none}.visit>:nth-child(6){grid-column:2/4}
+  .lines{grid-template-columns:1fr}
+  .dl{grid-template-columns:1fr;gap:2px}
+  .addrow{grid-template-columns:1fr 1fr}
+  .stack thead{display:none}.stack tr{display:block;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .stack td{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border:none;text-align:right}
+  .stack td::before{content:attr(data-label);color:var(--ink-3);font-size:12px;text-align:left}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<header>
-  <div class="head-inner">
-    <div class="logo-mark">R</div>
-    <div>
-      <h1>Recycling Returns — Dashboard</h1>
-      <div class="head-sub">Live from NetSuite &middot; counts from the Rec team app</div>
+<div class="shell">
+  <aside class="side" aria-label="Main navigation">
+    <div class="side-top">
+      <div class="brand"><div class="mark" aria-hidden="true">R</div><h1>Recycling Returns<small>Rec Admin</small></h1></div>
+      <button class="btn quiet sm menu-btn" id="menuBtn" aria-expanded="false" aria-controls="navwrap" onclick="toggleMenu()">Menu</button>
     </div>
-    <div class="head-stats">
-      <div class="hstat awaiting"><div class="num" id="stAwait">0</div><div class="lbl">Awaiting count</div></div>
-      <div class="hstat"><div class="num" id="stCrates">0</div><div class="lbl">Crates awaited</div></div>
-      <div class="hstat counted"><div class="num" id="stCounted">0</div><div class="lbl">Counted</div></div>
-      <div class="hstat invoiced"><div class="num" id="stInv">0</div><div class="lbl">Invoiced</div></div>
-      <div class="hstat"><div class="num" id="stCredit" style="color:#8ab8e8">0</div><div class="lbl">CO2 credits due</div></div>
-      <div class="hstat"><div class="num" id="stDrop" style="color:#c9a0e8">0</div><div class="lbl">Drop-offs to action</div></div>
-      <div class="hstat"><div class="num" id="stMonthly" style="color:#7fd6c6">0</div><div class="lbl">Monthly accts</div></div>
+    <div class="navwrap" id="navwrap">
+      <div role="tablist" aria-orientation="vertical" aria-label="Views" id="nav"></div>
+      <div class="side-foot">
+        <div class="syncline"><span class="sync-dot" id="syncDot"></span><span id="syncMsg">Waiting for first sync…</span></div>
+        <a href="/classic">Classic view</a>
+        <a href="/count" target="_blank">Open the count page</a>
+      </div>
     </div>
-  </div>
-</header>
+  </aside>
 
-<div class="wrap">
-  <div id="storeWarn" style="display:none;padding:14px 18px;margin-bottom:16px;font-weight:600;line-height:1.5;color:#fff"></div>
-  <nav class="tabs">
-    <button id="tabAwait" class="active" onclick="switchTab('await')">Awaiting Count <span class="pill" id="pillAwait">0</span></button>
-    <button id="tabCounted" onclick="switchTab('counted')">Counted <span class="pill green" id="pillCounted">0</span></button>
-    <button id="tabInv" onclick="switchTab('inv')">Invoiced <span class="pill blue" id="pillInv">0</span></button>
-    <button id="tabNoso" onclick="switchTab('noso')">No SO Yet <span class="pill" id="pillNoso">0</span></button>
-    <button id="tabArch" onclick="switchTab('arch')">Archive <span class="pill" id="pillArch">0</span></button>
-    <button id="tabReports" onclick="switchTab('reports')">Reports</button>
-    <button id="tabAdmin" onclick="switchTab('admin')">Amendments</button>
-  </nav>
+  <main class="main" id="main" tabindex="-1">
+    <div id="storeWarn" class="storewarn" style="display:none"></div>
+    <div id="viewPipe"></div>
 
-  <div class="toolbar" id="orderToolbar">
-    <input class="filter" id="filter" placeholder="Filter by SO number or customer…" oninput="renderOrders()">
-    <span class="sync-msg"><span class="sync-dot" id="syncDot"></span><span id="syncMsg">Waiting for first sync…</span></span>
-  </div>
-
-  <section id="viewAwait">
-    <div class="so-grid" id="awaitGrid"></div>
-    <div class="empty" id="awaitEmpty" style="display:none">
-      <div class="big">Nothing awaiting count</div>Every collection has been counted, or none match the filter.
-    </div>
-  </section>
-
-  <section id="viewCounted" style="display:none">
-    <div id="countedList"></div>
-    <div class="empty" id="countedEmpty" style="display:none">
-      <div class="big">Nothing in Counted</div>Collections land here when the final crate is counted, and move to Invoiced once ticked.
-    </div>
-  </section>
-
-  <section id="viewNoso" style="display:none">
-    <div id="nosoPickBar" style="display:none;align-items:center;gap:10px;margin-bottom:10px;padding:9px 12px;background:var(--amber-soft);border:1px solid var(--line-dark)">
-      <span id="nosoPickMsg" style="font-family:var(--sans);font-weight:600"></span>
-      <button class="btn small" id="nosoPickGo" onclick="consolidatePicked()">Consolidate into the ticked keeper</button>
-      <button class="btn small ghost" onclick="clearNosoPicks()">Clear</button>
-    </div>
-    <table class="inv-table" id="nosoTable" style="display:none">
-      <thead><tr>
-        <th style="width:34px" title="Tick the collections that are one delivery">✓</th>
-        <th>Ref</th><th>Customer</th><th>Counted</th><th>Counted By</th><th>Crates</th><th>Units</th>
-        <th>Status</th><th style="width:290px">Attach the real SO</th>
-      </tr></thead>
-      <tbody id="nosoBody"></tbody>
-    </table>
-    <div class="empty" id="nosoEmpty" style="display:none">
-      <div class="big">Every drop-off is matched to an SO</div>Customer drop-offs counted without an SO sit here until the real number is attached.
-    </div>
-  </section>
-
-  <section id="viewArch" style="display:none">
-    <table class="inv-table" id="archTable" style="display:none">
-      <thead><tr>
-        <th>SO</th><th>Customer</th><th>Raised</th><th>Age</th><th>Counted</th><th>Counted so far</th><th style="width:260px"></th>
-      </tr></thead>
-      <tbody id="archBody"></tbody>
-    </table>
-    <div class="empty" id="archEmpty" style="display:none">
-      <div class="big">Nothing archived</div>Collections still awaiting a count three months after the SO was raised move here on their own.
-    </div>
-  </section>
-
-  <section id="viewInv" style="display:none">
-    <table class="inv-table" id="invTable" style="display:none">
-      <thead><tr>
-        <th style="width:30px"></th><th>SO</th><th>Customer</th><th>SO Created By</th>
-        <th>Date Counted</th><th>Counted By</th><th>WTN Sent</th><th>Date Inv'd</th><th>CO2 Credit</th><th></th>
-      </tr></thead>
-      <tbody id="invBody"></tbody>
-    </table>
-    <div class="empty" id="invEmpty" style="display:none">
-      <div class="big">Nothing invoiced yet</div>Tick "Invoiced" on a counted order and it moves here with its dates.
-    </div>
-  </section>
-
-  <!-- ===================== REPORTS ===================== -->
-  <section id="viewReports" style="display:none">
-    <div class="panel">
-      <div class="filters">
-        <div>
-          <label>Date range</label>
-          <select id="fRange" onchange="onRangeChange()">
-            <option value="mtd">This month (MTD)</option>
-            <option value="lastmonth">Last month</option>
-            <option value="ytd">This year (YTD)</option>
-            <option value="last7">Last 7 days</option>
-            <option value="last30">Last 30 days</option>
-            <option value="week">This week</option>
-            <option value="year">Last 12 months</option>
-            <option value="all" selected>All time</option>
-            <option value="custom">Custom…</option>
-          </select>
+    <!-- ===================== REPORTS (live logic, restyled) ===================== -->
+    <section id="viewReports" style="display:none">
+      <div class="view-head"><div><h2>Reports</h2><div class="today"><span class="pip"></span><span id="repToday"></span></div>
+        <p class="sub">Everything counted, with the month-end counted vs billed reconciliation and the Defra receipt of waste export.</p></div></div>
+      <section class="panel defra" id="rowPanel">
+        <h3>Defra &mdash; Report receipt of waste</h3>
+        <p class="exp">Every WTN on record, written into Defra&rsquo;s own spreadsheet. A long range comes down as several files.</p>
+        <div class="filters">
+          <div><label for="rowFrom">Received from</label><input type="date" id="rowFrom" onchange="rowInfo()"></div>
+          <div><label for="rowTo">Received to</label><input type="date" id="rowTo" onchange="rowInfo()"></div>
+          <div style="display:flex;gap:10px"><a class="btn small ghost" onclick="rowAll()">All dates</a><a class="btn" onclick="rowDownload()">Download spreadsheet</a></div>
         </div>
-        <div id="customFrom" style="display:none"><label>From</label><input type="date" id="fFrom" onchange="renderReports()"></div>
-        <div id="customTo" style="display:none"><label>To</label><input type="date" id="fTo" onchange="renderReports()"></div>
-        <div><label>Customer</label><select id="fCust" onchange="renderReports()"><option value="">All customers</option></select></div>
-        <div><label>Type</label><select id="fType" onchange="onTypeChange()"><option value="">All types</option></select></div>
-        <div><label>Size</label><select id="fSize" onchange="renderReports()"><option value="">All sizes</option></select></div>
-        <div><label>Product</label><select id="fProd" onchange="renderReports()"><option value="">All products</option></select></div>
-        <div><label>Stage</label><select id="fStage" onchange="renderReports()">
-          <option value="">Everything counted</option>
-          <option value="billed">Billed only</option>
-          <option value="unbilled">Not yet billed</option>
-          <option value="open">Still open (part-counted)</option>
-          <option value="amended">Amended</option>
-        </select></div>
-      </div>
-      <div class="chips">
-        <span style="font-family:var(--mono);font-size:11px;color:var(--ink-faint);align-self:center">Quick accounts:</span>
-        <span class="chip" onclick="quickCust('Marlowe')">Marlowe</span>
-        <span class="chip" onclick="quickCust('Mitie')">Mitie</span>
-        <span class="chip" onclick="quickCust('')">Clear</span>
-        <span style="flex:1"></span>
-        <a class="btn x" onclick="exportXlsx()">⤓ Export Excel</a>
-        <a class="btn p" onclick="exportPptx()">⤓ Export PowerPoint</a>
-      </div>
-      <div class="meta-line" id="metaLine"></div>
-    </div>
-    <div class="panel" id="rowPanel">
-      <h3>Defra &mdash; Report receipt of waste</h3>
-      <div class="filters">
-        <div><label>Received from</label><input type="date" id="rowFrom" onchange="rowInfo()"></div>
-        <div><label>Received to</label><input type="date" id="rowTo" onchange="rowInfo()"></div>
-        <div><a class="btn x" onclick="rowDownload()">&#10515; Download spreadsheet</a>
-             <a class="btn small ghost" onclick="rowAll()">All dates</a></div>
-      </div>
-      <div class="meta-line" id="rowMeta"></div>
-      <div class="meta-line" id="rowWarn" style="color:var(--red)"></div>
-    </div>
-    <div class="kpis" id="kpis"></div>
-    <div class="grid2">
-      <div class="panel"><h3>Units by type</h3><div class="chartbox"><canvas id="chartTypeCanvas"></canvas></div></div>
-      <div class="panel"><h3>Trend over time</h3><div class="chartbox"><canvas id="chartTrendCanvas"></canvas></div></div>
-    </div>
-    <div class="panel"><h3>By customer</h3><div class="scrollbox"><table class="rep" id="tblCust"></table></div></div>
-    <div class="grid2">
-      <div class="panel"><h3>By product</h3><div class="scrollbox"><table class="rep" id="tblProd"></table></div></div>
-      <div class="panel"><h3>By type</h3><div class="scrollbox"><table class="rep" id="tblType"></table></div></div>
-    </div>
-    <div class="panel">
-      <h3>Counted vs billed</h3>
-      <div class="meta-line">Counted is what the rec team logged. Amended is the net correction from the Amendments tab.
-        Billed is what has actually been invoiced &mdash; this is the month-end figure.</div>
-      <div class="scrollbox"><table class="rep" id="tblRecon"></table></div>
-    </div>
-    <div class="panel">
-      <h3>Billing view — customer &times; charge code</h3>
-      <div class="meta-line">Mirrors the month-end Smartsheet filter: each customer's totals per NetSuite scrapping-charge code.</div>
-      <div class="scrollbox"><table class="rep" id="tblBilling"></table></div>
-    </div>
-  </section>
-
-  <!-- ===================== AMENDMENTS ===================== -->
-  <section id="viewAdmin" style="display:none">
-    <div class="panel">
-      <label>Find the order to amend</label>
-      <input id="search" placeholder="Search by SO, DROP ref or customer…" oninput="renderAdminList()">
-      <div class="reslist" id="list" style="margin-top:12px"></div>
-    </div>
-    <div class="panel" id="editPanel" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-        <div>
-          <div style="font-family:var(--mono);color:var(--red);font-weight:600" id="eSo"></div>
-          <div style="font-family:var(--display);font-weight:700;font-size:20px" id="eCust"></div>
-          <div style="font-family:var(--mono);font-size:12px;color:var(--ink-soft)" id="eMeta"></div>
+        <div class="meta-line" id="rowMeta"></div>
+        <div class="meta-line" id="rowWarn" style="color:#b42318"></div>
+      </section>
+      <section class="panel">
+        <div class="filters">
+          <div><label for="fRange">Date range</label>
+            <select id="fRange" onchange="onRangeChange();reportsToday()">
+              <option value="mtd">This month (MTD)</option><option value="lastmonth">Last month</option>
+              <option value="ytd">This year (YTD)</option><option value="last7">Last 7 days</option>
+              <option value="last30">Last 30 days</option><option value="week">This week</option>
+              <option value="year">Last 12 months</option><option value="all" selected>All time</option>
+              <option value="custom">Custom…</option>
+            </select></div>
+          <div id="customFrom" style="display:none"><label for="fFrom">From</label><input type="date" id="fFrom" onchange="renderReports();reportsToday()"></div>
+          <div id="customTo" style="display:none"><label for="fTo">To</label><input type="date" id="fTo" onchange="renderReports();reportsToday()"></div>
+          <div><label for="fCust">Customer</label><select id="fCust" onchange="renderReports();reportsToday()"><option value="">All customers</option></select></div>
+          <div><label for="fType">Type</label><select id="fType" onchange="onTypeChange();reportsToday()"><option value="">All types</option></select></div>
+          <div><label for="fSize">Size</label><select id="fSize" onchange="renderReports();reportsToday()"><option value="">All sizes</option></select></div>
+          <div><label for="fProd">Product</label><select id="fProd" onchange="renderReports();reportsToday()"><option value="">All products</option></select></div>
+          <div><label for="fStage">Stage</label><select id="fStage" onchange="renderReports();reportsToday()">
+            <option value="">Everything counted</option><option value="billed">Billed only</option>
+            <option value="unbilled">Not yet billed</option><option value="open">Still open (part-counted)</option>
+            <option value="amended">Amended</option></select></div>
         </div>
-        <a class="btn sm ghost" id="eWtnLink" href="#" target="_blank">Reprint WTN</a>
+        <div class="chips">
+          <span style="font-size:12px;color:var(--ink-3)">Quick accounts</span>
+          <span class="chip" onclick="quickCust('Marlowe')">Marlowe</span>
+          <span class="chip" onclick="quickCust('Mitie')">Mitie</span>
+          <span class="chip" onclick="quickCust('Chubb')">Chubb</span>
+          <span class="chip" onclick="quickCust('')">Clear</span>
+          <span style="flex:1"></span>
+          <a class="btn small ghost" onclick="exportXlsx()">Export Excel</a>
+          <a class="btn small ghost" onclick="exportPptx()">Export PowerPoint</a>
+        </div>
+        <div class="meta-line" id="metaLine"></div>
+      </section>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid2">
+        <section class="panel"><h3>Units by type</h3><div class="chartbox"><canvas id="chartTypeCanvas"></canvas></div></section>
+        <section class="panel"><h3>Trend over time</h3><div class="chartbox"><canvas id="chartTrendCanvas"></canvas></div></section>
       </div>
-      <div class="row2" style="margin-top:14px">
-        <div><label>Your name (recorded on the amendment)</label><input id="adminName" placeholder="Rec admin name"></div>
-        <div><label>Crates expected</label><input id="eCrates" type="number" min="1"></div>
+      <section class="panel"><h3>By customer</h3><div class="tablewrap" style="box-shadow:none"><table class="rep" id="tblCust"></table></div></section>
+      <div class="grid2">
+        <section class="panel"><h3>By product</h3><div class="tablewrap" style="box-shadow:none"><table class="rep" id="tblProd"></table></div></section>
+        <section class="panel"><h3>By type</h3><div class="tablewrap" style="box-shadow:none"><table class="rep" id="tblType"></table></div></section>
       </div>
-      <div id="entries"></div>
-      <button class="btn sm ghost" style="margin-top:12px" onclick="addEntry()">+ Add crate entry</button>
-      <label style="margin-top:18px">Reason for amendment (required)</label>
-      <textarea id="reason" rows="2" placeholder="e.g. customer complaint — 2× Powder 6KG miscounted as 9KG"></textarea>
-      <div class="opts">
-        <label class="opt"><input type="checkbox" id="optSo">Clear the raised SO (needs re-raising)</label>
-        <label class="opt"><input type="checkbox" id="optInv">Untick Invoiced (re-invoice / credit)</label>
-        <label class="opt"><input type="checkbox" id="optCredit">Untick CO2 credit</label>
-      </div>
-      <div class="note">Saving updates the counts, logs who/why, and automatically flags the <b>WTN to be re-sent</b> (its content is regenerated from the new counts). Reprint it above, re-raise the SO in NetSuite, and re-issue the invoice or credit as needed.</div>
-      <div style="margin-top:16px;display:flex;gap:10px">
-        <button class="btn save" onclick="saveAmend()">Save amendment</button>
-        <button class="btn ghost" onclick="closeEdit()">Cancel</button>
-      </div>
-      <div class="ok" id="okBox"></div>
-      <div id="histWrap" style="margin-top:20px;display:none">
-        <label>Amendment history</label>
-        <div class="hist" id="hist"></div>
-      </div>
-    </div>
-  </section>
+      <section class="panel"><h3>Counted vs billed</h3>
+        <p class="exp">Counted is what the rec team logged. Amended is the net correction from Amendments. Billed is what has actually been invoiced &mdash; this is the month-end figure.</p>
+        <div class="tablewrap" style="box-shadow:none"><table class="rep" id="tblRecon"></table></div></section>
+      <section class="panel"><h3>Billing view &mdash; customer &times; charge code</h3>
+        <p class="exp">Mirrors the month-end Smartsheet filter: each customer&rsquo;s totals per NetSuite scrapping-charge code.</p>
+        <div class="tablewrap" style="box-shadow:none"><table class="rep" id="tblBilling"></table></div></section>
+    </section>
+
+    <!-- ===================== AMENDMENTS (live logic, restyled) ===================== -->
+    <section id="viewAdmin" style="display:none">
+      <div class="view-head"><div><h2>Amendments</h2><div class="today"><span class="pip"></span><span id="amendToday"></span></div>
+        <p class="sub">Correct a count after the event. Every change is logged with who and why, and the WTN is flagged to be re-sent.</p></div></div>
+      <section class="panel">
+        <label for="search">Find the order to amend</label>
+        <input id="search" placeholder="Search by SO, DROP ref or customer…" oninput="renderAdminList()">
+        <div class="reslist" id="list" style="margin-top:12px"></div>
+      </section>
+      <section class="panel" id="editPanel" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <div class="mono" style="color:var(--ink-3)" id="eSo"></div>
+            <div style="font-weight:600;font-size:20px" id="eCust"></div>
+            <div style="font-size:13px;color:var(--ink-2)" id="eMeta"></div>
+          </div>
+          <a class="btn sm ghost" id="eWtnLink" href="#" target="_blank">Reprint WTN</a>
+        </div>
+        <div class="row2" style="margin-top:14px">
+          <div><label for="adminName">Your name (recorded on the amendment)</label><input id="adminName" placeholder="Rec admin name"></div>
+          <div><label for="eCrates">Crates expected</label><input id="eCrates" type="number" min="1"></div>
+        </div>
+        <div id="entries"></div>
+        <button class="btn sm ghost" style="margin-top:12px" onclick="addEntry()">+ Add crate entry</button>
+        <label for="reason" style="margin-top:18px">Reason for amendment (required)</label>
+        <textarea id="reason" rows="2" placeholder="e.g. customer complaint — 2× Powder 6KG miscounted as 9KG"></textarea>
+        <div class="opts">
+          <label class="opt"><input type="checkbox" id="optSo">Clear the raised SO (needs re-raising)</label>
+          <label class="opt"><input type="checkbox" id="optInv">Untick Invoiced (re-invoice / credit)</label>
+          <label class="opt"><input type="checkbox" id="optCredit">Untick CO2 credit</label>
+        </div>
+        <div class="note">Saving updates the counts, logs who and why, and flags the <b>WTN to be re-sent</b> (it is regenerated from the new counts). Reprint it above, re-raise the SO in NetSuite, and re-issue the invoice or credit as needed.</div>
+        <div style="margin-top:16px;display:flex;gap:10px">
+          <button class="btn" onclick="saveAmend()">Save amendment</button>
+          <button class="btn ghost" onclick="closeEdit()">Cancel</button>
+        </div>
+        <div class="ok" id="okBox"></div>
+        <div id="histWrap" style="margin-top:20px;display:none">
+          <label>Amendment history</label>
+          <div class="hist" id="hist"></div>
+        </div>
+      </section>
+    </section>
+  </main>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="scrim" id="scrim" aria-hidden="true" onclick="if(event.target===this)closeDialog()"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dTitle" id="dialog"></div></div>
+<div class="toast" id="toast" role="status"></div>
 
+<script src="/pipeline.js"></script>
 <script src="/dashboard.js"></script>
 </body>
 </html>

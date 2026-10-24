@@ -1,42 +1,20 @@
-let STATE=null, activeTab='await';
-const openCards=new Set(),openRows=new Set();
+/* =========================================================================
+   Recycling Returns — pipeline dashboard (redesign, October 2026)
+   Data: /api/state. Stage rules: /pipeline.js (shared with the server, so the two
+   can never disagree). Sections marked "LIVE CODE" are the pre-redesign dashboard's
+   own functions carried over unchanged — /classic still runs the originals.
+   ========================================================================= */
+let STATE=null, VIEW='awaiting', Q={}, SHOW_ALL=false, menuOpen=false, B=null, FIRST=true;
 let RECORDS=[], PRODMAP={}, chartTypeRef=null, chartTrendRef=null, reportsReady=false, LAST={};
-let MONTHLY=[];
-function monthlyInfo(o){return MONTHLY.find(m=>{const k=String(m.match||m.name||'').toLowerCase();return k&&o.cust&&o.cust.toLowerCase().includes(k);});}
-let ADMIN_PRODS=[], EDIT=null;
+let MONTHLY=[], ADMIN_PRODS=[], EDIT=null;
+const nosoPicks=new Set(), wtnPicks=new Set();
+const P=window.Pipeline;
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('show'),3400);}
 
+/* ============ LIVE CODE: helpers, classifiers and actions (from the pre-redesign dashboard, unchanged) ============ */
+function monthlyInfo(o){return MONTHLY.find(m=>{const k=String(m.match||m.name||'').toLowerCase();return k&&o.cust&&o.cust.toLowerCase().includes(k);});}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function ukDate(iso){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');return m?`${m[3]}/${m[2]}/${m[1]}`:(iso||'');}
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2800);}
-
-/* ============ tab switching ============ */
-function switchTab(t){
-  activeTab=t;
-  const map={await:'Await',counted:'Counted',inv:'Inv',noso:'Noso',arch:'Arch',reports:'Reports',admin:'Admin'};
-  Object.entries(map).forEach(([k,v])=>{
-    document.getElementById('view'+v).style.display=k===t?'block':'none';
-    document.getElementById('tab'+v).classList.toggle('active',k===t);
-  });
-  document.getElementById('orderToolbar').style.display=(t==='await'||t==='counted'||t==='inv'||t==='noso'||t==='arch')?'flex':'none';
-  if(t==='reports'){ if(!reportsReady){populateReportFilters();reportsReady=true;} renderReports(); rowInfo(); }
-  if(t==='admin'){ renderAdminList(); }
-}
-
-/* ============ data ============ */
-async function refresh(){
-  try{
-    const r=await fetch('/api/state');STATE=await r.json();
-    PRODMAP={};(STATE.products||[]).forEach(p=>PRODMAP[p.p]={size:p.size,type:p.group,code:p.code,buyback:!!p.buyback});
-    ADMIN_PRODS=STATE.products||[];
-    MONTHLY=STATE.monthlyCustomers||[];
-    buildRecords();
-    renderOrders();
-    if(activeTab==='reports'&&reportsReady)renderReports();
-    if(activeTab==='admin')renderAdminList();
-  }catch(e){document.getElementById('syncMsg').textContent='Server unreachable';}
-}
-
-/* ============ order views ============ */
 function crateLabel(c){
   if(c.crateTo&&c.crateTo!==c.crateFrom)return`Crates ${c.crateFrom}–${c.crateTo}`;
   return`Crate ${c.crateFrom||c.crate}`;
@@ -89,230 +67,6 @@ function likelyDuplicate(o){
     return isFinite(t1)&&isFinite(t2)&&Math.abs(t1-t2)<=14*86400000;
   })||null;
 }
-
-function renderOrders(){
-  if(!STATE)return;
-  const f=document.getElementById('filter').value.trim().toLowerCase();
-  const awaitAll=STATE.orders.filter(o=>o.status==='open'&&!isAged(o));
-  const archAll=STATE.orders.filter(isAged);
-  const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);   // ticking Invoiced moves it to the Invoiced tab
-  const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
-  const nosoAll=STATE.orders.filter(noSo).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
-  const counted=countedAll.filter(o=>matchesFilter(o,f));
-  const inv=invAll.filter(o=>matchesFilter(o,f));
-  const arch=archAll.filter(o=>matchesFilter(o,f));
-  const noso=nosoAll.filter(o=>matchesFilter(o,f));
-
-  stAwait.textContent=awaitAll.length;
-  stCrates.textContent=awaitAll.reduce((a,o)=>a+(o.crates-o.counted),0);
-  stCounted.textContent=countedAll.length;
-  stInv.textContent=invAll.length;
-  pillAwait.textContent=awaitAll.length;pillCounted.textContent=countedAll.length;pillInv.textContent=invAll.length;
-  pillNoso.textContent=nosoAll.length;pillArch.textContent=archAll.length;
-  stCredit.textContent=STATE.orders.filter(o=>o.status==='done'&&o.co2>0&&!o.creditAt).length;
-  stDrop.textContent=nosoAll.length;   // drop-offs still waiting on an SO from the office
-  /* Monthly ACCOUNTS — distinct customers on the monthly list with uninvoiced work,
-     keyed on the account code so two spellings of the same account (e.g. "Firemark"
-     and "Firemark Limited", or the MARL01 / "DO NOT USE" Mitie pair) count once.
-     This used to count ORDERS, which is why it read 579 against a 6-account list. */
-  stMonthly.textContent=new Set(STATE.orders.filter(o=>!o.invoicedAt).map(monthlyInfo)
-    .filter(Boolean).map(m=>m.code||m.name)).size;
-
-  /* If the server could not read the live data store it is running read-only.
-     Say so in the loudest place on the page rather than showing an empty dashboard
-     that looks like the day's work has vanished. */
-  const st=STATE.store||{},warn=document.getElementById('storeWarn');
-  if(st.ready){warn.style.display='none';}
-  else if(st.state==='starting'){
-    warn.style.display='block';warn.style.background='var(--amber)';
-    warn.textContent='Connecting to the data store — the figures below are not live yet.';
-  }else{
-    warn.style.display='block';warn.style.background='var(--red)';
-    warn.innerHTML='Data store unavailable — this dashboard is READ-ONLY and the figures below are NOT the live data. '
-      +'Nothing is being saved and the Rec team cannot count. '+esc(st.error||'')
-      +'<br>The live data is safe in the store; the app will pick it up on the next restart.';
-  }
-
-  const ls=STATE.lastSync;
-  document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
-  document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
-
-  const grid=document.getElementById('awaitGrid');grid.innerHTML='';
-  awaitEmpty.style.display=awaiting.length?'none':'block';
-  awaiting.forEach(o=>{
-    const rec=o.counted,pct=Math.round(rec/o.crates*100);
-    const mInfo=monthlyInfo(o);
-    const tag=(rec===0?'<span class="status-tag awaiting">Awaiting first crate</span>':'<span class="status-tag partial">Partially counted</span>')
-      +(o.dropOff?' <span class="status-tag drop">Dropped off by customer</span>':'')
-      +(o.needsReview?' <span class="status-tag short" style="background:var(--red-soft);color:#a8200f" title="Photographed on the tablet but the number didn\'t match a live collection">Needs review'+(o.claimedRef?' — tried '+esc(o.claimedRef):'')+'</span>':'')
-      +(o.photoId?' <a class="btn small ghost" href="/api/photo/'+encodeURIComponent(o.photoId)+'" target="_blank">View photo</a>':'')
-      +(mInfo?' <span class="status-tag monthly">MONTHLY • '+esc(mInfo.code||mInfo.name)+'</span>':'')
-      +(o.dropRef&&!o.invoicedAt?` <button class="btn small ghost" onclick="unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:'');
-    const ticks=Array.from({length:o.crates},(_,i)=>`<div class="tick ${i<rec?'in':''}"></div>`).join('');
-    const tbl=o.totals.length?`<table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table>`
-      :'<div class="nocounts">No crates counted yet</div>';
-    const age=ageBadge(o);
-    const sibs=openDropSiblings(o);
-    /* Several drop-offs from one customer = one WTN, one SO, one invoice. Offer the
-       merge on the oldest card only, so the same button does not appear six times. */
-    const mergeBtn=(sibs.length>1&&sibs[0].id===o.id)
-      ? `<button class="btn small ghost" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>` : '';
-    grid.insertAdjacentHTML('beforeend',`
-      <div class="so-card age-${age.cls} ${o.dropOff?'drop':''}"${o.needsReview?' style="border-left:4px solid var(--red)"':''}>
-        <div class="so-top">
-          <div>
-            <div class="so-num">${esc(o.so)}</div>
-            <div class="so-cust">${esc(o.cust)}</div>
-            <div class="so-meta">Created ${esc(ukDate(o.date))} &middot; ${esc(o.by)}</div>
-          </div>
-          <div class="crate-frac">
-            <div style="margin-bottom:6px;text-align:right">${age.html}</div>
-            <div class="big">${rec}<span class="of"> / ${o.crates}</span></div><div class="sub">crates counted</div>
-          </div>
-        </div>
-        <div class="prog"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div>
-        <div class="ticks">${ticks}</div>
-        <div class="so-body">${tbl}</div>
-        <div class="so-body" style="padding-top:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${tag}
-          ${sibs.length>1?`<span class="status-tag drop">${sibs.length} open drop-offs for this customer</span>`:''}
-          <span style="margin-left:auto;display:flex;gap:8px">${mergeBtn}
-          ${rec>0?`<button class="btn small ghost" onclick="closeShort(${o.id},${o.crates},${rec})">Close Short</button>`:''}</span>
-        </div>
-      </div>`);
-  });
-
-  const list=document.getElementById('countedList');list.innerHTML='';
-  countedEmpty.style.display=counted.length?'none':'block';
-  counted.forEach(o=>{
-    const totalUnits=o.totals.reduce((a,t)=>a+t.q,0);
-    const isOpen=openCards.has(o.id)?'open':'';
-    const mInfo=monthlyInfo(o);
-    list.insertAdjacentHTML('beforeend',`
-      <div class="comp-card ${isOpen} ${o.dropOff?'drop':''} ${o.amended?'amended-c':''}" id="comp${o.id}">
-        <div class="comp-head" onclick="toggleCard(${o.id})">
-          <span class="chev">&#9656;</span>
-          <div>
-            <div class="so-num">${esc(o.so)}</div>
-            <div class="so-cust" style="font-size:15px">${esc(o.cust)}</div>
-          </div>
-          <span class="status-tag complete">${o.crates} of ${o.crates} counted &middot; ${totalUnits} units</span>
-          ${o.dropOff?'<span class="status-tag drop">Dropped off by customer</span>':''}
-          ${o.dropRef&&!o.invoicedAt?`<button class="btn small ghost" onclick="event.stopPropagation();unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:''}
-          ${mInfo?`<span class="status-tag monthly">MONTHLY • ${esc(mInfo.code||mInfo.name)}</span>`:''}
-          ${o.amended?`<span class="status-tag amended" title="${esc(o.amendments&&o.amendments.length?o.amendments[o.amendments.length-1].reason:'')}">Amended — resend WTN</span>`:''}
-          ${o.short?`<span class="status-tag short" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned (${esc(o.short.when)})</span>`:''}
-          ${o.co2>0?`<span class="status-tag co2">CO2 buy-back — ${o.co2} unit${o.co2===1?'':'s'}</span>`:''}
-          ${/^(DROP|MANUAL)-/.test(String(o.so||''))?`<span onclick="event.stopPropagation()" style="display:flex;gap:6px;align-items:center">
-            <span class="status-tag short">No SO</span>
-            <input id="cntSo${o.id}" placeholder="SO / TFO no." style="width:130px;padding:6px 8px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'cntSo${o.id}')">
-            <button class="btn small" onclick="attachSo(${o.id},'cntSo${o.id}')">Attach</button></span>`:''}
-          <div class="head-right" onclick="event.stopPropagation()">
-            <a class="btn small wtn" href="/wtn/${o.id}" target="_blank">View WTN</a>
-            <label class="tickbox">
-              <input type="checkbox" ${o.wtnSentAt?'checked':''} onchange="mark(${o.id},'wtnSent',this.checked)">
-              WTN sent ${o.wtnSentAt?`<span class="stamp">${esc(o.wtnSentAt)}</span>`:''}
-            </label>
-            ${o.co2>0?`<label class="tickbox">
-              <input type="checkbox" ${o.creditAt?'checked':''} onchange="mark(${o.id},'credit',this.checked)">
-              Credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}
-            </label>`:''}
-            <label class="tickbox">
-              <input type="checkbox" ${o.invoicedAt?'checked':''} onchange="mark(${o.id},'invoiced',this.checked)">
-              Invoiced ${o.invoicedAt?`<span class="stamp">${esc(o.invoicedAt)}</span>`:''}
-            </label>
-            <div class="ref-block">
-              WTN: <span class="set">${esc(o.wtn||'')}</span><br>
-              SO: <span class="${o.finalSo?'set':'pending'}">${esc(o.finalSo||'pending API')}</span>
-            </div>
-          </div>
-        </div>
-        <div class="comp-detail">${detailBlock(o)}</div>
-      </div>`);
-  });
-
-  const body=document.getElementById('invBody');body.innerHTML='';
-  document.getElementById('invTable').style.display=inv.length?'table':'none';
-  invEmpty.style.display=inv.length?'none':'block';
-  inv.forEach(o=>{
-    const isOpen=openRows.has(o.id);
-    body.insertAdjacentHTML('beforeend',`
-      <tr class="main ${isOpen?'open':''}" id="invrow${o.id}" onclick="toggleRow(${o.id})">
-        <td><span class="chev">&#9656;</span></td>
-        <td class="so-cell">${esc(o.so)}${o.short?' <span class="status-tag short" title="'+esc(o.short.reason||'')+'">short '+o.short.received+'/'+o.short.expected+'</span>':''}${o.dropOff?' <span class="status-tag drop">drop-off</span>':''}${o.amended?' <span class="status-tag amended">amended</span>':''}${monthlyInfo(o)?' <span class="status-tag monthly">monthly</span>':''}</td>
-        <td>${esc(o.cust)}</td>
-        <td>${esc(o.by)}</td>
-        <td>${esc(lastCountDate(o))}</td>
-        <td>${esc(counterNames(o))}</td>
-        <td>${esc(o.wtnSentAt||'—')}</td>
-        <td>${esc(o.invoicedAt||'')}</td>
-        <td onclick="event.stopPropagation()">${o.co2>0?(o.creditAt?esc(o.creditAt):`<label class="tickbox" style="padding:4px 8px"><input type="checkbox" onchange="mark(${o.id},'credit',this.checked)">due — ${o.co2}</label>`):'n/a'}</td>
-        <td onclick="event.stopPropagation()"><a class="btn small wtn" href="/wtn/${o.id}" target="_blank">WTN</a></td>
-      </tr>
-      <tr class="detail ${isOpen?'show':''}" id="invdet${o.id}"><td colspan="10">${detailBlock(o,true)}</td></tr>`);
-  });
-
-  /* ---- No SO Yet: drop-offs waiting on a real SO ---- */
-  const nbody=document.getElementById('nosoBody');nbody.innerHTML='';
-  document.getElementById('nosoTable').style.display=noso.length?'table':'none';
-  nosoEmpty.style.display=noso.length?'none':'block';
-  noso.forEach(o=>{
-    const units=o.totals.reduce((a,t)=>a+t.q,0);
-    const dup=likelyDuplicate(o);
-    const flagged=!!o.needsReview;
-    const rowStyle=flagged?' style="background:var(--red-soft)"':(dup?' style="background:var(--amber-soft)"':'');
-    const photoLink=o.photoId?`<br><a class="btn small ghost" href="/api/photo/${encodeURIComponent(o.photoId)}" target="_blank">View photo</a>`:'';
-    const status=o.status==='open'
-      ? `<span class="status-tag partial">Counting — ${o.counted} of ${o.crates}</span>`
-      : `<span class="status-tag complete">Counted${o.invoicedAt?' &middot; invoiced':''}</span>`;
-    nbody.insertAdjacentHTML('beforeend',`
-      <tr${rowStyle}>
-        <td><input type="checkbox" class="nosoPick" value="${o.id}" ${nosoPicks.has(o.id)?'checked':''} onchange="toggleNosoPick(${o.id},this.checked)" style="width:17px;height:17px"></td>
-        <td class="so-cell">${esc(o.so)}</td>
-        <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}
-          ${flagged?`<br><span class="status-tag short" title="Photographed on the tablet but the number didn't match a live collection">Needs review${o.claimedRef?' — tried '+esc(o.claimedRef):''}</span>`:''}
-          ${dup?`<br><span class="status-tag short" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(dup.so)}</span>`:''}
-          ${photoLink}</td>
-        <td>${esc(lastCountDate(o)||ukDate(o.date))}<br>${ageBadge(o).html}</td>
-        <td>${esc(counterNames(o)||o.by||'—')}</td>
-        <td>${o.counted} / ${o.crates}</td>
-        <td>${units}</td>
-        <td>${status}</td>
-        <td><div style="display:flex;gap:6px">
-          <input id="nosoSo${o.id}" placeholder="e.g. SO824039" value="${o.claimedRef?esc(o.claimedRef):''}" style="flex:1;padding:7px 9px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:12.5px" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')">
-          <button class="btn small" onclick="attachSo(${o.id},'nosoSo${o.id}')">Attach</button>
-        </div>
-        ${(()=>{const sibs=monthlySiblings(o);if(sibs.length<2)return '';
-          const tgt=sibs.find(x=>!/^(DROP|MANUAL)-/.test(String(x.so||'')));
-          return `<button class="btn small" style="margin-top:6px;width:100%" onclick="monthlyMerge(${o.id})" title="Monthly customer — fold this month's collections onto one sales order">Consolidate ${esc(String(o.date||'').slice(0,7))} — ${sibs.length} collections${tgt?' onto '+esc(tgt.so):''}</button>`;})()}
-        <button class="btn small ghost" style="margin-top:6px;width:100%" onclick="noSoExpected(${o.id})" title="This customer only ever drops off — take it off this queue and remember them">No SO expected — drop-off customer</button></td>
-      </tr>`);
-  });
-  /* rows the office had ticked may have just been folded away — drop them, then repaint */
-  [...nosoPicks].forEach(id=>{ if(!noso.some(o=>o.id===id)) nosoPicks.delete(id); });
-  paintNosoPicks();
-
-  /* ---- Archive: still awaiting a count three months on ---- */
-  const abody=document.getElementById('archBody');abody.innerHTML='';
-  document.getElementById('archTable').style.display=arch.length?'table':'none';
-  archEmpty.style.display=arch.length?'none':'block';
-  arch.forEach(o=>{
-    const units=o.totals.reduce((a,t)=>a+t.q,0);
-    abody.insertAdjacentHTML('beforeend',`
-      <tr>
-        <td class="so-cell">${esc(o.so)}</td>
-        <td style="font-family:var(--sans);font-weight:600">${esc(o.cust)}</td>
-        <td>${esc(ukDate(o.date))}</td>
-        <td>${ageBadge(o).html}</td>
-        <td>${o.counted} / ${o.crates}</td>
-        <td>${units?units+' units':'<span class="nocounts">nothing counted</span>'}</td>
-        <td style="text-align:right">
-          <button class="btn small ghost" onclick="keepOpen(${o.id})">Still expected — back to Awaiting</button>
-          ${o.counted>0?`<button class="btn small ghost" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close Short</button>`:''}
-        </td>
-      </tr>`);
-  });
-}
 function detailBlock(o,inv){
   const photos=[...new Set([o.photoId,...o.counts.map(c=>c.photoId)].filter(Boolean))];
   return `
@@ -328,8 +82,6 @@ function detailBlock(o,inv){
       ${inv?`<label class="tickbox"><input type="checkbox" checked onchange="mark(${o.id},'invoiced',this.checked)">Invoiced <span class="stamp">${esc(o.invoicedAt||'')}</span></label>`:''}
     </div>`;
 }
-function toggleCard(id){openCards.has(id)?openCards.delete(id):openCards.add(id);document.getElementById('comp'+id).classList.toggle('open');}
-function toggleRow(id){openRows.has(id)?openRows.delete(id):openRows.add(id);document.getElementById('invrow'+id).classList.toggle('open');document.getElementById('invdet'+id).classList.toggle('show');}
 async function closeShort(id,expected,received){
   const msg=`This order expected ${expected} crates but only ${received} ${received===1?'has':'have'} been counted.\n\nClose it at ${received} crate(s)? This completes the order, issues the WTN for what was actually returned, and can't be undone.`;
   if(!confirm(msg))return;
@@ -396,20 +148,6 @@ async function mergeDrops(id){
    The Rec team raise a fresh drop-off per crate, so one collection arrives as five or
    six rows under five or six spellings of the customer. Nothing can group those safely
    by name, so the office ticks them and the server folds exactly those. */
-const nosoPicks=new Set();
-function toggleNosoPick(id,on){on?nosoPicks.add(id):nosoPicks.delete(id);paintNosoPicks();}
-function clearNosoPicks(){nosoPicks.clear();document.querySelectorAll('.nosoPick').forEach(c=>c.checked=false);paintNosoPicks();}
-function paintNosoPicks(){
-  const bar=document.getElementById('nosoPickBar');if(!bar)return;
-  const picked=[...nosoPicks].map(id=>(STATE.orders||[]).find(o=>o.id===id)).filter(Boolean);
-  if(picked.length<2){bar.style.display='none';return;}
-  bar.style.display='flex';
-  const keeper=nosoKeeper(picked);
-  const crates=picked.reduce((a,o)=>a+(o.counted||0),0);
-  const units=picked.reduce((a,o)=>a+o.totals.reduce((s,t)=>s+t.q,0),0);
-  document.getElementById('nosoPickMsg').textContent=
-    `${picked.length} collections ticked — ${crates} crate(s), ${units} units, keeping ${keeper.so}`;
-}
 /* The keeper is whichever ticked row already carries a real SO; failing that the
    oldest, so the collection date stays the earliest of the set. */
 function nosoKeeper(picked){
@@ -470,7 +208,443 @@ async function keepOpen(id){
   toast('Back on Awaiting Count');refresh();
 }
 
-/* ============ reports ============ */
+/* ============ redesign: helpers ============ */
+const ICON={
+ roll:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 10-1.6 3.7M13 3v3h-3"/></svg>',
+ edit:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3L6 13H3v-3z"/></svg>',
+ chart:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h12M4 10V7M8 10V3M12 10V6"/></svg>',
+ box:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="3"/><path d="M3 6v7h10V6M6.5 9h3"/></svg>',
+ users:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M11 3.3a2.4 2.4 0 010 4.4M12.5 9.4c1.5.4 2.5 1.7 2.5 3.6"/></svg>',
+ lock:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>'
+};
+function plural(n,w,p){return n+' '+(n===1?w:(p||w+'s'));}
+/* Today in UK time, in the dd/mm/yyyy form the server stamps with. Never hard-coded. */
+function todayUK(){return new Date().toLocaleDateString('en-GB',{timeZone:'Europe/London'});}
+function units(o){return (o.totals||[]).reduce((a,t)=>a+t.q,0);}
+function daysSinceUK(s){const iso=dmy(String(s||'').split(',')[0]);return iso?P.ageDays(iso):0;}
+function agePill(n){const cls=n<=5?'':(n<=10?'mid':'old');return `<span class="age ${cls}">${n===0?'Today':plural(n,'day')}</span>`;}
+function oldest(list,f){return list.length?Math.max(...list.map(f)):0;}
+function byDate(a,b){return String(a.date||'').localeCompare(String(b.date||''))||a.id-b.id;}
+function matches(o,f){if(!f)return true;f=f.toLowerCase();return [o.so,o.cust,o.wtn,o.nsRef,o.dropRef,o.claimedRef,o.finalSo].some(x=>String(x||'').toLowerCase().includes(f));}
+function countsToday(o){return (o.counts||[]).filter(c=>String(c.when||'').split(',')[0]===todayUK());}
+function adminName(){try{return localStorage.getItem('recAdmin')||'';}catch(e){return '';}}
+async function api(path,body,headers){
+  try{const r=await fetch(path,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},headers||{}),body:JSON.stringify(body)});return await r.json();}
+  catch(e){return {error:'Server unreachable — nothing was saved'};}
+}
+function rollVisits(r){return (r.visitIds||[]).map(id=>STATE.orders.find(o=>o.id===id)).filter(Boolean);}
+function sumProducts(vs){const m={};vs.forEach(o=>(o.totals||[]).forEach(t=>{m[t.p]=(m[t.p]||0)+t.q;}));return m;}
+function sumCodes(vs){const m={};vs.forEach(o=>(o.counts||[]).forEach(c=>(c.lines||[]).forEach(l=>{const k=l.other?'Other':((PRODMAP[l.p]||{}).code||'UNMAPPED');m[k]=(m[k]||0)+Number(l.q);})));return m;}
+function kvList(m){const k=Object.keys(m).sort(),t=k.reduce((a,x)=>a+m[x],0);return k.map(x=>`<div class="kv"><span>${esc(x)}</span><b class="mono">${m[x]}</b></div>`).join('')+`<div class="kv total"><span>Total</span><b class="mono">${t}</b></div>`;}
+
+/* ============ stages ============ */
+function buckets(){
+  const b={awaiting:[],noso:[],counted:[],wtn:[],processed:[],archive:[],monthly:[],rolled:[]};
+  (STATE.orders||[]).forEach(o=>{(b[P.stageOf(o)]||b.counted).push(o);});
+  const R=STATE.rollups||[];
+  b.rollPack=R.filter(r=>P.rollupStage(r)==='pack');
+  b.rollWtn=R.filter(r=>P.rollupStage(r)==='wtn');
+  b.rollDone=R.filter(r=>P.rollupStage(r)==='processed');
+  b.pending=b.monthly.filter(o=>P.rollState(o)==='pending');
+  return b;
+}
+const STAGE_NAV=[['awaiting','Awaiting count'],['noso','No SO yet'],['counted','Counted'],['wtn','WTN sent'],['processed','Processed on NetSuite']];
+function stageCount(k){if(k==='wtn')return B.wtn.length+B.rollWtn.length;if(k==='processed')return B.processed.length+B.rollDone.length;return B[k].length;}
+function renderNav(){
+  const st=STAGE_NAV.map(([k,l])=>`<button class="nav-item s-${k}" role="tab" aria-selected="${VIEW===k}" onclick="go('${k}')"><span class="dot"></span><span class="grow">${l}</span><span class="cnt">${stageCount(k)}</span></button>`).join('');
+  const cs=STATE.customers||[],monthlyN=cs.filter(c=>c.billing==='monthly').length;
+  const other=[
+    ['monthly','Monthly accounts','roll','s-monthly',B.pending.length?`<span class="flag" title="Visits waiting for Confirm">${B.pending.length} to confirm</span>`:`<span class="cnt">${monthlyN}</span>`],
+    ['amend','Amendments','edit','s-neutral',`<span class="cnt">${STATE.orders.filter(o=>o.amended).length}</span>`],
+    ['reports','Reports','chart','s-neutral',''],
+    ['archive','Archive','box','s-neutral',`<span class="cnt">${B.archive.length}</span>`],
+    ['customers','Customers','users','s-neutral',STATE.adminEnabled?`<span class="cnt">${cs.length}</span>`:`<span class="cnt" style="display:flex" title="Read-only until ADMIN_KEY is set">${ICON.lock}</span>`]
+  ].map(([k,l,ic,cl,right])=>`<button class="nav-item ${cl}" role="tab" aria-selected="${VIEW===k}" onclick="go('${k}')">${ICON[ic]}<span class="grow">${l}</span>${right}</button>`).join('');
+  document.getElementById('nav').innerHTML=`<div class="navgroup"><div class="navlabel">Pipeline</div>${st}</div><div class="divider"></div><div class="navgroup">${other}</div>`;
+}
+/* The sync status line and the store warning banner — same wording as live. */
+function renderChrome(){
+  const st=STATE.store||{},warn=document.getElementById('storeWarn');
+  if(st.ready){warn.style.display='none';}
+  else if(st.state==='starting'){warn.style.display='block';warn.style.background='#b45309';
+    warn.textContent='Connecting to the data store — the figures below are not live yet.';}
+  else{warn.style.display='block';warn.style.background='#b42318';
+    warn.innerHTML='Data store unavailable — this dashboard is READ-ONLY and the figures below are NOT the live data. '
+      +'Nothing is being saved and the Rec team cannot count. '+esc(st.error||'')
+      +'<br>The live data is safe in the store; the app will pick it up on the next restart.';}
+  const ls=STATE.lastSync;
+  document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
+  document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
+}
+function toggleMenu(){menuOpen=!menuOpen;document.getElementById('navwrap').classList.toggle('open',menuOpen);document.getElementById('menuBtn').setAttribute('aria-expanded',menuOpen);}
+function go(k){VIEW=k;SHOW_ALL=false;try{localStorage.setItem('rrView',k);}catch(e){}if(menuOpen)toggleMenu();render(true);window.scrollTo(0,0);}
+function render(entering){
+  if(!STATE)return;
+  B=buckets();renderNav();renderChrome();
+  const isRep=VIEW==='reports',isAm=VIEW==='amend',pipe=document.getElementById('viewPipe');
+  document.getElementById('viewReports').style.display=isRep?'block':'none';
+  document.getElementById('viewAdmin').style.display=isAm?'block':'none';
+  pipe.style.display=(isRep||isAm)?'none':'block';
+  if(isRep){if(!reportsReady){populateReportFilters();reportsReady=true;}renderReports();reportsToday();if(entering)rowInfo();}
+  else if(isAm){renderAdminList();amendToday();}
+  else{pipe.innerHTML=(VIEWS[VIEW]||VIEWS.awaiting)();paintPicks();}
+}
+function head(cls,title,today,sub,right){
+  return `<div class="view-head ${cls}"><div><h2>${title}</h2><div class="today"><span class="pip"></span><span>${today}</span></div>${sub?`<p class="sub">${sub}</p>`:''}</div>${right||''}</div>`;
+}
+function searchBox(k,ph){return `<input class="search" type="search" id="q_${k}" placeholder="${ph}" aria-label="${ph}" value="${esc(Q[k]||'')}" oninput="onSearch('${k}',this)">`;}
+function onSearch(k,el){Q[k]=el.value;const p=el.selectionStart;render();const n=document.getElementById('q_'+k);if(n){n.focus();try{n.setSelectionRange(p,p);}catch(e){}}}
+function empty(t,s){return `<div class="empty"><b>${t}</b>${s}</div>`;}
+
+/* ============ cards ============ */
+function photoLinks(o){
+  const ids=[...new Set([o.photoId,...(o.counts||[]).map(c=>c.photoId)].filter(Boolean))];
+  return ids.map((id,i)=>`<a class="btn quiet sm" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('');
+}
+function tagsFor(o,stage){
+  const t=[];
+  if(o.dropOff)t.push('<span class="badge s-noso">Drop-off</span>');
+  if(o.needsReview)t.push(`<span class="badge s-red" title="Photographed on the tablet but the number didn't match a live collection">Needs review${o.claimedRef?' — tried '+esc(o.claimedRef):''}</span>`);
+  if(stage==='noso'){const d=likelyDuplicate(o);if(d)t.push(`<span class="badge s-awaiting" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(d.so)}</span>`);}
+  const m=monthlyInfo(o);if(m)t.push(`<span class="badge s-monthly" title="Tagged monthly in config">Monthly · ${esc(m.code||m.name)}</span>`);
+  if(o.amended)t.push(`<span class="badge s-awaiting" title="${esc(o.amendments&&o.amendments.length?o.amendments[o.amendments.length-1].reason:'')}">Amended${o.wtnSentAt?'':' — resend WTN'}</span>`);
+  if(o.short)t.push(`<span class="badge s-awaiting" title="${esc(o.short.reason||'')}">Short — ${o.short.received} of ${o.short.expected} returned</span>`);
+  if(o.co2>0)t.push(`<span class="badge s-counted">CO2 buy-back · ${o.co2}${o.creditAt?' · credited':''}</span>`);
+  if(o.rollOutAt)t.push(`<span class="badge s-monthly" title="${esc(o.rollOutWhy||'')}">Off the ${esc(o.rollCode)} roll-up</span>`);
+  return t.join('');
+}
+function card(o,stage,foot,opts){
+  opts=opts||{};
+  const set=opts.pick==='noso'?nosoPicks:opts.pick==='wtn'?wtnPicks:null,key=opts.pick==='wtn'?'o'+o.id:o.id;
+  const on=set&&set.has(key);
+  const pick=set?`<label class="pick"><input type="checkbox" ${on?'checked':''} onchange="togglePick('${opts.pick}','${key}',this.checked)" aria-label="Select ${esc(o.so)}"></label>`:'';
+  const pct=o.crates?Math.round(o.counted/o.crates*100):0;
+  const lines=o.totals.length?o.totals.map(t=>`<div><span>${esc(t.p)}</span><b>${t.q}</b></div>`).join(''):'<div class="none">No crates counted yet</div>';
+  return `<article class="card s-${stage} ${o.needsReview?'flagged':''} ${on?'sel-on':''}" ${set?`data-key="${key}"`:''}>
+    <div class="card-top"><div><div class="ref">${pick}<span>${esc(o.so)}</span>${o.wtn?`<span>· ${esc(o.wtn)}</span>`:''}</div>
+      <div class="cust">${esc(o.cust)}</div><div class="meta">${o.dropOff?'Dropped off':'Created'} ${esc(ukDate(o.date))}${o.by?' · '+esc(o.by):''}</div></div>${opts.age||''}</div>
+    <div class="facts"><span><b>${o.counted}</b> of <b>${o.crates}</b> crates</span>${o.totals.length?`<span><b>${units(o)}</b> units</span>`:''}${lastCountDate(o)?`<span>Last count ${esc(lastCountDate(o))}</span>`:''}</div>
+    ${stage==='awaiting'?`<div class="prog" role="img" aria-label="${pct}% counted"><i style="width:${pct}%"></i></div>`:''}
+    <div class="tags">${tagsFor(o,stage)}</div>
+    <div class="lines">${lines}</div>
+    <div class="card-foot">${foot}</div></article>`;
+}
+const detailsBtn=o=>`<button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
+const undoBtn=o=>o.dropRef&&!o.invoicedAt?`<button class="lbtn" onclick="unsetSo(${o.id},'${esc(o.so)}','${esc(o.dropRef)}')">Wrong SO? Undo</button>`:'';
+const creditBox=o=>o.co2>0?`<label class="tickbox"><input type="checkbox" ${o.creditAt?'checked':''} onchange="mark(${o.id},'credit',this.checked)">CO2 credit issued ${o.creditAt?`<span class="stamp">${esc(o.creditAt)}</span>`:''}</label>`:'';
+function grid(list,fn,none){return list.length?`<div class="grid">${list.map(fn).join('')}</div>`:none;}
+
+/* ============ views ============ */
+const VIEWS={
+ awaiting(){
+  const all=B.awaiting.slice().sort(byDate),l=all.filter(o=>matches(o,Q.awaiting));
+  const today=all.reduce((a,o)=>a+countsToday(o).reduce((s,c)=>s+(c.crateTo?c.crateTo-c.crateFrom+1:1),0),0);
+  return head('s-awaiting','Awaiting count',`<b>${plural(all.length,'order')}</b> awaiting · ${all.reduce((a,o)=>a+(o.crates-o.counted),0)} crates still to come · ${all.filter(o=>!o.counted).length} not started · <b>${plural(today,'crate')} counted today</b> · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
+    'Counting happens on /count. An order moves to Counted when its last crate is in.',searchBox('awaiting','Search SO or customer'))
+   +grid(l,o=>{
+     const sibs=openDropSiblings(o);
+     const merge=(sibs.length>1&&sibs[0].id===o.id)?`<button class="btn quiet sm" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>`:'';
+     return card(o,'awaiting',`<span class="badge s-awaiting">${o.counted?'Partly counted':'Not started'}</span>${photoLinks(o)}${merge}${undoBtn(o)}${detailsBtn(o)}`
+       +(o.counted>0?`<button class="btn sm primary" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close short</button>`:''),{age:agePill(P.ageDays(o.date))});
+   },empty('Nothing awaiting count','Every collection has been counted, or none match the search.'));
+ },
+ noso(){
+  const all=B.noso.slice().sort(byDate),l=all.filter(o=>matches(o,Q.noso));
+  return head('s-noso','No SO yet',`<b>${plural(all.length,'drop-off')}</b> need a sales order · ${all.filter(o=>o.needsReview).length} flagged for review · <b>${all.filter(o=>lastCountDate(o)===todayUK()).length} counted today</b> · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
+    'Counted drop-offs with no NetSuite SO, including names typed freely on /count and photos whose number did not match. Attach the real SO to move one on. If several rows are one delivery, tick them and combine.',searchBox('noso','Search ref or customer'))
+   +`<div class="bulk s-noso" id="nosoBar" hidden><span class="msg" id="nosoMsg"></span><button class="btn" onclick="consolidatePicked()">Combine into one</button><button class="btn quiet" onclick="clearPicks('noso')">Clear</button></div>`
+   +grid(l,o=>{
+     const sibs=monthlySiblings(o),tgt=sibs.find(x=>!P.isPlaceholder(x.so));
+     const mm=sibs.length>1?`<button class="btn quiet sm" onclick="monthlyMerge(${o.id})" title="Monthly customer (config) — fold this month's collections onto one sales order">Consolidate ${esc(String(o.date||'').slice(0,7))} — ${sibs.length}${tgt?' onto '+esc(tgt.so):''}</button>`:'';
+     return card(o,'noso',`<div class="field"><label for="nosoSo${o.id}">Attach the real SO</label><input class="in" id="nosoSo${o.id}" placeholder="e.g. SO824039" value="${o.claimedRef?esc(o.claimedRef):''}" onkeydown="if(event.key==='Enter')attachSo(${o.id},'nosoSo${o.id}')"></div>`
+       +`${photoLinks(o)}${mm}<button class="lbtn" onclick="noSoExpected(${o.id})" title="This customer only ever drops off — take it off this queue and remember them">No SO expected</button>${detailsBtn(o)}<button class="btn primary" onclick="attachSo(${o.id},'nosoSo${o.id}')">Link SO</button>`,
+       {pick:'noso',age:agePill(P.ageDays(o.date))});
+   },empty('Every drop-off is matched to an SO','Counted drop-offs without an SO sit here until the real number is attached.'));
+ },
+ counted(){
+  const all=B.counted.slice().sort(byDate),l=all.filter(o=>matches(o,Q.counted));
+  return head('s-counted','Counted',`<b>${plural(all.length,'order')}</b> ready for the WTN · <b>${all.filter(o=>lastCountDate(o)===todayUK()).length} completed today</b> · ${plural(all.filter(o=>o.co2>0&&!o.creditAt).length,'CO2 credit')} due · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
+    'Fully counted. Check the WTN, send it to the customer, then mark it sent.',searchBox('counted','Search SO, customer or WTN'))
+   +grid(l,o=>card(o,'counted',
+      (P.isPlaceholder(o.so)?`<div class="field"><label for="cntSo${o.id}">No SO — attach one</label><input class="in" id="cntSo${o.id}" placeholder="SO / TFO no." onkeydown="if(event.key==='Enter')attachSo(${o.id},'cntSo${o.id}')"></div>`:'')
+      +`<a class="btn quiet sm" href="/wtn/${o.id}" target="_blank">View WTN</a>${creditBox(o)}${photoLinks(o)}${undoBtn(o)}${detailsBtn(o)}<button class="btn primary" onclick="mark(${o.id},'wtnSent',true)">Mark WTN sent</button>`,
+      {age:agePill(P.ageDays(o.date))}),empty('Nothing waiting for a WTN','Collections land here when the final crate is counted.'));
+ },
+ wtn(){
+  const all=B.wtn.slice().sort((a,b)=>daysSinceUK(b.wtnSentAt)-daysSinceUK(a.wtnSentAt)),l=all.filter(o=>matches(o,Q.wtn));
+  const rolls=B.rollWtn.filter(r=>!Q.wtn||(r.name+' '+r.code+' '+r.wtn).toLowerCase().includes(Q.wtn.toLowerCase()));
+  const total=all.length+B.rollWtn.length,sentToday=all.filter(o=>o.wtnSentAt===todayUK()).length+B.rollWtn.filter(r=>r.sentAt===todayUK()).length;
+  return head('s-wtn','WTN sent',`<b>${plural(total,'order')}</b> waiting for NetSuite · <b>${sentToday} sent today</b> · oldest sent ${plural(Math.max(oldest(all,o=>daysSinceUK(o.wtnSentAt)),oldest(B.rollWtn,r=>daysSinceUK(r.sentAt))),'day')} ago`,
+    'Once it is done in NetSuite, enter the SO or invoice number and mark it processed.',searchBox('wtn','Search SO, customer or WTN'))
+   +`<div class="bulk s-wtn" id="wtnBar"><label class="tickbox"><input type="checkbox" id="wtnAll" onchange="pickAllWtn(this.checked)"> Select all</label><span class="msg" id="wtnMsg"></span><button class="btn" id="wtnBulk" onclick="downloadSelected()" disabled>Download selected WTNs (0)</button></div>`
+   +((l.length||rolls.length)?`<div class="grid">${rolls.map(rollCard).join('')}${l.map(o=>card(o,'wtn',
+      `<div class="rowx"><span class="badge s-wtn"><span class="mono">${esc(o.wtn||'')}</span> · sent ${esc(o.wtnSentAt)}</span>${creditBox(o)}</div>`
+      +`<div class="rowx"><a class="btn quiet sm" href="/wtn/${o.id}?print=1" target="_blank">Download WTN (PDF)</a><a class="btn quiet sm" href="/wtn/${o.id}" target="_blank">Reprint</a>${photoLinks(o)}${detailsBtn(o)}<button class="lbtn" onclick="mark(${o.id},'wtnSent',false)">Not sent — back to Counted</button></div>`
+      +`<div class="field"><label for="ns${o.id}">NetSuite SO or invoice number</label><input class="in" id="ns${o.id}" placeholder="e.g. INV-190300" value="${esc(o.finalSo||'')}" onkeydown="if(event.key==='Enter')processOrder(${o.id})"></div><button class="btn primary" onclick="processOrder(${o.id})">Mark processed on NetSuite</button>`,
+      {pick:'wtn',age:agePill(daysSinceUK(o.wtnSentAt))})).join('')}</div>`:empty('Nothing waiting on NetSuite','Orders appear here once their WTN is marked as sent.'));
+ },
+ processed(){
+  let rows=B.processed.map(o=>({o,when:o.invoicedAt||''})).concat(B.rollDone.map(r=>({r,when:String(r.processedAt||'').split(',')[0]})));
+  const total=rows.length,today=rows.filter(x=>x.when===todayUK()).length,f=(Q.processed||'').toLowerCase();
+  rows=rows.filter(x=>x.o?matches(x.o,f):(x.r.name+' '+x.r.code+' '+x.r.wtn+' '+x.r.nsRef).toLowerCase().includes(f))
+    .sort((a,b)=>String(dmy(b.when)||'').localeCompare(String(dmy(a.when)||'')));
+  const shown=SHOW_ALL?rows:rows.slice(0,100);
+  const row=x=>{
+    if(x.r){const r=x.r,vs=rollVisits(r);return `<tr><td data-label="Order"><span class="mono">${esc(r.wtn)}</span> <span class="badge s-monthly">Monthly roll-up · ${plural(vs.length,'visit')}</span></td><td data-label="Customer">${esc(r.name)}</td><td class="mono" data-label="NetSuite no.">${esc(r.nsRef||'—')}</td><td data-label="Processed">${esc(x.when)}</td><td data-label="By">${esc(r.processedBy||'')}</td><td data-label="CO2 credit">—</td><td data-label="WTN"><a class="lbtn" href="/wtn/rollup/${r.id}?print=1" target="_blank">Season WTN (PDF)</a> <button class="lbtn" onclick="rollMark(${r.id},'processed',false)">Undo</button></td></tr>`;}
+    const o=x.o;
+    return `<tr><td data-label="Order"><span class="mono">${esc(o.so)}</span>${o.dropOff?' <span class="badge s-noso">Drop-off</span>':''}${o.amended?' <span class="badge s-awaiting">Amended</span>':''}${o.short?' <span class="badge s-awaiting">Short</span>':''}${monthlyInfo(o)?' <span class="badge s-monthly">Monthly</span>':''}</td>
+      <td data-label="Customer">${esc(o.cust)}</td><td class="mono" data-label="NetSuite no.">${esc(o.nsRef||o.finalSo||'—')}</td><td data-label="Processed">${esc(o.invoicedAt)}</td><td data-label="By">${esc(o.processedBy||counterNames(o))}</td>
+      <td data-label="CO2 credit">${o.co2>0?(o.creditAt?esc(o.creditAt):`<label class="tickbox"><input type="checkbox" onchange="mark(${o.id},'credit',this.checked)">due — ${o.co2}</label>`):'n/a'}</td>
+      <td data-label="WTN"><a class="lbtn" href="/wtn/${o.id}?print=1" target="_blank">${esc(o.wtn||'WTN')} (PDF)</a> <button class="lbtn" onclick="openDetails(${o.id})">Details</button></td></tr>`;
+  };
+  return head('s-processed','Processed on NetSuite',`<b>${plural(total,'order')}</b> processed · <b>${today} today</b>`,
+    'Done in NetSuite. The NetSuite SO or invoice number is recorded against each one.',searchBox('processed','Search ref, customer, WTN or NetSuite no.'))
+   +`<div class="notice"><span>Next phase: one click will raise the SO and invoice in NetSuite for you.</span><span style="display:flex;gap:10px;align-items:center"><button class="btn" disabled aria-disabled="true">Process in NetSuite</button><span class="badge s-awaiting">Coming soon</span></span></div>`
+   +(rows.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>Order</th><th>Customer</th><th>NetSuite no.</th><th>Processed</th><th>By</th><th>CO2 credit</th><th>WTN</th></tr></thead><tbody>${shown.map(row).join('')}</tbody></table></div>`
+     +(rows.length>shown.length?`<p style="margin-top:12px"><button class="btn quiet" onclick="SHOW_ALL=true;render()">Show all ${rows.length}</button> <span class="meta">Showing the latest ${shown.length}</span></p>`:'')
+     :empty('Nothing processed yet','Orders arrive here when they are marked processed on NetSuite.'));
+ },
+ monthly(){
+  const cs=STATE.customers||[];
+  const accts=cs.filter(c=>c.billing==='monthly'||P.openRollup(STATE.orders,c.code).members.length||P.openRollup(STATE.orders,c.code).pending.length);
+  const visitsToday=B.monthly.filter(o=>countsToday(o).length).length;
+  return head('s-monthly','Monthly accounts',`<b>${plural(accts.length,'account')}</b> on monthly rolling${B.pending.length?` · <b style="color:#7a4a00">${plural(B.pending.length,'visit')} to confirm</b>`:''} · ${plural(visitsToday,'visit')} counted today`,
+    'Each visit counted for a monthly account joins one open roll-up instead of making its own card. The roll-up closes when you click Process, not on a calendar date.','')
+   +B.rollPack.map(packCard).join('')
+   +(accts.length?accts.map(rollSection).join(''):empty('No monthly accounts','Switch a customer to monthly rolling in Customers (needs the admin key).'));
+ },
+ archive(){
+  const all=B.archive.slice().sort(byDate),l=all.filter(o=>matches(o,Q.archive));
+  return head('s-neutral','Archive',`<b>${plural(all.length,'collection')}</b> still awaiting a count three months after the SO was raised`,
+    'If the delivery is still expected, put it back on Awaiting count and it picks up where it left off.',searchBox('archive','Search SO or customer'))
+   +(l.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>SO</th><th>Customer</th><th>Raised</th><th>Age</th><th>Counted so far</th><th></th></tr></thead><tbody>${l.map(o=>`<tr>
+      <td class="mono" data-label="SO">${esc(o.so)}</td><td data-label="Customer">${esc(o.cust)}</td><td data-label="Raised">${esc(ukDate(o.date))}</td>
+      <td data-label="Age"><span class="age old">${plural(Math.floor(P.ageDays(o.date)/30.4),'month')}</span></td>
+      <td data-label="Counted so far">${o.counted} of ${o.crates} crates · ${units(o)?plural(units(o),'unit'):'nothing counted'}</td>
+      <td style="text-align:right"><button class="btn quiet sm" onclick="keepOpen(${o.id})">Still expected — back to Awaiting</button>${o.counted>0?` <button class="btn quiet sm" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close short</button>`:''}</td></tr>`).join('')}</tbody></table></div>`
+     :empty('Nothing archived','Collections still uncounted three months after the SO was raised move here on their own.'));
+ },
+ customers(){
+  const cs=STATE.customers||[],f=(Q.customers||'').toLowerCase();
+  const l=cs.filter(c=>!f||(c.name+' '+c.code+' '+(c.aliases||[]).join(' ')).toLowerCase().includes(f));
+  const hist=[];cs.forEach(c=>(c.history||[]).forEach(h=>hist.push(Object.assign({cust:c.name},h))));
+  hist.sort((a,b)=>String(dmy(b.when)||'').localeCompare(String(dmy(a.when)||''))||String(b.when).localeCompare(String(a.when)));
+  const lock=STATE.adminEnabled?`<span class="lock-line">${ICON.lock}Changes need the admin key</span>`:`<span class="lock-line" style="color:#b42318">${ICON.lock}Set ADMIN_KEY on Render to enable changes</span>`;
+  const btn=c=>!STATE.adminEnabled?`<span class="lock-line" title="Read-only">${ICON.lock}Read-only</span>`
+    :c.billing==='monthly'?`<button class="btn quiet sm" onclick="billingDialog('${esc(c.code)}','per-order')">Revert to per order</button>`
+    :`<button class="btn quiet sm" onclick="billingDialog('${esc(c.code)}','monthly')">Switch to monthly</button>`;
+  return head('s-neutral','Customers',`${lock}`,'How each customer is billed. Monthly rolling applies to drop-offs picked on /count from the moment it is switched on; counts already made stay as they are. Reverting splits the open roll-up back into its own orders.',searchBox('customers','Search name, code or alias'))
+   +`<div class="tablewrap"><table class="stack"><thead><tr><th>Customer</th><th>Aliases typed on /count</th><th class="num">Visits picked on /count</th><th>Billing</th></tr></thead><tbody>${l.map(c=>{const h=(c.history||[])[0];return `<tr>
+      <td data-label="Customer"><b style="font-weight:600">${esc(c.name)}</b><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(c.code||'no code')}</div>${c.note?`<div class="meta">${esc(c.note)}</div>`:''}${h?`<div class="meta">Changed by ${esc(h.by)}, ${esc(h.when)}</div>`:''}</td>
+      <td data-label="Aliases">${(c.aliases||[]).map(a=>`<span class="alias">${esc(a)}</span>`).join('')||'—'}</td>
+      <td class="num" data-label="Visits">${STATE.orders.filter(o=>o.custCode&&o.custCode===c.code).length}</td>
+      <td data-label="Billing"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="badge ${c.billing==='monthly'?'s-monthly':'s-neutral'}">${c.billing==='monthly'?'Monthly rolling':'Per order'}</span>${btn(c)}</div></td></tr>`;}).join('')}</tbody></table></div>`
+   +`<div class="sec-title">Change history</div>`+(hist.length?`<ul class="hist-list">${hist.map(h=>`<li><b>${esc(h.cust)}</b><span>${h.from==='monthly'?'Monthly rolling':'Per order'} → ${h.to==='monthly'?'Monthly rolling':'Per order'}</span><span>${esc(h.by)}</span><span>${esc(h.when)}</span></li>`).join('')}</ul>`:'<p class="meta">No billing changes yet.</p>');
+ }
+};
+
+/* ============ monthly roll-ups ============ */
+function rollSection(c){
+  const R=P.openRollup(STATE.orders,c.code),vs=R.members.concat(R.pending).sort(byDate);
+  const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog('${esc(c.code)}','per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs ADMIN_KEY</span>`):'';
+  const top=`<div><span class="badge">${c.billing==='monthly'?'Monthly rolling':'Per order now — finish or revert this roll-up'}</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${vs.length?` · open since ${esc(ukDate(vs[0].date))} · no SO until you process`:' · no visits since the last Process'}</div></div>`;
+  if(!vs.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">The next ${esc(c.name)} drop-off picked on /count starts a new roll-up.</span>${revert}</div></section>`;
+  const crates=R.members.reduce((a,o)=>a+o.counted,0),u=R.members.reduce((a,o)=>a+units(o),0);
+  const vrow=o=>{
+    const pend=P.rollState(o)==='pending';
+    const th=o.photoId?`<a class="thumb" href="/api/photo/${encodeURIComponent(o.photoId)}" target="_blank" title="View photo"><img src="/api/photo/${encodeURIComponent(o.photoId)}" alt="Photo for ${esc(o.so)}" loading="lazy"></a>`:'<span class="thumb">No photo</span>';
+    const counting=o.status==='open'?`<small>Counting — ${o.counted} of ${o.crates} crates</small>`:'';
+    const match=pend?`<b>Typed “${esc(o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>Not in the roll-up until you confirm.</small>${counting}`
+      :`<span class="tick">✓</span> ${esc(c.code)} · ${esc(c.name)}<small>${o.custMatch==='picked'?'Picked from the list':'Alias confirmed by '+esc(o.rollConfirmedBy||'Rec admin')}</small>${counting}`;
+    const last=pend?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button></div>`
+      :`${esc(counterNames(o)||o.by||'')} <button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
+    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}</div><div class="num">${o.counted}</div><div class="num">${units(o)}</div><div>${last}</div></div>`;
+  };
+  const first=R.ready.length?(lastCountDate(R.ready[0])||ukDate(R.ready[0].date)):'';
+  return `<section class="roll s-monthly"><div class="roll-head">${top}
+     <div class="stats"><div class="stat"><div class="v">${R.members.length}</div><div class="k">Visits</div></div><div class="stat"><div class="v">${crates}</div><div class="k">Crates</div></div><div class="stat"><div class="v">${u}</div><div class="k">Units</div></div></div></div>
+    ${R.pending.length?`<div class="alert" role="alert"><b>${plural(R.pending.length,'visit')} to confirm.</b> A counter typed a name instead of picking from the list. Nothing is added to the roll-up until you confirm.</div>`:''}
+    <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Matched account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${vs.map(vrow).join('')}</div>
+    <div class="roll-cols"><div><h4>Units by product</h4>${kvList(sumProducts(R.members))}</div><div><h4>Units by charge code</h4>${kvList(sumCodes(R.members))}</div></div>
+    <div class="roll-foot"><span class="hint">Process raises one season WTN covering every confirmed, fully counted visit.${R.members.length>R.ready.length?` ${plural(R.members.length-R.ready.length,'visit')} still being counted stays open.`:''}</span>
+      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog('${esc(c.code)}')" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(R.ready.length,'visit')} since ${esc(first||'—')}</button></span></div></section>`;
+}
+function packCard(r){
+  const vs=rollVisits(r);
+  return `<section class="roll s-wtn"><div class="roll-head"><div><span class="badge">Pack ready — not sent yet</span><h3>${esc(r.name)} — season WTN <span class="mono">${esc(r.wtn)}</span></h3>
+    <div class="meta">${plural(vs.length,'visit')}, ${esc(ukDate(r.from))} to ${esc(ukDate(r.to))} · ${plural(r.crates,'crate')} · generated ${esc(r.createdAt)} by ${esc(r.createdBy)}</div></div></div>
+    <div class="roll-foot"><span class="hint">Download the pack, send it to the customer yourself, then mark it as sent. It then waits in WTN sent for the NetSuite number.</span>
+    <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="lbtn" onclick="rollUndo(${r.id})">Void this pack</button><a class="btn quiet" href="/wtn/rollup/${r.id}?print=1" target="_blank">Download pack (PDF)</a><button class="btn" onclick="rollMark(${r.id},'sent',true)">Mark as sent</button></span></div></section>`;
+}
+function rollCard(r){
+  const vs=rollVisits(r),key='r'+r.id,on=wtnPicks.has(key);
+  return `<article class="card s-monthly ${on?'sel-on':''}" data-key="${key}"><div class="card-top"><div><div class="ref"><label class="pick"><input type="checkbox" ${on?'checked':''} onchange="togglePick('wtn','${key}',this.checked)" aria-label="Select ${esc(r.wtn)}"></label><span>Season WTN · ${esc(r.wtn)}</span></div>
+    <div class="cust">${esc(r.name)}</div><div class="meta">${esc(r.code)} · ${plural(vs.length,'visit')}, ${esc(ukDate(r.from))} to ${esc(ukDate(r.to))}</div></div>${agePill(daysSinceUK(r.sentAt))}</div>
+    <div class="facts"><span><b>${r.crates}</b> crates</span><span><b>${vs.reduce((a,o)=>a+units(o),0)}</b> units</span></div>
+    <div class="tags"><span class="badge s-monthly">Monthly roll-up</span></div>
+    <div class="lines">${Object.entries(sumProducts(vs)).sort().map(([p,q])=>`<div><span>${esc(p)}</span><b>${q}</b></div>`).join('')}</div>
+    <div class="card-foot"><div class="rowx"><span class="badge s-wtn"><span class="mono">${esc(r.wtn)}</span> · sent ${esc(r.sentAt)}</span></div>
+      <div class="rowx"><a class="btn quiet sm" href="/wtn/rollup/${r.id}?print=1" target="_blank">Download pack (PDF)</a><a class="btn quiet sm" href="/wtn/rollup/${r.id}" target="_blank">Reprint</a><button class="lbtn" onclick="rollMark(${r.id},'sent',false)">Not sent — back to Monthly</button></div>
+      <div class="field"><label for="nsr${r.id}">NetSuite SO or invoice number</label><input class="in" id="nsr${r.id}" placeholder="e.g. SO-48300"></div>
+      <button class="btn primary" onclick="rollProcess(${r.id})">Mark processed on NetSuite</button></div></article>`;
+}
+function processDialog(code){
+  const c=P.findCustomer(STATE.customers,code),R=P.openRollup(STATE.orders,code);if(!c||!R.ready.length)return;
+  const codes=sumCodes(R.ready),tot=Object.values(codes).reduce((a,b)=>a+b,0);
+  const left=R.members.length-R.ready.length+R.pending.length;
+  openDialog(`<h3 id="dTitle">Generate WTN &amp; invoice pack</h3><p class="lead">One season WTN covers every confirmed visit. The app builds the pack; you send it.</p>
+    <dl class="dl"><dt>Customer</dt><dd>${esc(c.name)} <span class="mono">(${esc(c.code)})</span></dd><dt>WTN number</dt><dd>Next in sequence<small>One season WTN for all ${plural(R.ready.length,'visit')}; each visit keeps its own WTN on record</small></dd>
+    <dt>Covers</dt><dd>${plural(R.ready.length,'visit')}, ${esc(ukDate(R.ready[0].date))} to ${esc(ukDate(R.ready[R.ready.length-1].date))}</dd></dl>
+    <table><thead><tr><th>Charge code</th><th class="num">Units</th></tr></thead><tbody>${Object.keys(codes).sort().map(k=>`<tr><td class="mono">${esc(k)}</td><td class="num">${codes[k]}</td></tr>`).join('')}<tr><td><b>Total</b></td><td class="num"><b>${tot}</b></td></tr></tbody></table>
+    <p class="d-note">Prices are applied in NetSuite, so none are shown here.</p>
+    ${left?`<div class="warn-box">${plural(left,'visit')} still counting or awaiting confirmation ${left===1?'is':'are'} left out and stay${left===1?'s':''} on the open roll-up.</div>`:''}
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="rollupProcess('${esc(code)}')">Generate WTN &amp; invoice pack</button></div>`);
+}
+async function rollupProcess(code){
+  const j=await api('/api/rollup-process',{code,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  await refresh();packDialog(j.rollup);
+}
+function packDialog(r){
+  openDialog(`<h3 id="dTitle">Pack generated</h3><p class="lead">${esc(r.wtn)} for ${esc(r.name)} is ready. Download the pack, send it yourself, then mark it as sent.</p>
+    <div class="d-actions" style="justify-content:flex-start"><a class="btn quiet" href="/wtn/rollup/${r.id}?print=1" target="_blank">Download pack (PDF)</a></div>
+    <p class="d-note">The pack opens as a printable page: choose Save as PDF in the print dialog. Marking as sent moves it to WTN sent, where it waits for the NetSuite number.</p>
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Not sent yet</button><button class="btn" onclick="rollMark(${r.id},'sent',true)">Mark as sent</button></div>`);
+}
+async function rollMark(id,field,value,nsRef){
+  if(!value&&field==='processed'&&!confirm('Move this season WTN back to WTN sent? The NetSuite number is cleared.'))return;
+  const j=await api('/api/rollup-mark',{id,field,value,nsRef,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  closeDialog();
+  toast(field==='sent'?(value?'Season WTN marked as sent — waiting for the NetSuite number':'Back on Monthly accounts as a pack'):(value?'Season WTN processed on NetSuite':'Back to WTN sent'));
+  if(field==='sent'&&value){VIEW='wtn';}
+  refresh();
+}
+function rollProcess(id){const inp=document.getElementById('nsr'+id),v=(inp&&inp.value||'').trim();if(!v){toast('Enter the NetSuite SO or invoice number first');inp&&inp.focus();return;}rollMark(id,'processed',true,v);}
+async function rollUndo(id){
+  if(!confirm('Void this pack? Its visits go back on the open roll-up. The WTN number is kept on record as void and never reused.'))return;
+  const j=await api('/api/rollup-undo',{id,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  toast(`${j.wtn} voided — visits back on the roll-up`);refresh();
+}
+async function rollConfirm(id,ok){
+  if(!ok&&!confirm('Take this visit off the roll-up? It goes to No SO yet like any unknown drop-off.'))return;
+  const j=await api('/api/roll-confirm',{orderId:id,confirm:ok,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  toast(ok?`${j.so} confirmed and added to the roll-up`:`${j.so} moved to No SO yet`);refresh();
+}
+
+/* ============ customers (admin key) ============ */
+function billingDialog(code,to){
+  const c=P.findCustomer(STATE.customers,code);if(!c)return;
+  const R=P.openRollup(STATE.orders,code),n=R.members.length+R.pending.length;
+  let key='';try{key=sessionStorage.getItem('rrAdminKey')||'';}catch(e){}
+  openDialog(`<h3 id="dTitle">${to==='monthly'?'Switch '+esc(c.name)+' to monthly rolling?':'Revert '+esc(c.name)+' to per order?'}</h3>
+    <p class="lead">${to==='monthly'?'Drop-offs picked as this customer on /count from now on join one open roll-up under Monthly accounts. Counts already made stay where they are.'
+      :(n?`The open roll-up (${plural(n,'visit')}) is split back into its own orders now — each goes to its normal stage, ready for its own SO.`:'There is no open roll-up to split.')+' New counts create one order each.'}</p>
+    <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
+    <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
+    <p class="d-note">Recorded in the change history. Nothing is lost — you can switch back at any time.</p>
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="doBilling('${esc(code)}','${to}')">${to==='monthly'?'Switch to monthly':'Revert to per order'}</button></div>`);
+}
+async function doBilling(code,to){
+  const by=document.getElementById('bkBy').value.trim(),key=document.getElementById('bkKey').value;
+  if(!by){toast('Enter your name');return;}
+  const j=await api('/api/customer-billing',{code,billing:to,by},{'X-Admin-Key':key});
+  if(j.error){if(/not accepted/i.test(j.error)){try{sessionStorage.removeItem('rrAdminKey');}catch(e){}}toast(j.error);return;}
+  try{sessionStorage.setItem('rrAdminKey',key);localStorage.setItem('recAdmin',by);}catch(e){}
+  closeDialog();toast(to==='monthly'?'Monthly rolling from the next count':(j.split?`${plural(j.split,'visit')} split back into their own orders`:'Back to per order'));refresh();
+}
+
+/* ============ per-order actions (redesign) ============ */
+async function processOrder(id){
+  const inp=document.getElementById('ns'+id),v=(inp&&inp.value||'').trim();
+  if(!v){toast('Enter the NetSuite SO or invoice number first');inp&&inp.focus();return;}
+  const j=await api('/api/process',{orderId:id,nsRef:v,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  toast(`${j.so} processed on NetSuite (${j.nsRef})`);refresh();
+}
+function togglePick(kind,key,on){
+  const set=kind==='noso'?nosoPicks:wtnPicks,k=kind==='noso'?Number(key):key;
+  on?set.add(k):set.delete(k);paintPicks();
+}
+function clearPicks(kind){(kind==='noso'?nosoPicks:wtnPicks).clear();render();}
+function visibleWtnKeys(){
+  const f=(Q.wtn||'').toLowerCase();
+  return B.wtn.filter(o=>matches(o,f)).map(o=>'o'+o.id).concat(B.rollWtn.filter(r=>!f||(r.name+' '+r.code+' '+r.wtn).toLowerCase().includes(f)).map(r=>'r'+r.id));
+}
+function pickAllWtn(on){visibleWtnKeys().forEach(k=>on?wtnPicks.add(k):wtnPicks.delete(k));render();}
+function paintPicks(){
+  if(VIEW==='noso'){
+    [...nosoPicks].forEach(id=>{if(!B.noso.some(o=>o.id===id))nosoPicks.delete(id);});
+    const bar=document.getElementById('nosoBar');if(!bar)return;
+    const picked=[...nosoPicks].map(id=>STATE.orders.find(o=>o.id===id)).filter(Boolean);
+    bar.hidden=picked.length<2;bar.classList.toggle('on',picked.length>=2);
+    if(picked.length>=2){const k=nosoKeeper(picked);
+      document.getElementById('nosoMsg').innerHTML=`<b>${picked.length} collections ticked</b> — ${picked.reduce((a,o)=>a+(o.counted||0),0)} crates, ${picked.reduce((a,o)=>a+units(o),0)} units, keeping ${esc(k.so)}`;}
+    document.querySelectorAll('.card[data-key]').forEach(c=>c.classList.toggle('sel-on',nosoPicks.has(Number(c.dataset.key))));
+  }
+  if(VIEW==='wtn'){
+    const valid=new Set(visibleWtnKeys().concat(B.wtn.map(o=>'o'+o.id),B.rollWtn.map(r=>'r'+r.id)));
+    [...wtnPicks].forEach(k=>{if(!valid.has(k))wtnPicks.delete(k);});
+    const n=wtnPicks.size,b=document.getElementById('wtnBulk');if(!b)return;
+    b.disabled=!n;b.textContent=`Download selected WTNs (${n})`;
+    document.getElementById('wtnMsg').innerHTML=n?`<b>${n} selected</b> — opens one printable page, one WTN per sheet`:'Tick the WTNs you want, or select all';
+    document.getElementById('wtnBar').classList.toggle('on',n>0);
+    const vis=visibleWtnKeys();document.getElementById('wtnAll').checked=vis.length>0&&vis.every(k=>wtnPicks.has(k));
+    document.querySelectorAll('.card[data-key]').forEach(c=>c.classList.toggle('sel-on',wtnPicks.has(c.dataset.key)));
+  }
+}
+function downloadSelected(){
+  const ids=[...wtnPicks].filter(k=>k[0]==='o').map(k=>k.slice(1)),rs=[...wtnPicks].filter(k=>k[0]==='r').map(k=>k.slice(1));
+  if(!ids.length&&!rs.length){toast('Tick at least one WTN');return;}
+  window.open(`/wtn-batch?ids=${ids.join(',')}&r=${rs.join(',')}&print=1`,'_blank');
+}
+
+/* ============ dialog + details ============ */
+let lastFocus=null;
+function openDialog(html,cls){lastFocus=document.activeElement;const d=document.getElementById('dialog');d.className='dialog '+(cls||'');d.innerHTML=html;
+  const s=document.getElementById('scrim');s.classList.add('show');s.setAttribute('aria-hidden','false');
+  const f=d.querySelector('input:not([type=checkbox])')||d.querySelector('.btn:not(.quiet)');f&&f.focus();}
+function closeDialog(){const s=document.getElementById('scrim');s.classList.remove('show');s.setAttribute('aria-hidden','true');if(lastFocus&&document.contains(lastFocus))lastFocus.focus();}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('scrim').classList.contains('show'))closeDialog();});
+const STAGE_NAME={awaiting:'Awaiting count',noso:'No SO yet',counted:'Counted',wtn:'WTN sent',processed:'Processed on NetSuite',archive:'Archive',monthly:'Monthly roll-up',rolled:'On a season WTN'};
+function openDetails(id){
+  const o=STATE.orders.find(x=>x.id===id);if(!o)return;
+  openDialog(`<h3 id="dTitle">${esc(o.so)} — ${esc(o.cust)}</h3>
+    <p class="lead">${STAGE_NAME[P.stageOf(o)]||''}${o.wtn?' · '+esc(o.wtn):''}${o.nsRef?' · NetSuite '+esc(o.nsRef):''}${o.dropRef?' · was '+esc(o.dropRef):''}</p>
+    <div class="tags" style="padding:12px 0 0">${tagsFor(o,P.stageOf(o))}</div>
+    <div style="margin-top:16px">${detailBlock(o,!!o.invoicedAt)}</div>
+    <div class="d-actions">${undoBtn(o)}${o.wtn?`<a class="btn quiet" href="/wtn/${o.id}" target="_blank">Reprint WTN</a>`:''}<button class="btn" onclick="closeDialog()">Close</button></div>`,'wide');
+}
+
+/* ============ today lines for the live views ============ */
+function reportsToday(){
+  const el=document.getElementById('repToday');if(!el||!LAST.rows)return;
+  const u=LAST.rows.reduce((a,r)=>a+r.qty,0),n=new Set(LAST.rows.map(r=>r.so)).size;
+  const today=(STATE.orders||[]).reduce((a,o)=>a+countsToday(o).reduce((s,c)=>s+c.lines.reduce((x,l)=>x+Number(l.q),0),0),0);
+  el.innerHTML=`<b>${u.toLocaleString('en-GB')} units</b> across ${plural(n,'collection')} in this view · <b>${today.toLocaleString('en-GB')} units counted today</b>`;
+}
+function amendToday(){
+  const all=(STATE.orders||[]).filter(o=>o.amended),today=(STATE.orders||[]).reduce((a,o)=>a+(o.amendments||[]).filter(x=>String(x.when||'').split(',')[0]===todayUK()).length,0);
+  document.getElementById('amendToday').innerHTML=`<b>${plural(all.length,'order')}</b> amended · <b>${today} today</b>`;
+}
+
+/* ============ data ============ */
+async function refresh(){
+  try{const r=await fetch('/api/state');if(r.status===401){location.reload();return;}STATE=await r.json();}
+  catch(e){document.getElementById('syncMsg').textContent='Server unreachable';return;}
+  PRODMAP={};(STATE.products||[]).forEach(p=>PRODMAP[p.p]={size:p.size,type:p.group,code:p.code,buyback:!!p.buyback});
+  ADMIN_PRODS=STATE.products||[];
+  MONTHLY=STATE.monthlyCustomers||[];
+  buildRecords();
+  /* Don't wipe what someone is typing (an SO number, a search) on the 30-second refresh. */
+  const a=document.activeElement,typing=a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)&&a.type!=='search'&&a.type!=='checkbox'&&document.getElementById('viewPipe').contains(a)&&a.value;
+  if(!FIRST&&(document.getElementById('scrim').classList.contains('show')||typing)){B=buckets();renderNav();renderChrome();return;}
+  render(FIRST);FIRST=false;
+}
+
+/* ============ LIVE CODE: reports and amendments (unchanged) ============ */
 function parseWhen(when){
   if(!when)return null;
   const d=String(when).split(',')[0].trim();
@@ -875,10 +1049,6 @@ function renderHist(){
     return `<div class="h"><b>${esc(a.when)}</b> — ${esc(a.by)}<br>“${esc(a.reason)}”<br><span style="color:var(--ink-faint)">total units ${tot(a.before||[])} → ${tot(a.after||[])}</span></div>`;}).join('');
 }
 function closeEdit(){document.getElementById('editPanel').style.display='none';EDIT=null;}
-
-refresh();
-setInterval(refresh,30000);
-
 /* ============ Defra "Report receipt of waste" ============
    The server fills Defra's own spreadsheet from the waste transfer notes — this
    only picks the dates and fetches it. Both dates blank = every WTN on record.
@@ -917,3 +1087,7 @@ async function rowDownload(){
   }
   toast(ROW_INFO.files>1?'Downloading '+ROW_INFO.files+' files':'Downloading spreadsheet');
 }
+/* ============ start ============ */
+try{const v=localStorage.getItem('rrView');if(v&&(VIEWS[v]||v==='reports'||v==='amend'))VIEW=v;}catch(e){}
+refresh();
+setInterval(refresh,30000);
