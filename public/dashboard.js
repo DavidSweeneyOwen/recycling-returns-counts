@@ -949,7 +949,7 @@ function repMetrics(rows){
 }
 /* good: 'up' = a rise is good, 'down' = a rise is bad, null = neither */
 function deltaHtml(cur,prev,good){
-  if(prev===null)return `<span class="dt flat">All time, no comparison</span>`;
+  if(prev===null)return '';
   const d=cur-prev;
   if(!d)return `<span class="dt flat">0 vs previous</span>`;
   const txt=prev?`${d>0?'▲':'▼'} ${sgn(d)}${N(Math.abs(d))} (${sgn(d)}${(Math.abs(d)/prev*100).toFixed(1)}%)`:`${d>0?'▲':'▼'} ${sgn(d)}${N(Math.abs(d))} (new)`;
@@ -978,7 +978,7 @@ function paintHero(rows,cur,prior,pb){
     +cell('Units billed',cur.billed,deltaHtml(cur.billed,p?p.billed:null,'up'))
     +cell('CO2 buy-back units',cur.co2,deltaHtml(cur.co2,p?p.co2:null,null))
     +cell('Collections',cur.collections,deltaHtml(cur.collections,p?p.collections:null,null))
-    +`<div class="m-also">Also in this view: amended <b>${sgn(cur.amended)}${N(Math.abs(cur.amended))}</b> · current <b>${N(cur.current)}</b> · customers <b>${N(cur.customers)}</b> · drop-offs <b>${N(cur.drops)}</b>${base?` <span class="bsl">(deltas ${base})</span>`:''}</div>`;
+    +`<div class="m-also">Also in this view: amended <b>${sgn(cur.amended)}${N(Math.abs(cur.amended))}</b> · current <b>${N(cur.current)}</b> · customers <b>${N(cur.customers)}</b> · drop-offs <b>${N(cur.drops)}</b>${base?` <span class="bsl">(changes ${base})</span>`:' <span class="bsl">(All time: pick a date range to see the change on the previous period)</span>'}</div>`;
 }
 /* ---- charts: self-drawn SVG, one axis, thin marks, tooltips, a table view for each ---- */
 function niceStep(max,n){const raw=max/n,p=Math.pow(10,Math.floor(Math.log10(raw||1))),f=raw/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;}
@@ -1025,7 +1025,7 @@ function drawMix(byType,total){
   const box=document.getElementById('rpType');
   if(!byType.length||!total){box.innerHTML='<div class="rp-empty">Nothing counted in this view.</div>';return;}
   const max=byType[0].v;
-  box.innerHTML=`<ul class="bl">${byType.map(t=>`<li><button type="button" class="bl-r" onclick="setFilter('fType',${jsq(t.k)})" title="Filter the report to ${esc(t.k)}"><span class="bl-n">${esc(t.k)}</span><span class="bl-t"><i style="width:${Math.max(1,t.v/max*100)}%"></i></span><span class="bl-v mono">${N(t.v)}</span><span class="bl-p mono">${Math.round(t.v/total*100)}%</span></button></li>`).join('')}</ul>`;
+  box.innerHTML=`<ul class="bl">${byType.map(t=>`<li><button type="button" class="bl-r" onclick="setFilter('fType',${jsq(t.k)})" title="Filter the report to ${esc(t.k)}"><span class="bl-n">${esc(t.k)}</span><span class="bl-t"><i style="width:${Math.max(1,t.v/max*100)}%"></i></span><span class="bl-v mono">${N(t.v)}</span><span class="bl-p mono">${t.v/total<0.01?'<1':Math.round(t.v/total*100)}%</span></button></li>`).join('')}</ul>`;
 }
 function drawCust(rows){
   const box=document.getElementById('rpCust'),m={};
@@ -1035,8 +1035,8 @@ function drawCust(rows){
   const top=all.slice(0,10),rest=all.slice(10);
   if(rest.length)top.push({k:`Other (${N(rest.length)} customers)`,b:rest.reduce((a,o)=>a+o.b,0),u:rest.reduce((a,o)=>a+o.u,0),other:true});
   top.forEach(o=>o.t=o.b+o.u);
-  const max=Math.max(...top.map(o=>o.t));
-  box.innerHTML=`<ul class="bl cu">${top.map(o=>`<li>${o.other?'<div class="bl-r">':`<button type="button" class="bl-r" onclick="setFilter('fCust',${jsq(o.k)})" title="Filter the report to ${esc(o.k)}">`}<span class="bl-n">${esc(o.k)}</span><span class="bl-t"><i class="s1" style="width:${o.b/max*100}%"></i><i class="s2" style="width:${o.u/max*100}%"></i></span><span class="bl-v mono">${N(o.t)}</span><span class="bl-p mono" title="Not yet billed">${o.u?N(o.u)+' open':'billed'}</span>${o.other?'</div>':'</button>'}</li>`).join('')}</ul>`;
+  const max=Math.max(...top.filter(o=>!o.other).map(o=>o.t));
+  box.innerHTML=`<ul class="bl cu">${top.map(o=>`<li>${o.other?'<div class="bl-r">':`<button type="button" class="bl-r" onclick="setFilter('fCust',${jsq(o.k)})" title="Filter the report to ${esc(o.k)}">`}<span class="bl-n">${esc(o.k)}</span><span class="bl-t">${o.other?'':`<i class="s1" style="width:${o.b/max*100}%"></i><i class="s2" style="width:${o.u/max*100}%"></i>`}</span><span class="bl-v mono">${N(o.t)}</span><span class="bl-p mono" title="Not yet billed">${o.u?N(o.u)+' open':'billed'}</span>${o.other?'</div>':'</button>'}</li>`).join('')}</ul>`;
 }
 function toggleTv(id,btn){const e=document.getElementById(id);e.hidden=!e.hidden;btn.setAttribute('aria-pressed',String(!e.hidden));btn.textContent=e.hidden?'View as table':'Hide table';}
 /* ---- tables: sortable, sticky header, totals row, tabular right-aligned numbers ---- */

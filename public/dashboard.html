@@ -379,8 +379,8 @@ table.rep th.n{font-family:var(--sans)}
 .nyb-b b{font-weight:600}
 @media(hover:hover){.nyb-b:hover{background:var(--raised)}}
 .nyb-a{display:flex;gap:10px;flex-wrap:wrap;margin-top:auto;padding-top:16px}
-.rp-metrics{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:6px;align-content:start}
-.m-c{padding:20px 24px 18px;border-top:1px solid var(--line);border-left:1px solid var(--line);min-width:0}
+.rp-metrics{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr auto;border:1px solid var(--line);border-radius:6px;align-content:start}
+.m-c{display:flex;flex-direction:column;justify-content:center;padding:20px 24px 18px;border-top:1px solid var(--line);border-left:1px solid var(--line);min-width:0}
 .m-c:nth-child(-n+2){border-top:none}.m-c:nth-child(odd){border-left:none}
 .m-k{font-size:13px;color:var(--ink-3)}
 .m-v{font-family:var(--display);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:4px}
@@ -475,6 +475,12 @@ div.bl-r{cursor:default}
 .rp-tw th.n .sb{justify-content:flex-end}
 .rp-tw th[aria-sort=ascending] .sb,.rp-tw th[aria-sort=descending] .sb{color:var(--ink);font-weight:600}
 .si{font-size:9px;width:10px}
+.rp-tw th.n .si{order:-1}
+.rp-row2 .rp-card{display:flex;flex-direction:column}
+.rp-row2 #rpCust{flex:1;display:flex}
+.rp-row2 ul.cu{flex:1;width:100%}
+.rp-row2 ul.cu li{flex:1;display:flex}
+.rp-row2 ul.cu .bl-r{min-height:38px;height:100%}
 .rp-tw td{padding:8px 12px;border-bottom:1px solid var(--rule)}
 .rp-tw td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
 .rp-tw td.z{color:#a3a3a1}
