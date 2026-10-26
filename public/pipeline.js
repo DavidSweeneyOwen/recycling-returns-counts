@@ -30,7 +30,9 @@
   function isPlaceholder(so) { return /^(DROP|MANUAL)-/.test(String(so || '')); }
   /* Same test the live No SO Yet tab uses: the reference, not o.source, so it
      clears the moment set-so swaps the DROP- ref for the real SO. */
-  function noSo(o) { return isPlaceholder(o.so) && !o.noSoExpected; }
+  /* noSoExpected on an order that was stamped for a roll-up (rollCode, 385cc58) only hid it
+     from /classic — it does not make it a drop-only customer, so it still needs an SO. */
+  function noSo(o) { return isPlaceholder(o.so) && !(o.noSoExpected && !o.rollCode); }
   function ageDays(iso, now) {
     const d = new Date(String(iso || '') + 'T00:00:00');
     if (isNaN(d)) return 0;
@@ -87,12 +89,48 @@
   /* ---------- roll-ups ---------- */
   /* 'member' = counts towards the open roll-up; 'pending' = alias match waiting for
      Confirm (excluded until then); null = not on a roll-up. */
-  function rollState(o) {
-    if (!o || !o.rollCode || o.rollupId || o.rollOutAt || o.invoicedAt) return null;
-    return (o.custMatch === 'picked' || o.rollConfirmedAt) ? 'member' : 'pending';
+  /* ---------- roll-up membership (derived, never stored) ----------
+     While a customer is on Monthly rolling, EVERY open order of theirs belongs to the
+     open roll-up: NetSuite SOs and drop-offs, whenever they were created, whether they
+     are still being counted, waiting for an SO or fully counted. Not members: orders
+     already on a pack (rollupId), WTN sent, invoiced, or archived (90+ days uncounted).
+     Membership is worked out from the customer list every time, so switching billing
+     pulls orders in or puts them back with nothing written to the orders themselves.
+     Strict matching, because a mix-up bills the wrong customer:
+       trusted  picked from the list on /count, or a NetSuite order whose company name
+                (or code) equals the account exactly, ignoring case, punctuation, Ltd/Limited
+       confirm  anything typed on the tablet (drop-offs) that matches the name or code,
+                and any alias match — excluded from Process until Rec Admin confirms
+       none     no match: stays per order
+     "Not <code>" (rollRejectCode) takes an order off that account for good. */
+  function companyNorm(s) { return norm(String(s || '').replace(/&/g, ' and ')).replace(/\b(ltd|limited|plc|llp|inc|co)\b/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function rejectedCode(o) {
+    if (o.rollRejectCode) return o.rollRejectCode;
+    return (o.rollOutAt && /^rejected/.test(o.rollOutWhy || '')) ? o.rollCode : null;   // 385cc58 data
   }
-  function stageOf(o, now) {
-    if (rollState(o)) return 'monthly';
+  function rollMatch(o, customers, now) {
+    if (!o || o.rollupId || o.invoicedAt || o.wtnSentAt || isAged(o, now)) return null;
+    const rej = rejectedCode(o), typed = !!o.dropOff || o.source === 'unmatched' || o.source === 'moved';
+    const cn = companyNorm(o.cust), n = norm(o.cust);
+    for (const c of customers || []) {
+      if (c.billing !== 'monthly' || !c.code || rej === c.code) continue;
+      let trust = null;
+      if (o.custCode === c.code && o.custMatch === 'picked') trust = 'trusted';
+      else if (cn && (cn === companyNorm(c.name) || n === norm(c.code))) trust = typed ? 'confirm' : 'trusted';
+      else if (n && (c.aliases || []).some(a => norm(a) === n || companyNorm(a) === cn)) trust = 'confirm';
+      if (!trust) continue;
+      if (trust === 'confirm' && o.rollConfirmedAt && (o.rollConfirmCode || o.rollCode) === c.code) trust = 'trusted';
+      return { code: c.code, trust };
+    }
+    return null;
+  }
+  /* 'member' = trusted on the open roll-up; 'pending' = waiting for Confirm; null = not on one. */
+  function rollState(o, customers, now) {
+    const m = rollMatch(o, customers, now);
+    return m ? (m.trust === 'trusted' ? 'member' : 'pending') : null;
+  }
+  function stageOf(o, now, customers) {
+    if (rollState(o, customers, now)) return 'monthly';
     if (o.rollupId) return 'rolled';
     if (o.status === 'open') return isAged(o, now) ? 'archive' : 'awaiting';
     if (noSo(o)) return 'noso';
@@ -108,13 +146,28 @@
   }
   /* The open roll-up for one account: confirmed visits (counted or still counting),
      visits waiting for Confirm, and the ones a Process click would take now. */
-  function openRollup(orders, code) {
-    const mine = (orders || []).filter(o => o.rollCode === code && rollState(o));
-    const members = mine.filter(o => rollState(o) === 'member');
-    const pending = mine.filter(o => rollState(o) === 'pending');
-    const ready = members.filter(o => o.status === 'done');
+  function openRollup(orders, code, customers, now) {
+    const mine = (orders || []).map(o => ({ o, m: rollMatch(o, customers, now) })).filter(x => x.m && x.m.code === code);
     const byDate = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id;
-    return { code, members: members.sort(byDate), pending: pending.sort(byDate), ready: ready.sort(byDate) };
+    const members = mine.filter(x => x.m.trust === 'trusted').map(x => x.o).sort(byDate);
+    const pending = mine.filter(x => x.m.trust === 'confirm').map(x => x.o).sort(byDate);
+    const ready = members.filter(o => o.status === 'done');
+    return { code, members, pending, ready,
+      counting: members.filter(o => o.status === 'open' && countedCrates(o) > 0),
+      awaiting: members.filter(o => o.status === 'open' && !countedCrates(o)) };
+  }
+  function countedCrates(o) { return (o.counts || []).reduce((a, c) => a + (c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1), 0); }
+  function orderUnits(o) { return (o.counts || []).reduce((a, c) => a + (c.lines || []).reduce((s, l) => s + (Number(l.q) || 0), 0), 0); }
+  /* What a billing switch would move, by the stage each order is in now. */
+  function movesOnToggle(orders, customers, code, to, now) {
+    const after = (customers || []).map(c => c.code === code ? Object.assign({}, c, { billing: to }) : c);
+    const by = {}; let total = 0;
+    (orders || []).forEach(o => {
+      const was = stageOf(o, now, customers), will = stageOf(o, now, after);
+      if (was === will || (was !== 'monthly' && will !== 'monthly')) return;
+      const k = to === 'monthly' ? was : will; by[k] = (by[k] || 0) + 1; total++;
+    });
+    return { total, by };
   }
 
   /* ---------- admin key ---------- */
@@ -126,5 +179,6 @@
   }
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
-    classifyDropoff, seedCustomers, rollState, stageOf, rollupStage, openRollup, adminCheck };
+    classifyDropoff, seedCustomers, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
+    movesOnToggle, countedCrates, orderUnits, adminCheck };
 });

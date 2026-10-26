@@ -219,6 +219,10 @@ const ICON={
  users:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M11 3.3a2.4 2.4 0 010 4.4M12.5 9.4c1.5.4 2.5 1.7 2.5 3.6"/></svg>',
  lock:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>'
 };
+/* Roll-up membership is derived from the customer list (pipeline.js), so every call passes it. */
+function stageOf(o){return P.stageOf(o,undefined,STATE.customers);}
+function rollStateOf(o){return P.rollState(o,STATE.customers);}
+function openRoll(code){return P.openRollup(STATE.orders,code,STATE.customers);}
 function plural(n,w,p){return n+' '+(n===1?w:(p||w+'s'));}
 /* Today in UK time, in the dd/mm/yyyy form the server stamps with. Never hard-coded. */
 function todayUK(){return new Date().toLocaleDateString('en-GB',{timeZone:'Europe/London'});}
@@ -242,12 +246,12 @@ function kvList(m){const k=Object.keys(m).sort(),t=k.reduce((a,x)=>a+m[x],0);ret
 /* ============ stages ============ */
 function buckets(){
   const b={awaiting:[],noso:[],counted:[],wtn:[],processed:[],archive:[],monthly:[],rolled:[]};
-  (STATE.orders||[]).forEach(o=>{(b[P.stageOf(o)]||b.counted).push(o);});
+  (STATE.orders||[]).forEach(o=>{(b[stageOf(o)]||b.counted).push(o);});
   const R=STATE.rollups||[];
   b.rollPack=R.filter(r=>P.rollupStage(r)==='pack');
   b.rollWtn=R.filter(r=>P.rollupStage(r)==='wtn');
   b.rollDone=R.filter(r=>P.rollupStage(r)==='processed');
-  b.pending=b.monthly.filter(o=>P.rollState(o)==='pending');
+  b.pending=b.monthly.filter(o=>rollStateOf(o)==='pending');
   return b;
 }
 const STAGE_NAV=[['awaiting','Awaiting count'],['noso','No SO yet'],['counted','Counted'],['wtn','WTN sent'],['processed','Processed on NetSuite']];
@@ -417,7 +421,7 @@ const VIEWS={
  },
  monthly(){
   const cs=STATE.customers||[];
-  const accts=cs.filter(c=>c.billing==='monthly'||P.openRollup(STATE.orders,c.code).members.length||P.openRollup(STATE.orders,c.code).pending.length);
+  const accts=cs.filter(c=>c.billing==='monthly'||openRoll(c.code).members.length||openRoll(c.code).pending.length);
   const visitsToday=B.monthly.filter(o=>countsToday(o).length).length;
   return head('s-monthly','Monthly accounts',`<b>${plural(accts.length,'account')}</b> on monthly rolling${B.pending.length?` · <b style="color:#7a4a00">${plural(B.pending.length,'visit')} to confirm</b>`:''} · ${plural(visitsToday,'visit')} counted today`,
     'Each visit counted for a monthly account joins one open roll-up instead of making its own card. The roll-up closes when you click Process, not on a calendar date.','')
@@ -457,29 +461,48 @@ const VIEWS={
 
 /* ============ monthly roll-ups ============ */
 function rollSection(c){
-  const R=P.openRollup(STATE.orders,c.code),vs=R.members.concat(R.pending).sort(byDate);
+  const R=openRoll(c.code),all=R.members.concat(R.pending);
   const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs ADMIN_KEY</span>`):'';
-  const top=`<div><span class="badge">${c.billing==='monthly'?'Monthly rolling':'Per order now — finish or revert this roll-up'}</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${vs.length?` · open since ${esc(ukDate(vs[0].date))} · no SO until you process`:' · no visits since the last Process'}</div></div>`;
-  if(!vs.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">The next ${esc(c.name)} drop-off picked on /count starts a new roll-up.</span>${revert}</div></section>`;
-  const crates=R.members.reduce((a,o)=>a+o.counted,0),u=R.members.reduce((a,o)=>a+units(o),0);
+  const oldest=all.slice().sort(byDate)[0];
+  const top=`<div><span class="badge">Monthly rolling</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${all.length?` · open since ${esc(ukDate(oldest.date))} · no SO until you process`:' · nothing open since the last Process'}</div></div>`;
+  if(!all.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">Every new ${esc(c.name)} order — NetSuite SO or drop-off — joins this roll-up.</span>${revert}</div></section>`;
+  const sum=(l,f)=>l.reduce((a,o)=>a+f(o),0);
+  const groups=[
+    ['Needs confirm',R.pending,'Typed on the tablet or matched by alias — not billed until you confirm.'],
+    ['Counted — ready to bill',R.ready,''],
+    ['Being counted',R.counting,'Part counted — stays on the roll-up until the last crate is in.'],
+    ['Awaiting count',R.awaiting,'No crates counted yet.']];
   const vrow=o=>{
-    const pend=P.rollState(o)==='pending';
-    const th=o.photoId?`<a class="thumb" href="/api/photo/${encodeURIComponent(o.photoId)}" target="_blank" title="View photo"><img src="/api/photo/${encodeURIComponent(o.photoId)}" alt="Photo for ${esc(o.so)}" loading="lazy"></a>`:'<span class="thumb">No photo</span>';
-    const counting=o.status==='open'?`<small>Counting — ${o.counted} of ${o.crates} crates</small>`:'';
-    const match=pend?`<b>Typed “${esc(o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>Not in the roll-up until you confirm.</small>${counting}`
-      :`<span class="tick">✓</span> ${esc(c.code)} · ${esc(c.name)}<small>${o.custMatch==='picked'?'Picked from the list':'Alias confirmed by '+esc(o.rollConfirmedBy||'Rec admin')}</small>${counting}`;
-    const last=pend?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button></div>`
-      :`${esc(counterNames(o)||o.by||'')} <button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
-    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}</div><div class="num">${o.counted}</div><div class="num">${units(o)}</div><div>${last}</div></div>`;
+    const pend=rollStateOf(o)==='pending',ph=[...new Set([o.photoId,...(o.counts||[]).map(x=>x.photoId)].filter(Boolean))];
+    const th=ph.length?`<a class="thumb" href="/api/photo/${encodeURIComponent(ph[0])}" target="_blank" title="View photo"><img src="/api/photo/${encodeURIComponent(ph[0])}" alt="Photo for ${esc(o.so)}" loading="lazy"></a>`:'<span class="thumb">No photo</span>';
+    const kind=P.isPlaceholder(o.so)?'Drop-off':'NetSuite SO';
+    const match=pend?`<b>“${esc(o.typedCust||o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>${kind}${o.dropOff?' typed on the tablet':' matched by alias'}</small>`
+      :`<span class="tick">✓</span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}</small>`;
+    const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
+    const last=pend?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button> ${photos}</div>`
+      :`${esc(counterNames(o)||o.by||'')} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
+    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}</div><div class="num">${o.counted} / ${o.crates}</div><div class="num">${units(o)}</div><div>${last}</div></div>`;
   };
-  const first=R.ready.length?(lastCountDate(R.ready[0])||ukDate(R.ready[0].date)):'';
+  const grp=([label,list,note])=>list.length?`<div class="sec-title" style="margin:18px 0 4px">${label} · ${plural(list.length,'order')} · ${sum(list,o=>o.counted)} crates · ${sum(list,units)} units${label==='Needs confirm'?` <button class="btn amber sm" style="margin-left:8px" onclick="rollConfirmAll(${jsq(c.code)})">Confirm all ${list.length}</button>`:''}</div>${note?`<p class="meta" style="margin-bottom:4px">${note}</p>`:''}${list.slice().sort(byDate).map(vrow).join('')}`:'';
+  const both=(fa,fb)=>{const a=fa(all),b=fb(R.ready),k=[...new Set([...Object.keys(a),...Object.keys(b)])].sort();
+    return `<div class="kv" style="color:var(--ink-3);font-size:12px"><span></span><span style="display:flex;gap:28px"><span>On roll-up</span><span>Ready to bill</span></span></div>`
+      +k.map(x=>`<div class="kv"><span class="mono">${esc(x)}</span><span style="display:flex;gap:28px"><b class="mono" style="min-width:64px;text-align:right">${a[x]||0}</b><b class="mono" style="min-width:76px;text-align:right">${b[x]||0}</b></span></div>`).join('')
+      +`<div class="kv total"><span>Total</span><span style="display:flex;gap:28px"><b class="mono" style="min-width:64px;text-align:right">${Object.values(a).reduce((p,q)=>p+q,0)}</b><b class="mono" style="min-width:76px;text-align:right">${Object.values(b).reduce((p,q)=>p+q,0)}</b></span></div>`;};
+  const first=R.ready.length?(lastCountDate(R.ready.slice().sort(byDate)[0])||ukDate(R.ready[0].date)):'';
   return `<section class="roll s-monthly"><div class="roll-head">${top}
-     <div class="stats"><div class="stat"><div class="v">${R.members.length}</div><div class="k">Visits</div></div><div class="stat"><div class="v">${crates}</div><div class="k">Crates</div></div><div class="stat"><div class="v">${u}</div><div class="k">Units</div></div></div></div>
-    ${R.pending.length?`<div class="alert" role="alert"><b>${plural(R.pending.length,'visit')} to confirm.</b> A counter typed a name instead of picking from the list. Nothing is added to the roll-up until you confirm.</div>`:''}
-    <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Matched account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${vs.map(vrow).join('')}</div>
-    <div class="roll-cols"><div><h4>Units by product</h4>${kvList(sumProducts(R.members))}</div><div><h4>Units by charge code</h4>${kvList(sumCodes(R.members))}</div></div>
-    <div class="roll-foot"><span class="hint">Process raises one season WTN covering every confirmed, fully counted visit.${R.members.length>R.ready.length?` ${plural(R.members.length-R.ready.length,'visit')} still being counted stays open.`:''}</span>
-      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(R.ready.length,'visit')} since ${esc(first||'—')}</button></span></div></section>`;
+     <div class="stats"><div class="stat"><div class="v">${all.length}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${sum(all,o=>o.counted)}<small style="font-size:14px;color:var(--ink-3)"> / ${sum(all,o=>o.crates)}</small></div><div class="k">Crates counted / expected</div></div><div class="stat"><div class="v">${sum(all,units)}</div><div class="k">Units counted</div></div><div class="stat"><div class="v">${R.ready.length}</div><div class="k">Ready to bill</div></div></div></div>
+    ${R.pending.length?`<div class="alert" role="alert"><b>${plural(R.pending.length,'order')} to confirm.</b> Typed on the tablet or matched by alias. Nothing is billed until you confirm.</div>`:''}
+    <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${groups.map(grp).join('')}</div>
+    <div class="roll-cols"><div><h4>Units by product</h4>${both(sumProducts,sumProducts)}</div><div><h4>Units by charge code</h4>${both(sumCodes,sumCodes)}</div></div>
+    <div class="roll-foot"><span class="hint">Process raises one season WTN and one invoice pack for every confirmed, fully counted order. Anything still being counted or waiting for Confirm stays on the next roll-up.</span>
+      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(R.ready.length,'order')}${first?' since '+esc(first):''}</button></span></div></section>`;
+}
+async function rollConfirmAll(code){
+  const R=openRoll(code);if(!R.pending.length)return;
+  if(!confirm(`Confirm all ${R.pending.length} orders as ${code}? Check the names and photos first — each one is then billed on this account.`))return;
+  const j=await api('/api/roll-confirm',{orderIds:R.pending.map(o=>o.id),confirm:true,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  toast(`${j.count} orders confirmed onto ${code}`);refresh();
 }
 function packCard(r){
   const vs=rollVisits(r);
@@ -501,7 +524,7 @@ function rollCard(r){
       <button class="btn primary" onclick="rollProcess(${r.id})">Mark processed on NetSuite</button></div></article>`;
 }
 function processDialog(code){
-  const c=P.findCustomer(STATE.customers,code),R=P.openRollup(STATE.orders,code);if(!c||!R.ready.length)return;
+  const c=P.findCustomer(STATE.customers,code),R=openRoll(code);if(!c||!R.ready.length)return;
   const codes=sumCodes(R.ready),tot=Object.values(codes).reduce((a,b)=>a+b,0);
   const left=R.members.length-R.ready.length+R.pending.length;
   openDialog(`<h3 id="dTitle">Generate WTN &amp; invoice pack</h3><p class="lead">One season WTN covers every confirmed visit. The app builds the pack; you send it.</p>
@@ -549,11 +572,13 @@ async function rollConfirm(id,ok){
 /* ============ customers (admin key) ============ */
 function billingDialog(code,to){
   const c=P.findCustomer(STATE.customers,code);if(!c)return;
-  const R=P.openRollup(STATE.orders,code),n=R.members.length+R.pending.length;
+  const mv=P.movesOnToggle(STATE.orders,STATE.customers,code,to),NAME={awaiting:'Awaiting',noso:'No SO yet',counted:'Counted'};
+  const parts=Object.entries(mv.by).map(([k,v])=>v+' '+(NAME[k]||k)).join(', ');
   let key='';try{key=sessionStorage.getItem('rrAdminKey')||'';}catch(e){}
   openDialog(`<h3 id="dTitle">${to==='monthly'?'Switch '+esc(c.name)+' to monthly rolling?':'Revert '+esc(c.name)+' to per order?'}</h3>
-    <p class="lead">${to==='monthly'?'Drop-offs picked as this customer on /count from now on join one open roll-up under Monthly accounts. Counts already made stay where they are.'
-      :(n?`The open roll-up (${plural(n,'visit')}) is split back into its own orders now — each goes to its normal stage, ready for its own SO.`:'There is no open roll-up to split.')+' New counts create one order each.'}</p>
+    <p class="lead">${to==='monthly'
+      ?(mv.total?`<b>${plural(mv.total,'order')} will move from ${esc(parts)} into the monthly roll-up.</b> `:'No open orders move now. ')+'Every new order for this customer joins it until you revert. Anything typed on the tablet or matched only by alias waits for Confirm.'
+      :(mv.total?`<b>${plural(mv.total,'order')} will go back to their own stages: ${esc(parts)}.</b> `:'Nothing is on the open roll-up. ')+'New orders are billed one by one again. Packs already sent stay as they are.'}</p>
     <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
     <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
     <p class="d-note">Recorded in the change history. Nothing is lost — you can switch back at any time.</p>
@@ -565,7 +590,7 @@ async function doBilling(code,to){
   const j=await api('/api/customer-billing',{code,billing:to,by},{'X-Admin-Key':key});
   if(j.error){if(/not accepted/i.test(j.error)){try{sessionStorage.removeItem('rrAdminKey');}catch(e){}}toast(j.error);return;}
   try{sessionStorage.setItem('rrAdminKey',key);localStorage.setItem('recAdmin',by);}catch(e){}
-  closeDialog();toast(to==='monthly'?'Monthly rolling from the next count':(j.split?`${plural(j.split,'visit')} split back into their own orders`:'Back to per order'));refresh();
+  closeDialog();toast(to==='monthly'?`Monthly rolling — ${plural((j.moved||{}).total||0,'order')} moved onto the roll-up`:`Back to per order — ${plural(j.split||0,'order')} back in their own stages`);refresh();
 }
 
 /* ============ per-order actions (redesign) ============ */
@@ -624,8 +649,8 @@ const STAGE_NAME={awaiting:'Awaiting count',noso:'No SO yet',counted:'Counted',w
 function openDetails(id){
   const o=STATE.orders.find(x=>x.id===id);if(!o)return;
   openDialog(`<h3 id="dTitle">${esc(o.so)} — ${esc(o.cust)}</h3>
-    <p class="lead">${STAGE_NAME[P.stageOf(o)]||''}${o.wtn?' · '+esc(o.wtn):''}${o.nsRef?' · NetSuite '+esc(o.nsRef):''}${o.dropRef?' · was '+esc(o.dropRef):''}</p>
-    <div class="tags" style="padding:12px 0 0">${tagsFor(o,P.stageOf(o))}</div>
+    <p class="lead">${STAGE_NAME[stageOf(o)]||''}${o.wtn?' · '+esc(o.wtn):''}${o.nsRef?' · NetSuite '+esc(o.nsRef):''}${o.dropRef?' · was '+esc(o.dropRef):''}</p>
+    <div class="tags" style="padding:12px 0 0">${tagsFor(o,stageOf(o))}</div>
     <div style="margin-top:16px">${detailBlock(o,!!o.invoicedAt)}</div>
     <div class="d-actions">${undoBtn(o)}${o.wtn?`<a class="btn quiet" href="/wtn/${o.id}" target="_blank">Reprint WTN</a>`:''}<button class="btn" onclick="closeDialog()">Close</button></div>`,'wide');
 }

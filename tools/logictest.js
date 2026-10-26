@@ -35,22 +35,48 @@ t('wtnSentAt -> wtn', P.stageOf(O({ wtnSentAt: '20/10/2026' })) === 'wtn');
 t('invoicedAt -> processed', P.stageOf(O({ wtnSentAt: '20/10/2026', invoicedAt: '21/10/2026' })) === 'processed');
 t('invoiced without wtn sent -> processed', P.stageOf(O({ invoicedAt: '21/10/2026' })) === 'processed');
 t('open drop-off -> awaiting (not noso)', P.stageOf(O({ status: 'open', so: 'DROP-2026-0004' })) === 'awaiting');
-// roll-ups
-const picked = O({ so: 'DROP-2026-0010', rollCode: 'CNI0222', custMatch: 'picked' });
-const alias = O({ id: 2, so: 'DROP-2026-0011', rollCode: 'CNI0222', custMatch: 'alias' });
-t('picked monthly visit is a member', P.rollState(picked) === 'member' && P.stageOf(picked) === 'monthly');
-t('alias visit is pending, not a member', P.rollState(alias) === 'pending' && P.stageOf(alias) === 'monthly');
-t('confirmed alias becomes a member', P.rollState(Object.assign({}, alias, { rollConfirmedAt: 'x' })) === 'member');
-t('rejected alias leaves to noso', P.stageOf(Object.assign({}, alias, { rollOutAt: 'x' })) === 'noso');
-t('reverted visit back to its own stage', P.stageOf(Object.assign({}, picked, { rollOutAt: 'x' })) === 'noso');
-t('reverted open visit -> awaiting', P.stageOf(Object.assign({}, picked, { status: 'open', rollOutAt: 'x' })) === 'awaiting');
-t('visit on a season WTN -> rolled', P.stageOf(Object.assign({}, picked, { rollupId: 1 })) === 'rolled');
-const ors = [picked, alias, O({ id: 3, so: 'DROP-2026-0012', rollCode: 'CNI0222', custMatch: 'picked', status: 'open' }),
-  O({ id: 4, so: 'DROP-2026-0013', rollCode: 'CNI0222', custMatch: 'picked', rollupId: 9 }), O({ id: 5, so: 'DROP-2026-0014', rollCode: 'FP704', custMatch: 'picked' })];
-const R = P.openRollup(ors, 'CNI0222');
-t('roll-up: members exclude pending, rolled and other accounts', R.members.map(o => o.id).join() === '1,3');
-t('roll-up: pending listed separately', R.pending.map(o => o.id).join() === '2');
-t('roll-up: Process takes only fully counted members', R.ready.map(o => o.id).join() === '1');
+// roll-ups: membership is derived from the customer list
+const CM = [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire'], billing: 'monthly' },
+            { code: 'FP704', name: 'Firemark Limited', aliases: ['firemark'], billing: 'per-order' }];
+const CP = CM.map(c => Object.assign({}, c, { billing: 'per-order' }));
+const cnt = (q) => [{ crateFrom: 1, crateTo: 1, by: 'T', when: '01/10/2026, 10:00', lines: [{ p: 'Water 6L', q }] }];
+const nsDone = O({ id: 10, so: 'SO850001C', cust: 'CHUBB FIRE & SECURITY LIMITED', source: 'netsuite', counts: cnt(7), crates: 1 });
+const nsSame = O({ id: 11, so: 'SO850002C', cust: 'Chubb Fire and Security Ltd.', source: 'netsuite', counts: cnt(5), crates: 1 });
+const nsOpen = O({ id: 12, so: 'SO850003C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', status: 'open', crates: 3 });
+const nsPart = O({ id: 13, so: 'SO850004C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', status: 'open', crates: 3, counts: cnt(4) });
+const dropName = O({ id: 14, so: 'DROP-2026-0020', cust: 'Chubb fire and security LTD', dropOff: true, counts: cnt(9), crates: 1 });
+const dropAlias = O({ id: 15, so: 'DROP-2026-0021', cust: 'Chubb', dropOff: true, counts: cnt(3), crates: 1 });
+const dropPick = O({ id: 16, so: 'DROP-2026-0022', cust: 'Chubb Fire and Security Ltd', custCode: 'CNI0222', custMatch: 'picked', dropOff: true, counts: cnt(6), crates: 1 });
+const nsAlias = O({ id: 17, so: 'SO850005C', cust: 'chubb fire', source: 'netsuite', counts: cnt(2), crates: 1 });
+const typo = O({ id: 18, so: 'DROP-2026-0023', cust: 'Chubby fire and security ltd', dropOff: true, counts: cnt(1), crates: 1 });
+const other = O({ id: 19, so: 'SO850006C', cust: 'Firemark Limited', source: 'netsuite', counts: cnt(1), crates: 1 });
+const sent = O({ id: 20, so: 'SO850007C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', wtnSentAt: '20/10/2026', counts: cnt(1), crates: 1 });
+const aged = O({ id: 21, so: 'SO850008C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', status: 'open', date: iso(120), crates: 1 });
+const ALL = [nsDone, nsSame, nsOpen, nsPart, dropName, dropAlias, dropPick, nsAlias, typo, other, sent, aged];
+t('strict: NetSuite SO with the exact company name (Ltd/Limited, &, punctuation) is trusted', P.rollState(nsDone, CM) === 'member' && P.rollState(nsSame, CM) === 'member');
+t('strict: a drop-off typed with the exact name still needs Confirm', P.rollState(dropName, CM) === 'pending');
+t('strict: alias match needs Confirm (drop-off and SO)', P.rollState(dropAlias, CM) === 'pending' && P.rollState(nsAlias, CM) === 'pending');
+t('strict: picked from the list is trusted', P.rollState(dropPick, CM) === 'member');
+t('strict: near-miss spelling stays per order', P.rollState(typo, CM) === null && P.stageOf(typo, undefined, CM) === 'noso');
+t('strict: per-order account never rolls', P.rollState(other, CM) === null);
+t('not members: WTN sent, archived, on a pack', P.rollState(sent, CM) === null && P.stageOf(aged, undefined, CM) === 'archive' && P.rollState(Object.assign({}, nsDone, { rollupId: 3 }), CM) === null);
+t('pull-in: Counted, Awaiting and No SO yet orders all move to monthly', [nsDone, nsOpen, dropName].every(o => P.stageOf(o, undefined, CM) === 'monthly')
+  && P.stageOf(nsDone, undefined, CP) === 'counted' && P.stageOf(nsOpen, undefined, CP) === 'awaiting' && P.stageOf(dropName, undefined, CP) === 'noso');
+const mv = P.movesOnToggle(ALL, CP, 'CNI0222', 'monthly');
+t('pull-in: toggle reports what moves, by stage', mv.total === 8 && mv.by.counted === 3 && mv.by.awaiting === 2 && mv.by.noso === 3);
+const back = P.movesOnToggle(ALL, CM, 'CNI0222', 'per-order');
+t('revert: every member goes back to its own stage', back.total === 8 && back.by.counted === 3 && back.by.awaiting === 2 && back.by.noso === 3);
+t('confirmed alias becomes a member', P.rollState(Object.assign({}, dropAlias, { rollConfirmedAt: 'x', rollConfirmCode: 'CNI0222' }), CM) === 'member');
+t('rejected ("Not CNI0222") leaves for good', P.stageOf(Object.assign({}, dropAlias, { rollRejectCode: 'CNI0222' }), undefined, CM) === 'noso');
+t('385cc58 rejected visit still rejected', P.rollState(Object.assign({}, dropAlias, { rollCode: 'CNI0222', rollOutAt: 'x', rollOutWhy: 'rejected by T' }), CM) === null);
+t('385cc58 roll-stamped noSoExpected does not hide a reverted drop-off from No SO yet', P.stageOf(Object.assign({}, dropName, { rollCode: 'CNI0222', noSoExpected: '24/10/2026' }), undefined, CP) === 'noso');
+t('visit on a season WTN -> rolled', P.stageOf(Object.assign({}, nsDone, { rollupId: 1 }), undefined, CM) === 'rolled');
+const R = P.openRollup(ALL, 'CNI0222', CM);
+t('roll-up: members by state', R.members.map(o => o.id).sort().join() === '10,11,12,13,16' && R.pending.map(o => o.id).sort().join() === '14,15,17'
+  && R.counting.map(o => o.id).join() === '13' && R.awaiting.map(o => o.id).join() === '12');
+t('roll-up: Process takes only confirmed, fully counted members', R.ready.map(o => o.id).sort().join() === '10,11,16');
+t('roll-up: crates and units totals', R.members.reduce((a, o) => a + P.orderUnits(o), 0) === 22 && R.members.reduce((a, o) => a + P.countedCrates(o), 0) === 4
+  && R.pending.reduce((a, o) => a + P.orderUnits(o), 0) === 14 && R.ready.reduce((a, o) => a + P.orderUnits(o), 0) === 18);
 t('rollupStage', P.rollupStage({}) === 'pack' && P.rollupStage({ sentAt: 'x' }) === 'wtn' && P.rollupStage({ sentAt: 'x', processedAt: 'y' }) === 'processed' && P.rollupStage({ voidedAt: 'x' }) === 'void');
 // customers + matching
 const cs = P.seedCustomers(JSON.parse(fs.readFileSync(path.join(APP, 'config.json'), 'utf8')));
@@ -84,13 +110,13 @@ function req(port, method, p, body, headers) {
     r.on('error', rej); if (body) r.write(JSON.stringify(body)); r.end();
   });
 }
-async function boot(port, adminKey) {
+async function boot(port, adminKey, seed) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-logic-'));
-  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({ orders: [], seq: 0, wtnSeq: {}, lastSync: null }));
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify(seed || { orders: [], seq: 0, wtnSeq: {}, lastSync: null }));
   const env = Object.assign({}, process.env, { PORT: String(port), DATA_DIR: dir, ADMIN_KEY: adminKey || '', GH_DATA_REPO: '', GH_TOKEN: '',
     ACCESS_KEY: ACC, RENDER_EXTERNAL_URL: '', KEEP_ALIVE_URL: '', NETSUITE_WEBQUERY_URL: 'http://127.0.0.1:9/unreachable' });
-  const child = spawn(process.execPath, [path.join(APP, 'server.js')], { env, stdio: 'ignore' });
-  for (let i = 0; i < 50; i++) {
+  const child = spawn(process.execPath, [path.join(APP, 'server.js')], { env, stdio: process.env.LOGIC_DEBUG ? 'inherit' : 'ignore' });
+  for (let i = 0; i < 150; i++) {   // up to ~20s: this machine's file scanning slows a cold start
     try { const r = await req(port, 'GET', '/api/state'); if (r.json && r.json.store && r.json.store.ready) return { child, dir }; } catch (e) {}
     await new Promise(s => setTimeout(s, 150));
   }
@@ -112,14 +138,14 @@ async function e2e() {
     const d = await drop({ cust: 'chubb fire', custCode: 'CNI0222' });   // picked, still counting
     let st = (await req(port, 'GET', '/api/state')).json;
     const by = id => st.orders.find(o => o.id === id);
-    t('e2e: picked drop-off takes the account name and joins the roll-up', by(a.id).cust === 'Chubb Fire and Security Ltd' && P.rollState(by(a.id)) === 'member');
-    t('e2e: alias-typed drop-off waits for Confirm', P.rollState(by(b.id)) === 'pending' && by(b.id).custCode === 'CNI0222');
-    t('e2e: unknown name goes to No SO yet', P.stageOf(by(c.id)) === 'noso' && !by(c.id).rollCode);
+    t('e2e: picked drop-off takes the account name and joins the roll-up', by(a.id).cust === 'Chubb Fire and Security Ltd' && P.rollState(by(a.id), st.customers) === 'member');
+    t('e2e: alias-typed drop-off waits for Confirm', P.rollState(by(b.id), st.customers) === 'pending' && by(b.id).custCode === 'CNI0222');
+    t('e2e: unknown name goes to No SO yet', P.stageOf(by(c.id), undefined, st.customers) === 'noso' && !by(c.id).rollCode);
     t('e2e: a counted visit still gets its own WTN (live behaviour)', /^WTN-\d{4}-\d{4}$/.test(by(a.id).wtn || ''));
     t('e2e: confirm', (await req(port, 'POST', '/api/roll-confirm', { orderId: b.id, confirm: true, by: 'Tester' })).json.ok);
     st = (await req(port, 'GET', '/api/state')).json;
     t('e2e: confirm keeps what was typed', by(b.id).typedCust === 'Chubb' && by(b.id).cust === 'Chubb Fire and Security Ltd');
-    t('e2e: roll-up visits are hidden from /classic No SO Yet (noSoExpected)', [a.id, b.id, d.id].every(id => by(id).noSoExpected));
+    t('e2e: roll-up members are flagged for /classic (rollMember) so it keeps them off its billable tabs', [a.id, b.id, d.id].every(id => by(id).rollMember === 'CNI0222') && !by(c.id).rollMember);
     t('e2e: office APIs still refuse without the access key', (await req(port, 'POST', '/api/rollup-process', { code: 'CNI0222' }, { Cookie: null })).status === 401);
     const h = await drop({ cust: 'chubb' }); await count(h);   // alias, left waiting for Confirm
     const pr = (await req(port, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'Tester' })).json;
@@ -144,7 +170,7 @@ async function e2e() {
     t('guard 4: revert refused while a pack is unsent', rv0.status === 400 && rv0.json.error === 'Mark the pack sent or void it first');
     t('e2e: reject the alias visit -> No SO yet', (await req(port, 'POST', '/api/roll-confirm', { orderId: h.id, confirm: false })).json.ok);
     st = (await req(port, 'GET', '/api/state')).json;
-    t('e2e: rejected visit shows on No SO yet again', P.stageOf(by(h.id)) === 'noso' && !by(h.id).noSoExpected);
+    t('e2e: rejected visit shows on No SO yet again', P.stageOf(by(h.id), undefined, st.customers) === 'noso' && !by(h.id).noSoExpected);
     t('e2e: Process takes the confirmed, counted visits only', pr.ok && pr.rollup.visitIds.slice().sort().join() === [a.id, b.id].sort().join() && pr.left === 2);
     t('e2e: season WTN numbered in sequence', /^WTN-\d{4}-\d{4}$/.test(pr.rollup.wtn) && pr.rollup.wtn !== by(a.id).wtn);
     const wtnPage = await req(port, 'GET', '/wtn/rollup/' + pr.rollup.id);
@@ -155,7 +181,7 @@ async function e2e() {
     t('e2e: processed needs a NetSuite number', !!(await req(port, 'POST', '/api/rollup-mark', { id: pr.rollup.id, field: 'processed', value: true })).json.error);
     t('e2e: processed', (await req(port, 'POST', '/api/rollup-mark', { id: pr.rollup.id, field: 'processed', value: true, nsRef: 'so48300' })).json.ok);
     st = (await req(port, 'GET', '/api/state')).json;
-    t('e2e: visits carry wtnSentAt/invoicedAt/nsRef so /classic reads them as invoiced', [a.id, b.id].every(id => { const o = by(id); return o.wtnSentAt && o.invoicedAt && o.nsRef === 'SO48300' && P.stageOf(o) === 'rolled'; }));
+    t('e2e: visits carry wtnSentAt/invoicedAt/nsRef so /classic reads them as invoiced', [a.id, b.id].every(id => { const o = by(id); return o.wtnSentAt && o.invoicedAt && o.nsRef === 'SO48300' && P.stageOf(o, undefined, st.customers) === 'rolled'; }));
     t('e2e: roll-up is Processed', P.rollupStage(st.rollups[0]) === 'processed');
     t('guard: a processed pack cannot be voided', (await req(port, 'POST', '/api/rollup-undo', { id: pr.rollup.id })).status === 400);
     t('guard: a processed pack cannot be un-sent', (await req(port, 'POST', '/api/rollup-mark', { id: pr.rollup.id, field: 'sent', value: false })).status === 400);
@@ -163,7 +189,7 @@ async function e2e() {
     await req(port, 'POST', '/api/mark', { orderId: c.id, field: 'wtnSent', value: true });
     const po = (await req(port, 'POST', '/api/process', { orderId: c.id, nsRef: 'inv-190300', by: 'Tester' })).json;
     st = (await req(port, 'GET', '/api/state')).json;
-    t('e2e: per-order Processed on NetSuite records nsRef and invoicedAt', po.ok && by(c.id).nsRef === 'INV-190300' && by(c.id).invoicedAt && P.stageOf(by(c.id)) === 'processed');
+    t('e2e: per-order Processed on NetSuite records nsRef and invoicedAt', po.ok && by(c.id).nsRef === 'INV-190300' && by(c.id).invoicedAt && P.stageOf(by(c.id), undefined, st.customers) === 'processed');
     const e = await drop({ cust: 'x', custCode: 'CNI0222' }); await count(e);
     const f = await drop({ cust: 'Chubb' });
     const bill = (h) => req(port, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'Tester' }, h);
@@ -172,7 +198,7 @@ async function e2e() {
     const rv = await bill({ 'X-Admin-Key': 'test-admin-key' });
     st = (await req(port, 'GET', '/api/state')).json;
     t('e2e: revert with the key splits the OPEN roll-up (d, e, f)', rv.json.ok && rv.json.split === 3);
-    t('e2e: reverted visits go back to their own stages', P.stageOf(by(e.id)) === 'noso' && P.stageOf(by(d.id)) === 'awaiting' && P.stageOf(by(f.id)) === 'awaiting');
+    t('e2e: reverted visits go back to their own stages', P.stageOf(by(e.id), undefined, st.customers) === 'noso' && P.stageOf(by(d.id), undefined, st.customers) === 'awaiting' && P.stageOf(by(f.id), undefined, st.customers) === 'awaiting');
     t('e2e: processed roll-up untouched by revert', by(a.id).rollupId === pr.rollup.id && P.rollupStage(st.rollups[0]) === 'processed');
     const rp2 = await req(port, 'POST', '/api/rollup-process', { code: 'CNI0222' });
     t('guard 4: Process refused once the account is per order', rp2.status === 400 && /per order/.test(rp2.json.error));
@@ -180,7 +206,7 @@ async function e2e() {
     t('e2e: change history recorded', st.customers[0].billing === 'per-order' && st.customers[0].history[0].from === 'monthly' && st.customers[0].history[0].by === 'Tester');
     const g = await drop({ cust: 'x', custCode: 'CNI0222' });
     st = (await req(port, 'GET', '/api/state')).json;
-    t('e2e: after revert a picked Chubb drop-off is per order', !by(g.id).rollCode && P.stageOf(by(g.id)) === 'awaiting');
+    t('e2e: after revert a picked Chubb drop-off is per order', !by(g.id).rollCode && P.stageOf(by(g.id), undefined, st.customers) === 'awaiting');
     t('e2e: /classic is served', (await req(port, 'GET', '/classic')).text.includes('/classic.js'));
     t('e2e: classic fields intact on every order', st.orders.every(o => 'status' in o && 'finalSo' in o && 'wtn' in o));
   } finally { child.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
@@ -192,6 +218,50 @@ async function e2e() {
     const r = await req(port2, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'x' }, { 'X-Admin-Key': '' });
     t('e2e: no ADMIN_KEY -> read-only, with the Render message', st.adminEnabled === false && r.status === 403 && r.json.error === 'Set ADMIN_KEY on Render to enable changes');
   } finally { s2.child.kill(); fs.rmSync(s2.dir, { recursive: true, force: true }); }
+
+  /* ---- pull-in on toggle: NetSuite SOs and drop-offs, Counted / Awaiting / No SO yet ---- */
+  const port3 = port + 2;
+  const cl = q => [{ crateFrom: 1, crateTo: 1, by: 'T', when: '20/10/2026, 10:00', lines: [{ p: 'Water 6L', q }, { p: 'Foam 6L', q: 1 }] }];
+  const seed = { seq: 5, wtnSeq: {}, lastSync: null, rollups: [],
+    customers: [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire'], billing: 'per-order', history: [], note: '' }],
+    orders: [
+      { id: 1, so: 'SO860001C', cust: 'Chubb Fire & Security Limited', date: iso(5), by: 'NS', crates: 1, counts: cl(8), status: 'done', wtn: 'WTN-2026-0901', finalSo: null, source: 'netsuite' },
+      { id: 2, so: 'SO860002C', cust: 'Chubb Fire and Security Ltd', date: iso(3), by: 'NS', crates: 2, counts: [], status: 'open', wtn: null, finalSo: null, source: 'netsuite' },
+      { id: 3, so: 'DROP-2026-0901', cust: 'Chubb fire and security ltd', date: iso(2), by: 'T', crates: 1, counts: cl(4), status: 'done', wtn: 'WTN-2026-0902', finalSo: null, source: 'dropoff', dropOff: true },
+      { id: 4, so: 'SO860003C', cust: 'Griffin Fire', date: iso(2), by: 'NS', crates: 1, counts: cl(2), status: 'done', wtn: 'WTN-2026-0903', finalSo: null, source: 'netsuite' },
+      { id: 5, so: 'SO860004C', cust: 'Chubb Fire and Security Ltd', date: iso(2), by: 'NS', crates: 1, counts: cl(3), status: 'done', wtn: 'WTN-2026-0904', finalSo: null, source: 'netsuite', wtnSentAt: '22/10/2026' }] };
+  const s3 = await boot(port3, 'k3', seed);
+  try {
+    const K = { 'X-Admin-Key': 'k3' };
+    let st = (await req(port3, 'GET', '/api/state')).json;
+    const by = id => st.orders.find(o => o.id === id), stg = id => P.stageOf(by(id), undefined, st.customers);
+    t('pull-in: before the toggle the orders sit in Counted / Awaiting / No SO yet', stg(1) === 'counted' && stg(2) === 'awaiting' && stg(3) === 'noso');
+    const on = (await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'monthly', by: 'T' }, K)).json;
+    st = (await req(port3, 'GET', '/api/state')).json;
+    t('pull-in: switching to monthly moves all three open orders, and says so', on.ok && on.moved.total === 3 && on.moved.by.counted === 1 && on.moved.by.awaiting === 1 && on.moved.by.noso === 1);
+    t('pull-in: each order is in exactly one place (monthly), others untouched', [1, 2, 3].every(i => stg(i) === 'monthly') && stg(4) === 'counted' && stg(5) === 'wtn');
+    t('pull-in: NetSuite SO trusted, typed drop-off needs Confirm', P.rollState(by(1), st.customers) === 'member' && P.rollState(by(3), st.customers) === 'pending');
+    t('pull-in: /classic flag set on the members only', by(1).rollMember === 'CNI0222' && by(3).rollMember === 'CNI0222' && !by(4).rollMember && !by(5).rollMember);
+    const r409 = async (p, body) => (await req(port3, 'POST', p, body)).status === 409;
+    t('guard on a pulled-in SO: Invoiced tick refused', await r409('/api/mark', { orderId: 1, field: 'invoiced', value: true }));
+    t('guard on a pulled-in SO: per-order Processed refused', await r409('/api/process', { orderId: 1, nsRef: 'INV-1' }));
+    t('guard on a pulled-in SO: set-so refused', await r409('/api/set-so', { orderId: 1, so: 'SO999999' }));
+    t('guard on a pulled-in SO: consolidate refused', await r409('/api/consolidate', { targetId: 4, sourceIds: [1] }));
+    t('guard on a pulled-in SO: move-crate refused', await r409('/api/move-crate', { orderId: 1, countIndex: 0, so: 'SO888888' }));
+    t('guard on a pending drop-off: set-so refused', await r409('/api/set-so', { orderId: 3, so: 'SO777777' }));
+    const pr = (await req(port3, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    t('Process: only the confirmed, fully counted order (not the open SO, not the unconfirmed drop-off)', pr.ok && pr.rollup.visitIds.join() === '1' && pr.left === 2);
+    t('Process: season pack lists the SO number', (await req(port3, 'GET', '/wtn/rollup/' + pr.rollup.id)).text.includes('SO860001C'));
+    t('revert refused while the pack is unsent', (await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K)).status === 400);
+    await req(port3, 'POST', '/api/rollup-mark', { id: pr.rollup.id, field: 'sent', value: true });
+    t('confirm moves the drop-off into the roll-up', (await req(port3, 'POST', '/api/roll-confirm', { orderIds: [3], confirm: true, by: 'T' })).json.ok);
+    st = (await req(port3, 'GET', '/api/state')).json;
+    t('confirmed drop-off is ready for the next Process', P.openRollup(st.orders, 'CNI0222', st.customers).ready.map(o => o.id).join() === '3');
+    const off = (await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K)).json;
+    st = (await req(port3, 'GET', '/api/state')).json;
+    t('revert: members go back to Awaiting / No SO yet, the sent pack stays', off.ok && off.split === 2 && stg(2) === 'awaiting' && stg(3) === 'noso' && stg(1) === 'rolled');
+    t('revert: nothing lost or duplicated', st.orders.length === 5 && new Set(st.orders.map(o => o.id)).size === 5);
+  } finally { s3.child.kill(); fs.rmSync(s3.dir, { recursive: true, force: true }); }
   console.log('     done');
 }
 

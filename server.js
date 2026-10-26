@@ -678,11 +678,12 @@ function rollupAsOrder(r) {
    can never be billed twice, folded into another account, or deleted under a pack.
    allowOpen: amendments may still correct the counts of a visit on the OPEN roll-up
    (before Process) — never once it is on a pack. */
-function rollLocked(o) { return !!o && (!!o.rollupId || !!Pipeline.rollState(o)); }
+function rollLocked(o) { return !!o && (!!o.rollupId || !!Pipeline.rollState(o, db.customers)); }
 function rollGuard(res, orders, opts) {
   const o = (orders || []).find(x => x && (opts && opts.allowOpen ? !!x.rollupId : rollLocked(x)));
   if (!o) return false;
-  json(res, 409, { error: `${o.so} is on the ${o.rollCode || ''} monthly roll-up${o.rollupId ? ' (season pack)' : ''} — change it from Monthly accounts` });
+  const m = Pipeline.rollMatch(o, db.customers);
+  json(res, 409, { error: `${o.so} is on the ${(m && m.code) || o.rollCode || ''} monthly roll-up${o.rollupId ? ' (season pack)' : ''} — change it from Monthly accounts` });
   return true;
 }
 function seasonWtnHtml(r) {
@@ -804,7 +805,7 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
-      orders: db.orders.map(o => ({ ...o, counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
+      orders: db.orders.map(o => ({ ...o, rollMember: o.rollupId ? null : ((Pipeline.rollMatch(o, db.customers) || {}).code || null), counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
       lastSync: db.lastSync,
       store: STORE,                 // the dashboard warns loudly if this is not ready
       products: CONFIG.products,
@@ -937,8 +938,7 @@ const server = http.createServer((req, res) => {
             o.custCode = k.customer.code; o.custMatch = k.match;
             o.typedCust = customer;
             if (k.match === 'picked') o.cust = k.customer.name;
-            /* noSoExpected keeps it off /classic's No SO Yet tab — it is billed through the roll-up */
-            if (k.roll) { o.rollCode = k.customer.code; o.noSoExpected = nowStamp().split(',')[0]; }
+                        /* roll-up membership is derived from the customer list (public/pipeline.js) */
           }
         }
         db.orders.unshift(o);
@@ -1425,13 +1425,21 @@ const server = http.createServer((req, res) => {
   /* Confirm (or reject) an alias match on a monthly account. Rejected visits leave
      the roll-up for good and go to No SO yet like any unknown drop-off. */
   if (post('/api/roll-confirm', b => {
-    const o = db.orders.find(x => x.id === Number(b.orderId));
-    if (!o) return json(res, 404, { error: 'Order not found' });
-    if (Pipeline.rollState(o) !== 'pending') return json(res, 400, { error: `${o.so} is not waiting for a confirm` });
+    const ids = Array.isArray(b.orderIds) ? b.orderIds.map(Number) : [Number(b.orderId)];
+    const list = ids.map(i => db.orders.find(x => x.id === i));
+    if (!list.length || list.some(o => !o)) return json(res, 404, { error: 'Order not found — refresh and try again' });
+    const bad = list.find(o => Pipeline.rollState(o, db.customers) !== 'pending');
+    if (bad) return json(res, 400, { error: `${bad.so} is not waiting for a confirm` });
     const by = String(b.by || '').trim() || 'Rec admin';
-    if (b.confirm === false) { o.rollOutAt = day(); o.rollOutWhy = 'rejected by ' + by; o.noSoExpected = null; }
-    else { o.typedCust = o.typedCust || o.cust; o.rollConfirmedAt = day(); o.rollConfirmedBy = by; o.cust = (Pipeline.findCustomer(db.customers, o.rollCode) || {}).name || o.cust; }
-    saveDb(); json(res, 200, { ok: true, so: o.so, confirmed: b.confirm !== false });
+    list.forEach(o => {
+      const code = Pipeline.rollMatch(o, db.customers).code;
+      if (b.confirm === false) { o.rollRejectCode = code; o.rollOutAt = day(); o.rollOutWhy = 'rejected by ' + by; o.noSoExpected = o.rollCode ? null : o.noSoExpected; }
+      else {
+        o.typedCust = o.typedCust || o.cust; o.rollConfirmedAt = day(); o.rollConfirmedBy = by; o.rollConfirmCode = code;
+        if (o.dropOff) o.cust = (Pipeline.findCustomer(db.customers, code) || {}).name || o.cust;   // NetSuite owns an SO's customer
+      }
+    });
+    saveDb(); json(res, 200, { ok: true, so: list[0].so, count: list.length, confirmed: b.confirm !== false });
   })) return;
 
   /* Process <customer>: close the open roll-up (Rec Admin's click, not the calendar)
@@ -1440,7 +1448,7 @@ const server = http.createServer((req, res) => {
     const c = Pipeline.findCustomer(db.customers, b.code);
     if (!c) return json(res, 404, { error: 'Customer not found' });
     if (c.billing !== 'monthly') return json(res, 400, { error: `${c.name} is billed per order now — switch it back to monthly before processing a roll-up` });
-    const r0 = Pipeline.openRollup(db.orders, c.code);
+    const r0 = Pipeline.openRollup(db.orders, c.code, db.customers);
     if (!r0.ready.length) return json(res, 400, { error: `No counted, confirmed visits on the ${c.name} roll-up` });
     db.rollups = db.rollups || [];
     db.rollSeq = (db.rollSeq || 0) + 1;
@@ -1449,7 +1457,7 @@ const server = http.createServer((req, res) => {
       from: days[0] || '', to: days[days.length - 1] || '', crates: r0.ready.reduce((a, o) => a + (Number(o.crates) || 0), 0),
       createdAt: nowStamp(), createdBy: String(b.by || '').trim() || 'Rec admin', sentAt: null, nsRef: null, processedAt: null };
     db.rollups.unshift(r);
-    r0.ready.forEach(o => { o.rollupId = r.id; });
+    r0.ready.forEach(o => { o.rollupId = r.id; o.rollCode = c.code; });
     saveDb(); json(res, 200, { ok: true, rollup: r, left: r0.members.length - r0.ready.length + r0.pending.length });
   })) return;
 
@@ -1483,12 +1491,12 @@ const server = http.createServer((req, res) => {
     r.voidedAt = nowStamp(); r.voidedBy = String(b.by || '').trim() || 'Rec admin';
     const still = (Pipeline.findCustomer(db.customers, r.code) || {}).billing === 'monthly';
     db.orders.forEach(o => { if (o.rollupId !== r.id) return; delete o.rollupId;
-      if (!still) { o.rollOutAt = day(); o.rollOutWhy = 'pack voided after revert to per order'; o.noSoExpected = null; } });
+      if (!still && o.rollCode) o.noSoExpected = null; });   // per order again: back to its own stage
     saveDb(); json(res, 200, { ok: true, wtn: r.wtn });
   })) return;
 
-  /* Customer billing (admin key). Per order -> monthly applies to new counts only.
-     Monthly -> per order also splits the OPEN roll-up back into its own orders. */
+  /* Customer billing (admin key). Per order -> monthly pulls the customer's open orders
+     into the roll-up; monthly -> per order puts them back (refused while a pack is unsent). */
   if (post('/api/customer-billing', b => {
     const chk = admin();
     if (!chk.ok) return json(res, chk.status, { error: chk.error });
@@ -1496,16 +1504,17 @@ const server = http.createServer((req, res) => {
     if (!c) return json(res, 404, { error: 'Customer not found' });
     const to = b.billing === 'monthly' ? 'monthly' : 'per-order';
     if (c.billing === to) return json(res, 400, { error: `${c.name} is already ${to}` });
-    let split = 0;
     if (to === 'per-order' && (db.rollups || []).some(r => r.code === c.code && !r.sentAt && !r.voidedAt))
       return json(res, 400, { error: 'Mark the pack sent or void it first' });
-    if (to === 'per-order') {
-      db.orders.forEach(o => { if (o.rollCode === c.code && Pipeline.rollState(o)) { o.rollOutAt = day(); o.rollOutWhy = 'reverted to per order'; o.noSoExpected = null; split++; } });
-    }
+    /* Membership is derived, so switching billing is all it takes: monthly pulls every open
+       order of this customer into the roll-up now; per order puts each back in its stage. */
+    const moved = Pipeline.movesOnToggle(db.orders, db.customers, c.code, to);
+    if (to === 'per-order') db.orders.forEach(o => { if (o.rollCode === c.code && !o.rollupId && !o.invoicedAt) o.noSoExpected = null; });
+    const split = to === 'per-order' ? moved.total : 0;
     c.history = c.history || [];
     c.history.unshift({ by: String(b.by || '').trim() || 'Admin', when: nowStamp(), from: c.billing, to });
     c.billing = to;
-    saveDb(); json(res, 200, { ok: true, code: c.code, billing: to, split });
+    saveDb(); json(res, 200, { ok: true, code: c.code, billing: to, split, moved });
   })) return;
 
   json(res, 404, { error: 'Not found' });

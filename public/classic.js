@@ -93,11 +93,14 @@ function likelyDuplicate(o){
 function renderOrders(){
   if(!STATE)return;
   const f=document.getElementById('filter').value.trim().toLowerCase();
-  const awaitAll=STATE.orders.filter(o=>o.status==='open'&&!isAged(o));
-  const archAll=STATE.orders.filter(isAged);
-  const countedAll=STATE.orders.filter(o=>o.status==='done'&&!o.invoicedAt);   // ticking Invoiced moves it to the Invoiced tab
+  /* Orders on a monthly roll-up (rollMember, worked out by the server) are billed from the
+     new dashboard's Monthly accounts — they are kept off these tabs so nobody bills them twice. */
+  const ORD=STATE.orders.filter(o=>!o.rollMember);
+  const awaitAll=ORD.filter(o=>o.status==='open'&&!isAged(o));
+  const archAll=ORD.filter(isAged);
+  const countedAll=ORD.filter(o=>o.status==='done'&&!o.invoicedAt);   // ticking Invoiced moves it to the Invoiced tab
   const invAll=STATE.orders.filter(o=>o.status==='done'&&o.invoicedAt);
-  const nosoAll=STATE.orders.filter(noSo).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const nosoAll=ORD.filter(noSo).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const awaiting=awaitAll.filter(o=>matchesFilter(o,f));
   const counted=countedAll.filter(o=>matchesFilter(o,f));
   const inv=invAll.filter(o=>matchesFilter(o,f));
@@ -136,7 +139,8 @@ function renderOrders(){
 
   const ls=STATE.lastSync;
   document.getElementById('syncDot').className='sync-dot '+(ls?(ls.ok?'ok':'bad'):'');
-  document.getElementById('syncMsg').textContent=ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…';
+  document.getElementById('syncMsg').textContent=(ls?`Auto-sync — last ${ls.when} (${ls.msg})`:'Waiting for first sync…')
+    +(STATE.orders.length>ORD.length?` · ${STATE.orders.length-ORD.length} on monthly roll-ups — bill those from the new dashboard`:'');
 
   const grid=document.getElementById('awaitGrid');grid.innerHTML='';
   awaitEmpty.style.display=awaiting.length?'none':'block';
