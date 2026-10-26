@@ -345,6 +345,7 @@ async function e2e() {
     t('blocker 1: consolidate refuses a part-billed source', await r409('/api/consolidate', { targetId: 6, sourceIds: [7] }));
     t('blocker 1: per-order Processed refuses a part-billed order', await r409('/api/process', { orderId: 5, nsRef: 'SO1' }));
     t('blocker 1: Invoiced tick refuses a part-billed order', await r409('/api/mark', { orderId: 7, field: 'invoiced', value: true }));
+    t('blocker 1: close-short refuses a roll-up order (use Finish)', await r409('/api/close-short', { orderId: 7, reason: 'x' }));
     const pr = (await req(port5, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
     st = (await req(port5, 'GET', '/api/state')).json;
     const acme = st.orders.find(o => o.id === 6);

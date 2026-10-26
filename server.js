@@ -1006,6 +1006,7 @@ const server = http.createServer((req, res) => {
         const { orderId, reason } = JSON.parse(body);
         const o = db.orders.find(x => x.id === Number(orderId));
         if (!o) return json(res, 404, { error: 'Order not found' });
+        if (rollGuard(res, [o])) return;   // monthly roll-up orders use Finish / Remove empty drop-off
         if (o.status !== 'open') return json(res, 400, { error: 'Order already completed' });
         const received = countedCrates(o);
         if (received < 1) return json(res, 400, { error: 'Nothing counted yet — count at least one crate before closing short' });
