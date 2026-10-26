@@ -8,3 +8,4 @@ config.local.json
 *.log
 
 node_modules/
+.taste-skill/

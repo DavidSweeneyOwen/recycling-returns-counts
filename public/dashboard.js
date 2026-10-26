@@ -323,7 +323,7 @@ function empty(t,s){return `<div class="empty"><b>${t}</b>${s}</div>`;}
 /* ============ cards ============ */
 function photoLinks(o,compact){
   const ids=[...new Set([o.photoId,...(o.counts||[]).map(c=>c.photoId)].filter(Boolean))];
-  return ids.map((id,i)=>`<a class="${compact?'lbtn':'btn quiet sm'}" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('');
+  return ids.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('');
 }
 function tagsFor(o,stage){
   const t=[];
@@ -377,8 +377,8 @@ const VIEWS={
     const sibs=openDropSiblings(o),pct=o.crates?Math.round(o.counted/o.crates*100):0;
     const merge=(sibs.length>1&&sibs[0].id===o.id)?`<button class="btn quiet sm" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>`:'';
     const tg=tagsFor(o,'awaiting');
-    return `<tr><td data-label="Order"><span class="mono">${esc(o.so)}</span>${tg?`<div class="tagrow">${tg}</div>`:''}</td>
-      <td data-label="Customer"><b style="font-weight:600">${esc(o.cust)}</b><span class="sub2">${o.dropOff?'Dropped off':'Created'} ${esc(ukDate(o.date))}${o.by?' · '+esc(o.by):''}</span></td>
+    return `<tr><td data-label="Order"><div><span class="mono">${esc(o.so)}</span>${tg?`<div class="tagrow">${tg}</div>`:''}</div></td>
+      <td data-label="Customer"><div><b style="font-weight:600">${esc(o.cust)}</b><span class="sub2">${o.dropOff?'Dropped off':'Created'} ${esc(ukDate(o.date))}${o.by?' · '+esc(o.by):''}</span></div></td>
       <td data-label="Counted"><div class="pbar s-awaiting"><div class="prog" role="img" aria-label="${pct}% counted"><i style="width:${pct}%"></i></div><span class="mono">${o.counted} of ${o.crates}</span></div></td>
       <td class="num" data-label="Units">${o.totals.length?N(units(o)):'<span style="color:var(--ink-3)">—</span>'}</td>
       <td data-label="Age" style="white-space:nowrap;color:var(--ink-2)">${plural(P.ageDays(o.date),'day')}</td>
@@ -508,7 +508,7 @@ function rollSection(c){
     const th=ph.length?`<a class="thumb" href="/api/photo/${encodeURIComponent(ph[0])}" target="_blank" title="View photo"><img src="/api/photo/${encodeURIComponent(ph[0])}" alt="Photo for ${esc(o.so)}" loading="lazy"></a>`:'<span class="thumb">No photo</span>';
     const kind=P.isPlaceholder(o.so)?'Drop-off':'NetSuite SO',billedC=P.entriesCrates((o.counts||[]).filter(x=>P.entryPack(o,x)));
     const match=pend?`<b>“${esc(o.typedCust||o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>${kind}${o.dropOff?' typed on the tablet':' matched by alias'}</small>`
-      :`<span class="tick">✓</span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
+      :`<span class="tick"></span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
     const soNote=P.isPlaceholder(o.so)?'':`<span class="soNote">Has NetSuite SO ${esc(o.so)} — close it in NetSuite when the pack is invoiced</span>`;
     const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
     const act=pend?`<button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button>`
@@ -933,7 +933,7 @@ function renderReports(){
     ['Billed',tBilled],['Not yet billed',totalUnits-tBilled],
     ['Collections',sos.size],['Customers',new Set(rows.map(r=>r.cust)).size],
     ['CO2 buy-back units',co2],['Drop-offs',drops.size]
-  ].map(([l,n])=>`<div class="kpi"><div class="num">${n}</div><div class="lbl">${l}</div></div>`).join('');
+  ].map(([l,n])=>`<div class="kpi"><div class="num">${typeof n==='number'?N(n):n}</div><div class="lbl">${l}</div></div>`).join('');
   const byCust=groupSum(rows,'cust'),byProd=groupSum(rows,'product'),byType=groupSum(rows,'type');
   const trend=trendBuckets(rows);
   LAST={rows,byCust,byProd,byType,trend,f};
