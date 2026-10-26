@@ -75,8 +75,17 @@
     if (m && m.customer.billing === 'monthly') return { customer: m.customer, match: 'alias', roll: true };
     return { customer: null, match: null, roll: false };
   }
+  /* Aliases added after the store was seeded. Applied once, additively, to the live record:
+     an alias only ever widens 'needs Confirm' matching, it never makes an order trusted. */
+  const ALIAS_ADDS = [{ code: 'CNI0222', alias: 'chubby fire and security ltd', why: 'David confirmed DROP-2026-0002 is Chubb (26/10/2026)' }];
+  function addAliases(customers) {
+    let n = 0;
+    ALIAS_ADDS.forEach(a => { const c = findCustomer(customers, a.code);
+      if (c && !(c.aliases || []).some(x => norm(x) === norm(a.alias))) { c.aliases = (c.aliases || []).concat(a.alias); (c.aliasLog = c.aliasLog || []).push({ alias: a.alias, why: a.why }); n++; } });
+    return n;
+  }
   function seedCustomers(config) {
-    const out = [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire'],
+    const out = [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire', 'chubby fire and security ltd'],
       billing: 'monthly', history: [], note: '' }];
     ((config && config.monthlyCustomers) || []).forEach(m => {
       if (out.some(c => c.code && c.code === m.code && m.code)) return;
@@ -212,6 +221,6 @@
   }
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
-    classifyDropoff, seedCustomers, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
+    classifyDropoff, seedCustomers, addAliases, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
     movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });

@@ -58,6 +58,10 @@ t('strict: a drop-off typed with the exact name still needs Confirm', P.rollStat
 t('strict: alias match needs Confirm (drop-off and SO)', P.rollState(dropAlias, CM) === 'pending' && P.rollState(nsAlias, CM) === 'pending');
 t('strict: picked from the list is trusted', P.rollState(dropPick, CM) === 'member');
 t('strict: near-miss spelling stays per order', P.rollState(typo, CM) === null && P.stageOf(typo, undefined, CM) === 'noso');
+const CS = P.seedCustomers({ monthlyCustomers: [] }), CL = [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire'], billing: 'monthly' }];
+t('alias added: "Chubby fire and security ltd" joins CNI0222 as needs Confirm, never trusted', P.rollState(typo, CS) === 'pending' && P.rollMatch(typo, CS).code === 'CNI0222'
+  && P.rollState(Object.assign({}, typo, { source: 'netsuite', dropOff: false }), CS) === 'pending');
+t('alias added to an existing live record once, additively', P.addAliases(CL) === 1 && P.addAliases(CL) === 0 && CL[0].aliases.length === 3 && CL[0].aliasLog.length === 1);
 t('strict: per-order account never rolls', P.rollState(other, CM) === null);
 t('not members: WTN sent, archived, on a pack', P.rollState(sent, CM) === null && P.stageOf(aged, undefined, CM) === 'archive' && P.rollState(Object.assign({}, nsDone, { rollupId: 3 }), CM) === null);
 t('pull-in: Counted, Awaiting and No SO yet orders all move to monthly', [nsDone, nsOpen, dropName].every(o => P.stageOf(o, undefined, CM) === 'monthly')
@@ -96,7 +100,7 @@ t('rollupStage', P.rollupStage({}) === 'pack' && P.rollupStage({ sentAt: 'x' }) 
 // customers + matching
 const cs = P.seedCustomers(JSON.parse(fs.readFileSync(path.join(APP, 'config.json'), 'utf8')));
 const chubb = P.findCustomer(cs, 'cni0222');
-t('seed: Chubb monthly with aliases', chubb && chubb.billing === 'monthly' && chubb.aliases.join() === 'chubb,chubb fire' && chubb.name === 'Chubb Fire and Security Ltd');
+t('seed: Chubb monthly with aliases', chubb && chubb.billing === 'monthly' && chubb.aliases.join() === 'chubb,chubb fire,chubby fire and security ltd' && chubb.name === 'Chubb Fire and Security Ltd');
 t('seed: config monthly customers imported as per-order with note', cs.length > 1 && cs.slice(1).every(c => c.billing === 'per-order' && /previously tagged monthly/.test(c.note)));
 t('picked code is trusted', P.classifyDropoff(cs, 'CNI0222', 'anything').match === 'picked');
 t('typed alias needs confirm', (k => k.match === 'alias' && k.roll)(P.classifyDropoff(cs, null, '  Chubb Fire ')));
@@ -144,6 +148,7 @@ async function e2e() {
   try {
     const st0 = (await req(port, 'GET', '/api/state')).json;
     t('e2e: /count picker is open and lists only monthly accounts, without billing data', (j => j.customers.length === 1 && j.customers[0].code === 'CNI0222' && !('billing' in j.customers[0]))((await req(port, 'GET', '/api/count-customers', null, { Cookie: null })).json));
+    t('e2e: seeded Chubb carries the Chubby alias', st0.customers[0].aliases.includes('chubby fire and security ltd'));
     t('e2e: customers seeded on a store that had none', st0.customers.length >= 2 && st0.customers[0].code === 'CNI0222' && st0.adminEnabled === true);
     const drop = async (b) => (await req(port, 'POST', '/api/dropoff', Object.assign({ by: 'Tester', crates: 1 }, b))).json.order;
     const count = async (o) => (await req(port, 'POST', '/api/count', { orderId: o.id, by: 'Tester', crates: 1, lines: [{ p: 'Water 6L', q: 5 }, { p: 'Powder 2KG', q: 3 }] })).json;
@@ -249,6 +254,7 @@ async function e2e() {
   try {
     const K = { 'X-Admin-Key': 'k3' };
     let st = (await req(port3, 'GET', '/api/state')).json;
+    t('live record without the alias gets it on boot', st.customers[0].aliases.includes('chubby fire and security ltd') && st.customers[0].aliases.length === 3);
     const by = id => st.orders.find(o => o.id === id), stg = id => P.stageOf(by(id), undefined, st.customers);
     t('pull-in: before the toggle the orders sit in Counted / Awaiting / No SO yet', stg(1) === 'counted' && stg(2) === 'awaiting' && stg(3) === 'noso');
     const on = (await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'monthly', by: 'T' }, K)).json;

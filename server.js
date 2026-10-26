@@ -511,6 +511,7 @@ if (SELF_URL) {
    (the next normal save carries them). The pre-redesign code ignores both lists. */
 function onStoreReady() {
   if (!Array.isArray(db.customers)) db.customers = Pipeline.seedCustomers(CONFIG);
+  Pipeline.addAliases(db.customers);   // additive; saved with the next normal save
   if (!Array.isArray(db.rollups)) db.rollups = [];
   return startSync();
 }
