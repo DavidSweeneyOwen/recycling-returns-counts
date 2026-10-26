@@ -711,6 +711,7 @@ function openDialog(html,cls){lastFocus=document.activeElement;const d=document.
   const s=document.getElementById('scrim');s.classList.add('show');s.setAttribute('aria-hidden','false');
   const f=d.querySelector('input:not([type=checkbox])')||d.querySelector('.btn:not(.quiet)');f&&f.focus();}
 function scrimClick(e){if(e.target===e.currentTarget)closeDialog();}
+function rowKey(e,id){if(e.key==='Enter'||e.key===' '){e.preventDefault();openEdit(id);}}
 function closeDialog(){const s=document.getElementById('scrim');s.classList.remove('show');s.setAttribute('aria-hidden','true');if(lastFocus&&document.contains(lastFocus))lastFocus.focus();}
 document.addEventListener('keydown',e=>{
   const open=document.getElementById('scrim').classList.contains('show');
@@ -1063,7 +1064,7 @@ function renderAdminList(){
   if(q)os=os.filter(o=>o.so.toLowerCase().includes(q)||(o.cust||'').toLowerCase().includes(q));
   os=os.slice(0,60);
   if(!os.length){list.innerHTML='<div class="empty">No matching orders.</div>';return;}
-  list.innerHTML=os.map(o=>`<div class="resrow" tabindex="0" role="button" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEdit(${o.id})}" onclick="openEdit(${o.id})">
+  list.innerHTML=os.map(o=>`<div class="resrow" tabindex="0" role="button" onkeydown="rowKey(event,${o.id})" onclick="openEdit(${o.id})">
     <span class="so">${esc(o.so)}</span><span class="cust">${esc(o.cust)}</span>
     ${statusTag(o)} ${o.amended?'<span class="tag amd">amended</span>':''}
     <span style="color:var(--ink-faint)">${o.counts&&o.counts.length?o.counts.reduce((a,c)=>a+c.lines.reduce((x,l)=>x+Number(l.q),0),0)+' units':'no count'}</span>
