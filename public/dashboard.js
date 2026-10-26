@@ -955,7 +955,7 @@ function priorBounds(){
 function repMetrics(rows){
   const s=k=>rows.reduce((a,r)=>a+r[k],0),bb=(PRODMAP);
   return {counted:s('counted'),amended:s('amended'),current:s('qty'),billed:s('billed'),unbilled:rows.filter(r=>!r.invoiced).reduce((a,r)=>a+r.qty,0),
-    collections:new Set(rows.map(r=>r.so)).size,customers:new Set(rows.map(r=>r.cust)).size,
+    collections:new Set(rows.map(r=>r.so)).size,customers:new Set(rows.map(r=>r.acct)).size,
     co2:rows.filter(r=>(bb[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0),drops:new Set(rows.filter(r=>r.dropOff).map(r=>r.so)).size};
 }
 /* good: 'up' = a rise is good, 'down' = a rise is bad, null = neither */
@@ -1128,7 +1128,7 @@ function exportXlsx(){
   const {rows,byCust,byProd,byType}=LAST;
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['CheckFire Recycling — Report'],['Range',rangeLabel()],['Generated',fmtUK(new Date())],[],
-    ['Total units',rows.reduce((a,r)=>a+r.qty,0)],['Collections',new Set(rows.map(r=>r.so)).size],['Customers',new Set(rows.map(r=>r.cust)).size]]),'Summary');
+    ['Total units',rows.reduce((a,r)=>a+r.qty,0)],['Collections',new Set(rows.map(r=>r.so)).size],['Customers',new Set(rows.map(r=>r.acct)).size]]),'Summary');
   const types=uniqueSorted(rows.map(r=>r.type));
   const custAoa=[['Customer',...types,'Total']];
   byCust.forEach(c=>{const cr=rows.filter(r=>r.acct===c.k);custAoa.push([c.k,...types.map(t=>cr.filter(r=>r.type===t).reduce((a,r)=>a+r.qty,0)),c.v]);});
@@ -1163,7 +1163,7 @@ function exportPptx(){
   let k=pptx.addSlide();k.background={color:'FFFFFF'};
   k.addText('Summary',{x:0.6,y:0.4,w:12,h:0.6,fontSize:24,bold:true,color:INK});
   const kpis=[['Total units',rows.reduce((a,r)=>a+r.qty,0)],['Collections',new Set(rows.map(r=>r.so)).size],
-    ['Customers',new Set(rows.map(r=>r.cust)).size],['CO2 buy-back',rows.filter(r=>(PRODMAP[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0)]];
+    ['Customers',new Set(rows.map(r=>r.acct)).size],['CO2 buy-back',rows.filter(r=>(PRODMAP[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0)]];
   kpis.forEach((kp,i)=>{const x=0.6+i*3.1;
     k.addShape(pptx.ShapeType.rect,{x,y:1.4,w:2.8,h:1.8,fill:{color:'F4F2ED'},line:{color:'C9C4BA'}});
     k.addText(String(kp[1]),{x,y:1.6,w:2.8,h:0.9,fontSize:40,bold:true,align:'center',color:RED});
