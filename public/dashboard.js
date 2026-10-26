@@ -426,18 +426,18 @@ const VIEWS={
       {pick:'wtn',age:agePill(daysSinceUK(o.wtnSentAt))})).join('')}</div>`:empty('Nothing waiting on NetSuite','Orders appear here once their WTN is marked as sent.'));
  },
  processed(){
-  let rows=B.processed.map(o=>({o,when:o.invoicedAt||''})).concat(B.rollDone.map(r=>({r,when:String(r.processedAt||'').split(',')[0]})));
+  let rows=B.processed.map(o=>({o,when:o.invoicedAt||String((P.lastExtBill(o)||{}).when||'').split(',')[0]})).concat(B.rollDone.map(r=>({r,when:String(r.processedAt||'').split(',')[0]})));
   const total=rows.length,today=rows.filter(x=>x.when===todayUK()).length,f=(Q.processed||'').toLowerCase();
   rows=rows.filter(x=>x.o?matches(x.o,f):(x.r.name+' '+x.r.code+' '+x.r.wtn+' '+x.r.nsRef).toLowerCase().includes(f))
     .sort((a,b)=>String(dmy(b.when)||'').localeCompare(String(dmy(a.when)||'')));
   const shown=SHOW_ALL?rows:rows.slice(0,100);
   const row=x=>{
     if(x.r){const r=x.r,vs=rollVisits(r);return `<tr><td data-label="Order"><span class="mono">${esc(r.wtn)}</span> <span class="badge s-monthly">Monthly roll-up · ${plural(vs.length,'visit')}</span></td><td data-label="Customer">${esc(r.name)}</td><td class="mono" data-label="NetSuite no.">${esc(r.nsRef||'—')}</td><td data-label="Processed">${esc(x.when)}</td><td data-label="By">${esc(r.processedBy||'')}</td><td data-label="CO2 credit">—</td><td data-label="WTN"><a class="lbtn" href="/wtn/rollup/${r.id}?print=1" target="_blank">Season WTN (PDF)</a> <button class="lbtn" onclick="rollMark(${r.id},'processed',false)">Undo</button></td></tr>`;}
-    const o=x.o;
-    return `<tr><td data-label="Order"><span class="mono">${esc(o.so)}</span>${o.dropOff?' <span class="badge s-noso">Drop-off</span>':''}${o.amended?' <span class="badge s-awaiting">Amended</span>':''}${o.short?' <span class="badge s-awaiting">Short</span>':''}${monthlyInfo(o)?' <span class="badge s-monthly">Monthly</span>':''}</td>
-      <td data-label="Customer">${esc(o.cust)}</td><td class="mono" data-label="NetSuite no.">${esc(o.nsRef||o.finalSo||'—')}</td><td data-label="Processed">${esc(o.invoicedAt)}</td><td data-label="By">${esc(o.processedBy||counterNames(o))}</td>
+    const o=x.o,ext=P.extDone(o)?P.lastExtBill(o):null;
+    return `<tr><td data-label="Order"><span class="mono">${esc(o.so)}</span>${o.dropOff?' <span class="badge s-noso">Drop-off</span>':''}${o.amended?' <span class="badge s-awaiting">Amended</span>':''}${o.short?' <span class="badge s-awaiting">Short</span>':''}${monthlyInfo(o)?' <span class="badge s-monthly">Monthly</span>':''}${ext?` <span class="badge s-awaiting" title="${esc(ext.note||'')}">Billed outside the monthly roll-up · ${esc(ext.ref)}</span>`:''}</td>
+      <td data-label="Customer">${esc(o.cust)}</td><td class="mono" data-label="NetSuite no.">${esc(o.nsRef||(ext&&ext.ref)||o.finalSo||'—')}</td><td data-label="Processed">${esc(x.when)}</td><td data-label="By">${esc(o.processedBy||(ext&&ext.by)||counterNames(o))}</td>
       <td data-label="CO2 credit">${o.co2>0?(o.creditAt?esc(o.creditAt):`<label class="tickbox"><input type="checkbox" onchange="mark(${o.id},'credit',this.checked)">due — ${o.co2}</label>`):'n/a'}</td>
-      <td data-label="WTN"><a class="lbtn" href="/wtn/${o.id}?print=1" target="_blank">${esc(o.wtn||'WTN')} (PDF)</a> <button class="lbtn" onclick="openDetails(${o.id})">Details</button></td></tr>`;
+      <td data-label="WTN"><a class="lbtn" href="/wtn/${o.id}?print=1" target="_blank">${esc(o.wtn||'WTN')} (PDF)</a> <button class="lbtn" onclick="openDetails(${o.id})">Details</button>${ext&&STATE.adminEnabled?` <button class="lbtn" onclick="extUndoDialog(${o.id})">Unmark already billed</button>`:''}</td></tr>`;
   };
   return head('s-processed','Processed on NetSuite',`<b>${today} today</b> · latest ${esc((rows[0]&&rows[0].when)||'—')}`,
     'Nothing to do here. It is the record: reprint a WTN or open Details if someone asks.',searchBox('processed','Search ref, customer, WTN or NetSuite no.'),[total,'orders processed'],'stage-processed')
@@ -511,11 +511,13 @@ function rollSection(c){
       :`<span class="tick"></span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
     const soNote=P.isPlaceholder(o.so)?'':`<span class="soNote">Has NetSuite SO ${esc(o.so)} — close it in NetSuite when the pack is invoiced</span>`;
     const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
+    const canExt=ub(o).length>0,tick=canExt?`<label class="pick" title="Select for Mark selected as already billed"><input type="checkbox" ${extPicks.has(o.id)?'checked':''} onchange="extPick(${o.id},this.checked,${jsq(c.code)})" aria-label="Select ${esc(o.so)}"></label> `:'';
+    const extBtn=canExt?` <button class="btn quiet sm" onclick="extBillDialog([${o.id}],${jsq(c.code)})">Already billed</button>`:'';
     const act=pend?`<button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button>`
       :!(o.counts||[]).length&&o.dropOff?`<button class="btn quiet sm" onclick="rollRemove(${o.id})">Remove empty drop-off</button>`
       :(o.counts||[]).length&&!ub(o).length?`<button class="btn quiet sm" onclick="rollFinish(${o.id})">Finish</button>`:'';
-    const last=`<div class="vact">${pend?'':esc(counterNames(o)||o.by||'')} ${act} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button></div>`;
-    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}${soNote}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${N(uu(o))}</div>${last}</div>`;
+    const last=`<div class="vact">${pend?'':esc(counterNames(o)||o.by||'')} ${act}${extBtn} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button></div>`;
+    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${tick}${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}${soNote}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${N(uu(o))}</div>${last}</div>`;
   };
   const grp=([key,label,list,note])=>{
     if(!list.length)return '';
@@ -540,10 +542,47 @@ function rollSection(c){
   return `<section class="roll s-monthly"><div class="roll-head">${top}
      <div class="stats"><div class="stat big1"><div class="v">${N(P.entriesUnits(readyE))}</div><div class="k">Units ready to bill</div></div><div class="stat"><div class="v">${N(all.length)}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${N(P.entriesCrates(allE))}</div><div class="k">Crates not billed</div></div><div class="stat"><div class="v">${N(P.entriesUnits(allE))}</div><div class="k">Units not billed</div></div></div></div>
     ${steps}
+    <div class="bulk s-monthly" id="extBar-${esc(c.code)}" ${[...extPicks].some(id=>all.some(o=>o.id===id))?'':'hidden'}><span class="msg"><b>${[...extPicks].filter(id=>all.some(o=>o.id===id)).length} ticked</b> — already invoiced outside the app?</span><button class="btn" onclick="extBillDialog([...extPicks].filter(id=>openRoll(${jsq(c.code)}).members.concat(openRoll(${jsq(c.code)}).pending).some(o=>o.id===id)),${jsq(c.code)})">Mark selected as already billed</button><button class="btn quiet" onclick="extPicks.clear();render()">Clear</button></div>
     <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${groups.map(grp).join('')}</div>
     <div class="roll-cols"><div><h4>Units by product</h4>${both(sumProductsE)}</div><div><h4>Units by charge code</h4>${both(sumCodesE)}</div></div>
     <div class="roll-foot"><span class="hint">Process raises one season WTN and one invoice pack for every crate counted on a confirmed order. Crates counted later go on the next one.</span>
       <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}</span></div></section>`;
+}
+/* ---- Already billed: crates invoiced outside the app ---- */
+const extPicks=new Set();
+function extPick(id,on,code){on?extPicks.add(id):extPicks.delete(id);render();}
+function extBillDialog(ids,code){
+  const os=ids.map(id=>STATE.orders.find(o=>o.id===id)).filter(Boolean);if(!os.length){toast('Tick at least one order');return;}
+  const es=unbilledOf(os),pend=os.filter(o=>rollStateOf(o)==='pending').length;
+  openDialog(`<h3 id="dTitle">Already billed outside the app?</h3><p class="lead">${plural(os.length,'order')} · <b>${plural(P.entriesCrates(es),'crate')}, ${N(P.entriesUnits(es))} units</b> not yet on a season WTN. They are marked billed and move to Processed on NetSuite, so they are never billed twice. Crates already on a season WTN are not touched; a crate counted later on the same drop-off goes on the next roll-up.</p>
+    <p class="meta" style="margin-top:8px">${esc(os.map(o=>o.so).join(', '))}</p>
+    ${pend?`<div class="warn-box">${plural(pend,'order')} still waiting for Confirm. Marking ${pend===1?'it':'them'} already billed confirms ${pend===1?'it':'them'} as ${esc(code)}.</div>`:''}
+    <label for="exRef">NetSuite invoice or SO number (required)</label><input class="in" id="exRef" placeholder="e.g. INV-190300 or SO852001">
+    <label for="exNote">Note (optional)</label><input class="in" id="exNote" style="font-family:var(--sans)" placeholder="e.g. invoiced by Sarah in September">
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="extBillSave()">Mark as already billed</button></div>`);
+  extBillDialog.ids=os.map(o=>o.id);
+}
+async function extBillSave(){
+  const ref=document.getElementById('exRef').value.trim(),note=document.getElementById('exNote').value.trim();
+  if(!ref){toast('Enter the NetSuite invoice or SO number');document.getElementById('exRef').focus();return;}
+  const j=await api('/api/roll-extbill',{orderIds:extBillDialog.ids,ref,note,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  extBillDialog.ids.forEach(id=>extPicks.delete(id));
+  closeDialog();toast(`${plural(j.count,'order')} (${N(j.units)} units) marked already billed on ${j.ref}`);refresh();
+}
+function extUndoDialog(id){
+  const o=STATE.orders.find(x=>x.id===id),r=P.lastExtBill(o);if(!o||!r)return;
+  let key='';try{key=sessionStorage.getItem('rrAdminKey')||'';}catch(e){}
+  openDialog(`<h3 id="dTitle">Unmark ${esc(o.so)} as already billed?</h3><p class="lead">Marked by ${esc(r.by)} on ${esc(r.when)} against <b>${esc(r.ref)}</b> (${plural(r.crates,'crate')}, ${N(r.units)} units). The order goes back on the monthly roll-up exactly as it was.</p>
+    <label for="exKey">Admin key</label><input class="in" id="exKey" type="password" value="${esc(key)}" autocomplete="off">
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="extUndo(${o.id})">Unmark</button></div>`);
+}
+async function extUndo(id){
+  const key=document.getElementById('exKey').value;
+  const j=await api('/api/roll-extbill-undo',{orderId:id,by:adminName()},{'X-Admin-Key':key});
+  if(j.error){if(/not accepted/i.test(j.error)){try{sessionStorage.removeItem('rrAdminKey');}catch(e){}}toast(j.error);return;}
+  try{sessionStorage.setItem('rrAdminKey',key);}catch(e){}
+  closeDialog();toast(`${j.so} is back on the monthly roll-up`);refresh();
 }
 /* Confirm by name: every typed name with its number of orders; Rec Admin ticks the ones to accept. */
 function confirmAllDialog(code){

@@ -819,7 +819,7 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
-      orders: db.orders.map(o => ({ ...o, rollMember: o.rollVoidAt ? 'removed' : o.rollupId ? (o.invoicedAt ? null : (o.rollCode || 'pack')) : ((Pipeline.rollMatch(o, db.customers) || {}).code || (Pipeline.hasBilled(o) && !o.invoicedAt ? 'part-billed' : null)), counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
+      orders: db.orders.map(o => ({ ...o, rollMember: o.rollVoidAt ? 'removed' : Pipeline.extDone(o) ? 'billed-elsewhere' : o.rollupId ? (o.invoicedAt ? null : (o.rollCode || 'pack')) : ((Pipeline.rollMatch(o, db.customers) || {}).code || (Pipeline.hasBilled(o) && !o.invoicedAt ? 'part-billed' : null)), counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
       lastSync: db.lastSync,
       store: STORE,                 // the dashboard warns loudly if this is not ready
       products: CONFIG.products,
@@ -1485,6 +1485,55 @@ const server = http.createServer((req, res) => {
     saveDb(); json(res, 200, { ok: true, rollup: r, left: r0.members.filter(o => o.status === 'open').length + r0.pending.length });
   })) return;
 
+  /* Already billed: crates invoiced outside the app. Every UNBILLED crate entry on each order is
+     marked packId 'ext:<n>' (packed crates untouched), with an order-level audit record. Marking an
+     order that was waiting for Confirm confirms it — the person marking it has the invoice in hand.
+     Anyone with the access key can mark; undo needs the admin key. */
+  if (post('/api/roll-extbill', b => {
+    const ref = String(b.ref || '').trim(), note = String(b.note || '').trim(), by = String(b.by || '').trim() || 'Rec admin';
+    if (!ref) return json(res, 400, { error: 'Enter the NetSuite invoice or SO number it was billed on' });
+    const ids = Array.isArray(b.orderIds) ? b.orderIds.map(Number) : [Number(b.orderId)];
+    const list = ids.map(i => db.orders.find(x => x.id === i));
+    if (!list.length || list.some(o => !o)) return json(res, 404, { error: 'Order not found — refresh and try again' });
+    const off = list.find(o => !Pipeline.rollState(o, db.customers));
+    if (off) return json(res, 400, { error: `${off.so} is not on a monthly roll-up` });
+    const none = list.find(o => !Pipeline.unbilled(o).length);
+    if (none) return json(res, 400, { error: `${none.so} has no unbilled crates to mark` });
+    db.extSeq = (db.extSeq || 0) + 1;
+    const n = db.extSeq, id = 'ext:' + n, when = nowStamp();
+    let units = 0, crates = 0;
+    list.forEach(o => {
+      const m = Pipeline.rollMatch(o, db.customers), es = Pipeline.unbilled(o);
+      const rec = { n, ref, note, by, when, crates: Pipeline.entriesCrates(es), units: Pipeline.entriesUnits(es),
+        packsAtMark: [...new Set(o.counts.map(c => c.packId).filter(x => typeof x === 'number'))] };
+      if (m.trust === 'confirm') {   // marking it billed is the confirmation; remember exactly what was there
+        rec.confirmedByMark = { rollConfirmedAt: o.rollConfirmedAt || null, rollConfirmedBy: o.rollConfirmedBy || null, rollConfirmCode: o.rollConfirmCode || null };
+        o.rollConfirmedAt = day(); o.rollConfirmedBy = by + ' (already billed ' + ref + ')'; o.rollConfirmCode = m.code; o.typedCust = o.typedCust || o.cust;
+      }
+      es.forEach(c => { c.packId = id; });
+      o.extBills = (o.extBills || []).concat(rec);
+      units += rec.units; crates += rec.crates;
+    });
+    saveDb(); json(res, 200, { ok: true, n, ref, count: list.length, crates, units });
+  })) return;
+  /* Unmark already billed (admin key): only while none of the order's crates has been put on a
+     season pack since; restores the order to the roll-up exactly as it was. */
+  if (post('/api/roll-extbill-undo', b => {
+    const chk = admin();
+    if (!chk.ok) return json(res, chk.status, { error: chk.error });
+    const o = db.orders.find(x => x.id === Number(b.orderId));
+    if (!o) return json(res, 404, { error: 'Order not found' });
+    const rec = Pipeline.lastExtBill(o);
+    if (!rec) return json(res, 400, { error: `${o.so} has no already-billed mark to undo` });
+    const packsNow = [...new Set(o.counts.map(c => c.packId).filter(x => typeof x === 'number'))];
+    if (packsNow.some(p => !rec.packsAtMark.includes(p))) return json(res, 400, { error: `${o.so} has crates on a season WTN since it was marked — it cannot be unmarked` });
+    if (o.invoicedAt || o.rollupId) return json(res, 400, { error: `${o.so} has been processed since — it cannot be unmarked` });
+    o.counts.forEach(c => { if (c.packId === 'ext:' + rec.n) delete c.packId; });
+    if (rec.confirmedByMark) { ['rollConfirmedAt', 'rollConfirmedBy', 'rollConfirmCode'].forEach(k => { if (rec.confirmedByMark[k] == null) delete o[k]; else o[k] = rec.confirmedByMark[k]; }); }
+    rec.undoneAt = nowStamp(); rec.undoneBy = String(b.by || '').trim() || 'Admin';
+    saveDb(); json(res, 200, { ok: true, so: o.so, ref: rec.ref });
+  })) return;
+
   /* Remove empty drop-off: a member with no crates counted. Marked void and audited, never deleted. */
   if (post('/api/roll-remove', b => {
     const o = db.orders.find(x => x.id === Number(b.orderId));
@@ -1502,7 +1551,8 @@ const server = http.createServer((req, res) => {
     if (!o) return json(res, 404, { error: 'Order not found' });
     if (Pipeline.rollState(o, db.customers) !== 'member') return json(res, 400, { error: `${o.so} is not a confirmed roll-up order` });
     if (!Pipeline.hasBilled(o) || Pipeline.unbilled(o).length) return json(res, 400, { error: `${o.so} still has crates to bill — Process them first` });
-    const last = Math.max(...o.counts.map(c => c.packId || 0)), r = (db.rollups || []).find(x => x.id === last);
+    const last = Math.max(0, ...o.counts.map(c => c.packId).filter(x => typeof x === 'number')), r = (db.rollups || []).find(x => x.id === last);
+    if (!last) return json(res, 400, { error: `${o.so} was billed outside the roll-up — it is already in Processed on NetSuite` });
     if (o.status === 'open') { o.short = { expected: o.crates, received: countedCrates(o), reason: 'finished on the monthly roll-up', when: day() }; o.crates = countedCrates(o); o.status = 'done'; }
     o.rollupId = last; o.rollFinishedAt = nowStamp();
     if (r && r.sentAt) o.wtnSentAt = r.sentAt;

@@ -141,6 +141,7 @@
   }
   function stageOf(o, now, customers) {
     if (o.rollVoidAt) return 'removed';            // empty drop-off taken off a roll-up (kept, audited)
+    if (extDone(o)) return 'processed';            // already billed outside the roll-up
     if (rollState(o, customers, now)) return 'monthly';
     if (o.rollupId) return 'rolled';
     if (o.status === 'open') return isAged(o, now) ? 'archive' : 'awaiting';
@@ -158,7 +159,7 @@
   /* The open roll-up for one account: confirmed visits (counted or still counting),
      visits waiting for Confirm, and the ones a Process click would take now. */
   function openRollup(orders, code, customers, now) {
-    const mine = (orders || []).map(o => ({ o, m: rollMatch(o, customers, now) })).filter(x => x.m && x.m.code === code);
+    const mine = (orders || []).filter(o => !extDone(o)).map(o => ({ o, m: rollMatch(o, customers, now) })).filter(x => x.m && x.m.code === code);
     const byDate = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id;
     const members = mine.filter(x => x.m.trust === 'trusted').map(x => x.o).sort(byDate);
     const pending = mine.filter(x => x.m.trust === 'confirm').map(x => x.o).sort(byDate);
@@ -173,6 +174,13 @@
      Each crate entry (order.counts[i]) records the pack that billed it in packId. Packs
      from 385cc58 billed whole orders (order.rollupId) — their entries count as billed too. */
   function entryPack(o, c) { return (c && c.packId) || (o && o.rollupId) || null; }
+  /* Billed outside the monthly roll-up ("Already billed"): the crate entry carries packId 'ext:<n>'.
+     It is billed like any packed crate — hasBilled, unbilled() and every guard treat it so — but no
+     season pack exists for it. An order whose counted crates are all billed and at least one
+     externally is done: it sits in Processed on NetSuite until a new crate is counted on it. */
+  function isExt(id) { return typeof id === 'string' && /^ext:/.test(id); }
+  function extDone(o) { return !!o && (o.counts || []).length > 0 && !unbilled(o).length && (o.counts || []).some(c => isExt(c.packId)); }
+  function lastExtBill(o) { return ((o && o.extBills) || []).filter(x => !x.undoneAt).slice(-1)[0] || null; }
   function unbilled(o) { return (o.counts || []).filter(c => !entryPack(o, c)); }
   function billedOn(o, packId) { return (o.counts || []).filter(c => entryPack(o, c) === packId); }
   function hasBilled(o) { return (o.counts || []).some(c => entryPack(o, c)); }
@@ -227,5 +235,5 @@
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
     classifyDropoff, seedCustomers, addAliases, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
-    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
+    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });

@@ -104,6 +104,12 @@ t('Defra: a roll-up order over two days gives two dated rows', P.defraOrders([ro
 t('companyNorm: Ltd and Limited match, Plc / LLP / Inc do not', P.companyNorm('Acme Ltd') === P.companyNorm('ACME LIMITED') && P.companyNorm('Acme Plc') !== P.companyNorm('Acme') && P.companyNorm('Acme LLP') !== P.companyNorm('Acme Inc'));
 const agedBilled = O({ id: 35, so: 'SO850035C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', status: 'open', date: iso(120), crates: 5, counts: [ew(3, '01/07/2026, 10:00', 1)] });
 t('blocker 1: a part-billed order never ages out into Archive', P.stageOf(agedBilled, undefined, CM) === 'monthly');
+const extO = O({ id: 40, so: 'DROP-2026-0040', cust: 'Chubb Fire and Security Ltd', dropOff: true, status: 'open', crates: 9, counts: [ew(3, '01/10/2026, 10:00'), ew(4, '02/10/2026, 10:00')] });
+extO.counts.forEach(c => { c.packId = 'ext:1'; });
+t('already billed: counts as billed, is done, sits in Processed, off the roll-up', P.hasBilled(extO) && !P.unbilled(extO).length && P.extDone(extO)
+  && P.stageOf(extO, undefined, CM) === 'processed' && !P.openRollup([extO], 'CNI0222', CM).members.length && !P.openRollup([extO], 'CNI0222', CM).pending.length);
+t('already billed: Defra rows are the same as before the mark', JSON.stringify(P.defraOrders([extO], [], CM).map(o => [o.wtn, o.counts.length]))
+  === JSON.stringify(P.defraOrders([Object.assign({}, extO, { counts: extO.counts.map(c => Object.assign({}, c, { packId: undefined })) })], [], CM).map(o => [o.wtn, o.counts.length])));
 t('removed drop-off sits in no stage', P.stageOf(O({ status: 'open', rollVoidAt: 'x' }), undefined, CM) === 'removed');
 t('rollupStage', P.rollupStage({}) === 'pack' && P.rollupStage({ sentAt: 'x' }) === 'wtn' && P.rollupStage({ sentAt: 'x', processedAt: 'y' }) === 'processed' && P.rollupStage({ voidedAt: 'x' }) === 'void');
 // customers + matching
@@ -376,6 +382,57 @@ async function e2e() {
     st = (await req(port6, 'GET', '/api/state')).json;
     t('blocker 2: the WTN on that drop-off never changes', st.orders[0].wtn === 'WTN-2026-0071');
   } finally { s6.child.kill(); fs.rmSync(s6.dir, { recursive: true, force: true }); }
+
+  /* ---- Already billed: crates invoiced outside the app ---- */
+  const port7 = port + 6;
+  const xw = (q, when) => ({ crateFrom: 1, crateTo: 1, by: 'T', when, lines: [{ p: 'Water 6L', q }] });
+  const ch7 = { code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb'], billing: 'monthly', history: [], note: '' };
+  const s7 = await boot(port7, 'k7', { seq: 9, wtnSeq: { 2026: 80 }, lastSync: null, customers: [ch7], rollups: [], orders: [
+    { id: 1, so: 'DROP-2026-0701', cust: 'Chubb Fire and Security Ltd', custCode: 'CNI0222', custMatch: 'picked', date: iso(5), by: 'T', crates: 10, counts: [xw(5, '20/10/2026, 10:00'), xw(7, '21/10/2026, 10:00')], status: 'open', wtn: 'WTN-2026-0071', finalSo: null, source: 'dropoff', dropOff: true },
+    { id: 2, so: 'DROP-2026-0702', cust: 'Chubb', date: iso(4), by: 'T', crates: 1, counts: [xw(3, '22/10/2026, 10:00')], status: 'done', wtn: 'WTN-2026-0072', finalSo: null, source: 'dropoff', dropOff: true },
+    { id: 3, so: 'DROP-2026-0703', cust: 'Chubb Fire and Security Ltd', custCode: 'CNI0222', custMatch: 'picked', date: iso(3), by: 'T', crates: 1, counts: [xw(4, '23/10/2026, 10:00')], status: 'done', wtn: 'WTN-2026-0073', finalSo: null, source: 'dropoff', dropOff: true },
+    { id: 4, so: 'SO870004C', cust: 'Acme Ltd', date: iso(3), by: 'NS', crates: 1, counts: [xw(1, '23/10/2026, 10:00')], status: 'done', wtn: 'WTN-2026-0074', finalSo: null, source: 'netsuite' }] });
+  try {
+    const K = { 'X-Admin-Key': 'k7' }, x = (p, b, h) => req(port7, 'POST', p, b, h);
+    const ub = st => P.openRollup(st.orders, 'CNI0222', st.customers).members.concat(P.openRollup(st.orders, 'CNI0222', st.customers).pending)
+      .reduce((a, o) => a + P.entriesUnits(P.unbilled(o)), 0);
+    let st = (await req(port7, 'GET', '/api/state')).json;
+    const by = id => st.orders.find(o => o.id === id), u0 = ub(st), defra0 = (await req(port7, 'GET', '/api/receipt-of-waste-info')).json.count;
+    t('already billed: refused without a NetSuite reference', (await x('/api/roll-extbill', { orderIds: [1], ref: '   ' })).status === 400);
+    const m1 = (await x('/api/roll-extbill', { orderIds: [1], ref: ' INV-190001 ', note: 'billed in Sept', by: 'T' })).json;
+    st = (await req(port7, 'GET', '/api/state')).json;
+    t('already billed: single mark takes every unbilled crate and moves it to Processed', m1.ok && m1.units === 12 && m1.ref === 'INV-190001'
+      && by(1).counts.every(c => c.packId === 'ext:1') && P.stageOf(by(1), undefined, st.customers) === 'processed' && by(1).rollMember === 'billed-elsewhere');
+    t('already billed: totals drop by exactly those units', ub(st) === u0 - 12);
+    t('already billed: audit record kept on the order', (r => r.by === 'T' && r.ref === 'INV-190001' && r.note === 'billed in Sept' && r.units === 12)(by(1).extBills[0]));
+    const m2 = (await x('/api/roll-extbill', { orderIds: [2, 3], ref: 'SO852009', by: 'T' })).json;
+    st = (await req(port7, 'GET', '/api/state')).json;
+    t('already billed: bulk mark with one reference, totals drop by exactly those units', m2.ok && m2.count === 2 && m2.units === 7 && ub(st) === u0 - 19);
+    t('already billed: marking a needs-confirm order confirms it, and records that', by(2).rollConfirmedAt && /already billed SO852009/.test(by(2).rollConfirmedBy) && by(2).extBills[0].confirmedByMark);
+    t('already billed: refused when nothing is unbilled', (await x('/api/roll-extbill', { orderIds: [3], ref: 'X' })).status === 400);
+    t('already billed: Process has nothing to bill', (await x('/api/rollup-process', { code: 'CNI0222' })).status === 400);
+    const r409 = async (p, b) => (await x(p, b)).status === 409;
+    t('guard: per-order Invoiced refused on an already-billed order', await r409('/api/mark', { orderId: 3, field: 'invoiced', value: true }));
+    t('guard: per-order Processed refused', await r409('/api/process', { orderId: 3, nsRef: 'SO1' }));
+    t('guard: set-so refused', await r409('/api/set-so', { orderId: 3, so: 'SO777777' }));
+    t('guard: consolidate refused', await r409('/api/consolidate', { targetId: 4, sourceIds: [3] }));
+    t('guard: move-crate refused', await r409('/api/move-crate', { orderId: 3, countIndex: 0, so: 'SO870004C' }));
+    t('Defra rows unchanged by marking', (await req(port7, 'GET', '/api/receipt-of-waste-info')).json.count === defra0);
+    await x('/api/count', { orderId: 1, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q: 2 }] });   // a later crate on the same drop-off
+    st = (await req(port7, 'GET', '/api/state')).json;
+    t('a later crate on the same drop-off is billable again on the roll-up', P.stageOf(by(1), undefined, st.customers) === 'monthly' && P.entriesUnits(P.unbilled(by(1))) === 2);
+    const pr = (await x('/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    st = (await req(port7, 'GET', '/api/state')).json;
+    t('Process afterwards bills only the new crate, never the already-billed ones', pr.ok && pr.rollup.units === 2 && pr.rollup.visitIds.join() === '1'
+      && by(1).counts.filter(c => c.packId === 'ext:1').length === 2 && by(1).counts.filter(c => c.packId === pr.rollup.id).length === 1);
+    t('undo needs the admin key', (await x('/api/roll-extbill-undo', { orderId: 3 })).status === 403 && (await x('/api/roll-extbill-undo', { orderId: 3 }, { 'X-Admin-Key': 'nope' })).status === 403);
+    t('undo refused once the order has crates on a pack since', (await x('/api/roll-extbill-undo', { orderId: 1 }, K)).status === 400);
+    const u3 = (await x('/api/roll-extbill-undo', { orderId: 3, by: 'A' }, K)).json;
+    const u2 = (await x('/api/roll-extbill-undo', { orderId: 2, by: 'A' }, K)).json;
+    st = (await req(port7, 'GET', '/api/state')).json;
+    t('undo restores the order to the roll-up exactly', u3.ok && u2.ok && P.rollState(by(3), st.customers) === 'member' && P.unbilled(by(3)).length === 1
+      && P.rollState(by(2), st.customers) === 'pending' && !by(2).rollConfirmedAt && by(2).extBills[0].undoneAt && by(3).extBills[0].undoneBy === 'A');
+  } finally { s7.child.kill(); fs.rmSync(s7.dir, { recursive: true, force: true }); }
   console.log('     done');
 }
 
