@@ -86,3 +86,6 @@ The Defra receipt of waste export reports by receipt, never by billing: one row 
 ### Before rollback
 
 Before rolling back to the `pre-redesign-2026-10-23` tag, Finish every part-billed roll-up order (Monthly accounts, "Billed — no new crates"). The old code does not know about billed crate entries (`counts[i].packId`) and would offer them for per-order billing again.
+
+
+Orders marked **Already billed** (crates with `packId: 'ext:<n>'`) are safe under ada1c73: it treats those crates as billed and will not bill them again, but it shows the orders on the Monthly accounts card under "Billed — no new crates" instead of Processed, and refuses Revert to per order while they are there. Its Finish button on them closes the order without a pack; harmless, but leave them alone.
