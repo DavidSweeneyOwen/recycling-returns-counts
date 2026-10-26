@@ -176,11 +176,11 @@ dl.faq dd{margin-top:4px;color:var(--ink)}
     <div class="col">
       <h1>How to use Recycling Returns</h1>
       <p class="intro">Every crate the rec team count lands on the dashboard. This guide shows what Rec Admin does with it, from the count to NetSuite.</p>
-      <div class="audience"><span>For Rec Admin</span><span>For the rec team</span><span>Screenshots use sample names</span></div>
+      <div class="audience"><span>For Rec Admin</span><span>For the rec team</span><span>Internal: dashboard users only</span></div>
 
 <section id="stages">
 <h2><span class="n">1</span>The five stages and what moves an order on</h2>
-<p class="lede">An order moves left to right down the sidebar. It never skips a stage, and the count beside each stage is what is waiting there.</p>
+<p class="lede">An order moves left to right down the sidebar. An order with a NetSuite SO goes straight from Awaiting count to Counted; only drop-offs without an SO stop at No SO yet. The count beside each stage is what is waiting there.</p>
 <ol class="stages">
 <li><b>Awaiting count</b>The SO is in, crates not all counted. <i>Moves on when the last crate is counted.</i></li>
 <li><b>No SO yet</b>Counted as a drop-off with no real SO. <i>Moves on when you Link SO.</i></li>
@@ -249,7 +249,7 @@ dl.faq dd{margin-top:4px;color:var(--ink)}
 <li>Press <span class="btnlike dark">Link SO</span> (or Enter). The order leaves this stage.</li>
 </ol>
 <p>If NetSuite already created an empty order with that SO, the two are merged and the counts are kept. If you attach the wrong SO, press <b>Wrong SO? Undo</b> on the card and it goes back to its DROP number with its counts intact.</p>
-<figure><img src="guide/g-noso.jpg" width="1166" height="520" alt="Two No SO yet cards, each with a field for the real SO and a Link SO button" loading="lazy"><figcaption>Sample names. Type the SO in the card, then Link SO.</figcaption></figure>
+<figure><img src="guide/g-noso.jpg" width="1166" height="520" alt="Two No SO yet cards, each with a field for the real SO and a Link SO button" loading="lazy"><figcaption>Type the SO in the card, then Link SO.</figcaption></figure>
 <h3>Combine drop-offs</h3>
 <p>The rec team can raise one drop-off per crate, so one delivery shows up as several rows. Tick the rows, then press <span class="btnlike dark">Combine into one</span>. The row that already has a real SO is kept, otherwise the oldest. Counts are re-sequenced, any WTNs already issued are recorded on the result, and <b>it cannot be undone</b>.</p>
 <p>On <b>Awaiting count</b>, open drop-offs for the same customer also offer <b>Merge N drop-offs into one</b>.</p>
@@ -289,8 +289,8 @@ dl.faq dd{margin-top:4px;color:var(--ink)}
 <li><b>Processed on NetSuite:</b> each row has its WTN as a PDF link.</li>
 <li><b>Season WTNs</b> (monthly packs) download the same way, from their card or the Monthly accounts page.</li>
 </ul>
-<figure><img src="guide/g-wtn.jpg" width="1166" height="520" alt="WTN sent cards with Download WTN (PDF), Reprint and a NetSuite number field" loading="lazy"><figcaption>Sample names. Download, Reprint and the NetSuite number sit on each card.</figcaption></figure>
-<p>A count that has been amended gets a new WTN from the new counts, and the card shows <b>Amended, resend WTN</b> until you have re-sent it.</p>
+<figure><img src="guide/g-wtn.jpg" width="1166" height="520" alt="WTN sent cards with Download WTN (PDF), Reprint and a NetSuite number field" loading="lazy"><figcaption>Download, Reprint and the NetSuite number sit on each card.</figcaption></figure>
+<p>An amended count keeps its WTN number; the WTN's contents are regenerated from the new counts, and the card shows <b>Amended, resend WTN</b> until you have re-sent it.</p>
 </section>
 
 <section id="amendments">
@@ -301,11 +301,11 @@ dl.faq dd{margin-top:4px;color:var(--ink)}
 <li>Put your name in (it is remembered). Change the quantities, add a line or a crate entry, or remove an entry.</li>
 <li>Write the <b>reason</b>. It is required.</li>
 <li>Tick what must be redone: <b>Clear the raised SO</b>, <b>Untick Invoiced</b>, <b>Untick CO2 credit</b>. Only tick what applies.</li>
-<li>Press <span class="btnlike dark">Save amendment</span>. The WTN is regenerated from the new counts and flagged to be re-sent.</li>
+<li>Press <span class="btnlike dark">Save amendment</span>. The WTN keeps its number, its contents are regenerated from the new counts, and it is flagged to be re-sent.</li>
 </ol>
 <p>Then reprint the WTN, re-raise the SO in NetSuite and re-issue the invoice or credit if you ticked those.</p>
 <div class="note">A visit on a monthly roll-up can be amended until it is on a pack. Once a pack has billed it, the change is refused. Ask David.</div>
-<figure><img src="guide/g-amend.jpg" width="1166" height="430" alt="The Amendments page with its order search" loading="lazy"><figcaption>Sample names. Search, open the order, change, give a reason, save.</figcaption></figure>
+<figure><img src="guide/g-amend.jpg" width="1166" height="430" alt="The Amendments page with its order search" loading="lazy"><figcaption>Search, open the order, change, give a reason, save.</figcaption></figure>
 </section>
 
 <section id="reports">
@@ -322,7 +322,7 @@ dl.faq dd{margin-top:4px;color:var(--ink)}
 <li>Read the box on the right: it says how many waste transfer notes that is and how many files.</li>
 <li>Press <span class="btnlike dark">Download spreadsheet</span>.</li>
 </ol>
-<p>It fills Defra's own template with one row per WTN. Defra's sheet holds 330 rows, so a long range downloads as several files. Dates follow when the waste was received, never when it was billed, so Process never moves a row between quarters.</p>
+<p>It fills Defra's own template with one row per WTN; a monthly-account order counted over several days gets one row per count day. Defra's sheet holds 330 rows, so a long range downloads as several files. Dates follow when the waste was received, never when it was billed, so Process never moves a row between quarters.</p>
 <div class="note">If the box lists items "left blank until set up" (such as the receiver's authorisation number), those columns are empty in the file. Ask David to add them.</div>
 <figure><img src="guide/g-reports.jpg" width="1127" height="353" alt="The Defra receipt of waste panel with date pickers, All dates, Download spreadsheet and a summary of what will download" loading="lazy"><figcaption>The right-hand box says what will download before you press it.</figcaption></figure>
 </section>

@@ -785,6 +785,9 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/classic') return sendFile(res, 'classic.html');
   if (req.method === 'GET' && p === '/classic.js') return sendFile(res, 'classic.js');
   if (req.method === 'GET' && p === '/pipeline.js') return sendFile(res, 'pipeline.js');
+  /* User guide: dashboard users only, so it sits behind the access key like the dashboard. */
+  if (req.method === 'GET' && (p === '/guide' || p === '/guide.html')) return sendFile(res, 'guide.html');
+  if (req.method === 'GET' && /^\/guide\/[a-z0-9-]+\.(jpg|png)$/.test(p)) return sendFile(res, p.slice(1));
   const printed = h => u.searchParams.get('print') === '1' ? withAutoPrint(h) : h;
   if (req.method === 'GET' && /^\/wtn\/\d+$/.test(p)) {
     const o = db.orders.find(x => x.id === Number(p.split('/')[2]));
