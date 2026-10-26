@@ -808,7 +808,7 @@ function buildRecords(){
       const pm=PRODMAP[p],known=!!pm;
       const counted=origMap[p]||0,now=curMap[p]||0;
       RECORDS.push({
-        date:lastDate,cust:o.cust||'Unknown',so:o.so,stage:stageOf(o),product:p,
+        date:lastDate,cust:o.cust||'Unknown',acct:(()=>{const c=acctOf(o);return c?c.name+' \u00B7 '+c.code:(o.cust||'Unknown');})(),so:o.so,stage:stageOf(o),product:p,
         size:known?(pm.size||'—'):'—',
         type:known?(pm.type||'Other'):'Other',
         code:known?(pm.code||'UNMAPPED'):'OTHER',
@@ -822,10 +822,21 @@ function buildRecords(){
     });
   });
 }
+/* The account a typed customer name belongs to, if it is on the Customers list. Same matching as pipeline.js rollMatch
+   (picked code, exact name or code, alias; Ltd/Limited and punctuation ignored; "Not <code>" respected), for every customer, not only monthly ones. */
+function acctOf(o){
+  const cs=STATE.customers||[],cn=P.companyNorm(o.cust),n=P.norm(o.cust);
+  const rej=o.rollRejectCode||((o.rollOutAt&&/^rejected/.test(o.rollOutWhy||''))?o.rollCode:null);
+  for(const c of cs){
+    if(!c.code||rej===c.code)continue;
+    if((o.custCode===c.code&&o.custMatch==='picked')||(cn&&cn===P.companyNorm(c.name))||n===P.norm(c.code)||(n&&(c.aliases||[]).some(a=>P.norm(a)===n||P.companyNorm(a)===cn)))return c;
+  }
+  return null;
+}
 function uniqueSorted(arr){return [...new Set(arr)].filter(Boolean).sort();}
 function populateReportFilters(){
   const cust=document.getElementById('fCust');
-  uniqueSorted(RECORDS.map(r=>r.cust)).forEach(c=>cust.add(new Option(c,c)));
+  uniqueSorted(RECORDS.map(r=>r.acct)).forEach(c=>cust.add(new Option(c,c)));
   const type=document.getElementById('fType');
   uniqueSorted(RECORDS.map(r=>r.type)).forEach(t=>type.add(new Option(t,t)));
   refreshSizeProd();
@@ -882,7 +893,7 @@ function applyFilter(over){
   return RECORDS.filter(r=>{
     if(f.from&&(!r.date||r.date<f.from))return false;
     if(f.to&&(!r.date||r.date>f.to))return false;
-    if(f.cust&&r.cust!==f.cust)return false;
+    if(f.cust&&r.acct!==f.cust)return false;
     if(f.type&&r.type!==f.type)return false;
     if(f.size&&r.size!==f.size)return false;
     if(f.prod&&r.product!==f.prod)return false;
@@ -1029,24 +1040,33 @@ function drawMix(byType,total){
 }
 function drawCust(rows){
   const box=document.getElementById('rpCust'),m={};
-  rows.forEach(r=>{const o=m[r.cust]||(m[r.cust]={k:r.cust,b:0,u:0});o.b+=r.billed;o.u+=r.invoiced?0:r.qty;});
+  rows.forEach(r=>{const o=m[r.acct]||(m[r.acct]={k:r.acct,b:0,u:0});o.b+=r.billed;o.u+=r.invoiced?0:r.qty;});
   const all=Object.values(m).map(o=>Object.assign(o,{t:o.b+o.u})).sort((a,b)=>b.t-a.t);
   if(!all.length){box.innerHTML='<div class="rp-empty">Nothing counted in this view.</div>';return;}
+  all.forEach(o=>{o.names=variantsOf(rows,o.k);});
   const top=all.slice(0,10),rest=all.slice(10);
   if(rest.length)top.push({k:`Other (${N(rest.length)} customers)`,b:rest.reduce((a,o)=>a+o.b,0),u:rest.reduce((a,o)=>a+o.u,0),other:true});
   top.forEach(o=>o.t=o.b+o.u);
   const max=Math.max(...top.filter(o=>!o.other).map(o=>o.t));
-  box.innerHTML=`<ul class="bl cu">${top.map(o=>`<li>${o.other?'<div class="bl-r">':`<button type="button" class="bl-r" onclick="setFilter('fCust',${jsq(o.k)})" title="Filter the report to ${esc(o.k)}">`}<span class="bl-n">${esc(o.k)}</span><span class="bl-t">${o.other?'':`<i class="s1" style="width:${o.b/max*100}%"></i><i class="s2" style="width:${o.u/max*100}%"></i>`}</span><span class="bl-v mono">${N(o.t)}</span><span class="bl-p mono" title="Not yet billed">${o.u?N(o.u)+' open':'billed'}</span>${o.other?'</div>':'</button>'}</li>`).join('')}</ul>`;
+  box.innerHTML=`<ul class="bl cu">${top.map(o=>`<li>${o.other?'<div class="bl-r">':`<button type="button" class="bl-r" onclick="setFilter('fCust',${jsq(o.k)})" title="Filter the report to ${esc(o.k)}">`}<span class="bl-n"><span class="nm">${esc(o.k)}</span>${o.names?namesHint(o.names):''}</span><span class="bl-t">${o.other?'':`<i class="s1" style="width:${o.b/max*100}%"></i><i class="s2" style="width:${o.u/max*100}%"></i>`}</span><span class="bl-v mono">${N(o.t)}</span><span class="bl-p mono" title="Not yet billed">${o.u?N(o.u)+' open':'billed'}</span>${o.other?'</div>':'</button>'}</li>`).join('')}</ul>`;
 }
 function toggleTv(id,btn){const e=document.getElementById(id);e.hidden=!e.hidden;btn.setAttribute('aria-pressed',String(!e.hidden));btn.textContent=e.hidden?'View as table':'Hide table';}
 /* ---- tables: sortable, sticky header, totals row, tabular right-aligned numbers ---- */
+/* typed names behind one account row, with units; shown as "3 names" with a tooltip */
+function variantsOf(rows,acct){const m={};rows.filter(r=>r.acct===acct).forEach(r=>{m[r.cust]=(m[r.cust]||0)+r.qty;});
+  return Object.entries(m).map(([n,u])=>({n,u})).sort((a,b)=>b.u-a.u);}
+function namesHint(names){
+  if(!names||names.length<2)return '';
+  const tip='Typed as: '+names.map(v=>v.n+' ('+N(v.u)+')').join(', ');
+  return ` <span class="vn" tabindex="0" title="${esc(tip)}" aria-label="${esc(tip)}">${names.length} names</span>`;
+}
 function paintTable(id){
   const t=TBL[id],el=document.getElementById(id);if(!t||!el)return;
   const s=TSORT[id];let rows=t.rows.slice();
   if(s){const c=t.cols.find(c=>c.k===s.k);if(c){rows.sort((a,b)=>{const x=a[c.k],y=b[c.k];const r=(typeof x==='number'&&typeof y==='number')?x-y:String(x||'').localeCompare(String(y||''),'en-GB',{numeric:true});return s.dir==='asc'?r:-r;});}}
-  const cell=(c,v)=>c.n?`<td class="n${v?'':' z'}">${c.f?c.f(v):N(v)}</td>`:`<td>${esc(v)}</td>`;
+  const cell=(c,v,row)=>c.n?`<td class="n${v?'':' z'}">${c.f?c.f(v):N(v)}</td>`:`<td>${esc(v)}${(c.k==='cust'||c.k==='k')?namesHint(row.names):''}</td>`;
   const th=c=>`<th class="${c.n?'n':''}" aria-sort="${s&&s.k===c.k?(s.dir==='asc'?'ascending':'descending'):'none'}"><button type="button" class="sb" onclick="sortBy('${id}',${jsq(c.k)})">${esc(c.l)}<span class="si" aria-hidden="true">${s&&s.k===c.k?(s.dir==='asc'?'▲':'▼'):''}</span></button></th>`;
-  el.innerHTML=`<thead><tr>${t.cols.map(th).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${t.cols.map(c=>cell(c,r[c.k])).join('')}</tr>`).join('')}</tbody>${t.tot?`<tfoot><tr>${t.cols.map((c,i)=>c.n?`<td class="n">${c.nt?c.nt(t.tot[c.k]):(t.tot[c.k]===''||t.tot[c.k]==null?'':(c.f?c.f(t.tot[c.k]):N(t.tot[c.k])))}</td>`:`<td>${i===0?'Total':''}</td>`).join('')}</tr></tfoot>`:''}`;
+  el.innerHTML=`<thead><tr>${t.cols.map(th).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${t.cols.map(c=>cell(c,r[c.k],r)).join('')}</tr>`).join('')}</tbody>${t.tot?`<tfoot><tr>${t.cols.map((c,i)=>c.n?`<td class="n">${c.nt?c.nt(t.tot[c.k]):(t.tot[c.k]===''||t.tot[c.k]==null?'':(c.f?c.f(t.tot[c.k]):N(t.tot[c.k])))}</td>`:`<td>${i===0?'Total':''}</td>`).join('')}</tr></tfoot>`:''}`;
 }
 function sortBy(id,k){const s=TSORT[id];TSORT[id]={k,dir:(s&&s.k===k&&s.dir==='desc')?'asc':'desc'};paintTable(id);}
 function setTab(k){RTAB=k;document.querySelectorAll('.rp-tab').forEach(b=>{const on=b.dataset.tab===k;b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});
@@ -1067,7 +1087,7 @@ function activeChips(){
 function renderReports(){
   const rows=applyFilter();const f=currentFilter();
   const cur=repMetrics(rows),pb=priorBounds(),prior=pb?repMetrics(applyFilter({from:pb.from,to:pb.to})):null;
-  const byCust=groupSum(rows,'cust'),byProd=groupSum(rows,'product'),byType=groupSum(rows,'type');
+  const byCust=groupSum(rows,'acct'),byProd=groupSum(rows,'product'),byType=groupSum(rows,'type');
   const trend=trendBuckets(rows),totalUnits=cur.current;
   LAST={rows,byCust,byProd,byType,trend,f};
   paintHero(rows,cur,prior,pb);
@@ -1075,14 +1095,15 @@ function renderReports(){
   const types=uniqueSorted(rows.map(r=>r.type)),codes=uniqueSorted(rows.map(r=>r.code));
   const sumBy=(cr,key,val)=>cr.filter(r=>r[key]===val).reduce((a,r)=>a+r.qty,0);
   const pivot=(keys,key)=>{const tot={total:0};keys.forEach(k=>{tot['c_'+k]=0;});
-    const out=byCust.map(c=>{const cr=rows.filter(r=>r.cust===c.k),o={cust:c.k,total:c.v};keys.forEach(k=>{o['c_'+k]=sumBy(cr,key,k);tot['c_'+k]+=o['c_'+k];});tot.total+=c.v;return o;});
+    const out=byCust.map(c=>{const cr=rows.filter(r=>r.acct===c.k),o={cust:c.k,total:c.v,names:variantsOf(rows,c.k)};keys.forEach(k=>{o['c_'+k]=sumBy(cr,key,k);tot['c_'+k]+=o['c_'+k];});tot.total+=c.v;return o;});
     return {out,tot};};
   const pc=pivot(types,'type'),pb2=pivot(codes,'code');
   TBL.tblCust={cols:[{k:'cust',l:'Customer'}].concat(types.map(t=>({k:'c_'+t,l:t,n:true})),[{k:'total',l:'Total',n:true}]),rows:pc.out,tot:pc.tot};
   TBL.tblBilling={cols:[{k:'cust',l:'Customer'}].concat(codes.map(c=>({k:'c_'+c,l:c,n:true})),[{k:'total',l:'Total',n:true}]),rows:pb2.out,tot:pb2.tot};
   TBL.tblProd={cols:[{k:'p',l:'Product'},{k:'size',l:'Size'},{k:'v',l:'Units',n:true}],rows:byProd.map(p=>({p:p.k,size:(PRODMAP[p.k]||{}).size||'—',v:p.v})),tot:{v:totalUnits}};
   TBL.tblType={cols:[{k:'t',l:'Type'},{k:'v',l:'Units',n:true},{k:'pc',l:'%',n:true,f:v=>v+'%',nt:()=>totalUnits?'100%':''}],rows:byType.map(t=>({t:t.k,v:t.v,pc:totalUnits?Math.round(t.v/totalUnits*100):0})),tot:{v:totalUnits}};
-  const rc=recon(rows,'cust'),tk=k=>rc.reduce((a,r)=>a+r[k],0);
+  const rc=recon(rows,'acct'),tk=k=>rc.reduce((a,r)=>a+r[k],0);
+  rc.forEach(x=>{x.names=variantsOf(rows,x.k);});
   TBL.tblRecon={cols:[{k:'k',l:'Customer'},{k:'counted',l:'Counted',n:true},{k:'amended',l:'Amended',n:true,f:v=>(v>0?'+':v<0?'−':'')+N(Math.abs(v))},{k:'current',l:'Current',n:true},{k:'billed',l:'Billed',n:true},{k:'unbilled',l:'Not billed',n:true}],rows:rc,
     tot:{counted:tk('counted'),amended:tk('amended'),current:tk('current'),billed:tk('billed'),unbilled:tk('unbilled')}};
   Object.keys(TBL).forEach(paintTable);
@@ -1110,22 +1131,22 @@ function exportXlsx(){
     ['Total units',rows.reduce((a,r)=>a+r.qty,0)],['Collections',new Set(rows.map(r=>r.so)).size],['Customers',new Set(rows.map(r=>r.cust)).size]]),'Summary');
   const types=uniqueSorted(rows.map(r=>r.type));
   const custAoa=[['Customer',...types,'Total']];
-  byCust.forEach(c=>{const cr=rows.filter(r=>r.cust===c.k);custAoa.push([c.k,...types.map(t=>cr.filter(r=>r.type===t).reduce((a,r)=>a+r.qty,0)),c.v]);});
+  byCust.forEach(c=>{const cr=rows.filter(r=>r.acct===c.k);custAoa.push([c.k,...types.map(t=>cr.filter(r=>r.type===t).reduce((a,r)=>a+r.qty,0)),c.v]);});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(custAoa),'By Customer');
   const codes=uniqueSorted(rows.map(r=>r.code));
   const billAoa=[['Customer',...codes,'Total']];
-  byCust.forEach(c=>{const cr=rows.filter(r=>r.cust===c.k);billAoa.push([c.k,...codes.map(code=>cr.filter(r=>r.code===code).reduce((a,r)=>a+r.qty,0)),c.v]);});
+  byCust.forEach(c=>{const cr=rows.filter(r=>r.acct===c.k);billAoa.push([c.k,...codes.map(code=>cr.filter(r=>r.code===code).reduce((a,r)=>a+r.qty,0)),c.v]);});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(billAoa),'Billing by Code');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Product','Size','Units'],...byProd.map(p=>[p.k,(PRODMAP[p.k]||{}).size||'',p.v])]),'By Product');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Type','Units'],...byType.map(t=>[t.k,t.v])]),'By Type');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Date','Customer','SO','Product','Size','Type','Code','Qty','Drop-off'],
-    ...rows.map(r=>[fmtUK(r.date),r.cust,r.so,r.product,r.size,r.type,r.code,r.qty,r.dropOff?'Yes':''])]),'Raw');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Date','Customer (as typed)','Account','SO','Product','Size','Type','Code','Qty','Drop-off'],
+    ...rows.map(r=>[fmtUK(r.date),r.cust,r.acct,r.so,r.product,r.size,r.type,r.code,r.qty,r.dropOff?'Yes':''])]),'Raw');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
     [['Customer','Counted','Amended','Current','Billed','Not billed'],
-     ...recon(rows,'cust').map(r=>[r.k,r.counted,r.amended,r.current,r.billed,r.unbilled])]),'Reconciliation');
+     ...recon(rows,'acct').map(r=>[r.k,r.counted,r.amended,r.current,r.billed,r.unbilled])]),'Reconciliation');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
-    [['Date','Customer','SO','Product','Size','Type','Code','Counted','Amended','Current','Billed','Status','Invoiced','Drop-off'],
-     ...rows.map(r=>[fmtUK(r.date),r.cust,r.so,r.product,r.size,r.type,r.code,
+    [['Date','Customer (as typed)','Account','SO','Product','Size','Type','Code','Counted','Amended','Current','Billed','Status','Invoiced','Drop-off'],
+     ...rows.map(r=>[fmtUK(r.date),r.cust,r.acct,r.so,r.product,r.size,r.type,r.code,
                      r.counted,r.amended,r.qty,r.billed,r.status,r.invoiced?'Yes':'',r.dropOff?'Yes':''])]),'Raw detail');
   XLSX.writeFile(wb,'CheckFire-Recycling-Report-'+fmtUK(new Date()).replace(/\//g,'-')+'.xlsx');
 }
