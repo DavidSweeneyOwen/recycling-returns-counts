@@ -665,11 +665,11 @@ function wtnHtml(o) {
    keep their own WTN numbers on record (a WTN is never thrown away), and the Defra
    receipt of waste export keeps listing each visit, so nothing is counted twice. */
 function rollupAsOrder(r) {
-  const visits = (r.visitIds || []).map(id => db.orders.find(o => o.id === id)).filter(Boolean);
+  const visits = db.orders.filter(o => Pipeline.billedOn(o, r.id).length);
   const counts = [];
-  visits.forEach(v => (v.counts || []).forEach(c => counts.push(c)));
+  visits.forEach(v => Pipeline.billedOn(v, r.id).forEach(c => counts.push(c)));
   return { visits, o: { id: 'R' + r.id, wtn: r.wtn, cust: r.name, so: 'Season ' + (r.code || ''),
-    crates: visits.reduce((a, v) => a + (Number(v.crates) || 0), 0), counts, dropOff: false, date: r.from,
+    crates: Pipeline.entriesCrates(counts), counts, dropOff: false, date: r.from,
     collectionAddress: (visits.find(v => v.collectionAddress) || {}).collectionAddress || '' } };
 }
 /* Roll-up guard. A visit waiting for Confirm, on an open roll-up, or on a season pack is
@@ -680,7 +680,7 @@ function rollupAsOrder(r) {
    (before Process) — never once it is on a pack. */
 function rollLocked(o) { return !!o && (!!o.rollupId || !!Pipeline.rollState(o, db.customers)); }
 function rollGuard(res, orders, opts) {
-  const o = (orders || []).find(x => x && (opts && opts.allowOpen ? !!x.rollupId : rollLocked(x)));
+  const o = (orders || []).find(x => x && (opts && opts.allowOpen ? (!!x.rollupId || Pipeline.hasBilled(x)) : rollLocked(x)));
   if (!o) return false;
   const m = Pipeline.rollMatch(o, db.customers);
   json(res, 409, { error: `${o.so} is on the ${(m && m.code) || o.rollCode || ''} monthly roll-up${o.rollupId ? ' (season pack)' : ''} — change it from Monthly accounts` });
@@ -688,11 +688,11 @@ function rollGuard(res, orders, opts) {
 }
 function seasonWtnHtml(r) {
   const { visits, o } = rollupAsOrder(r);
-  const units = v => (v.counts || []).reduce((a, c) => a + c.lines.reduce((s, l) => s + Number(l.q), 0), 0);
+  const units = v => Pipeline.entriesUnits(Pipeline.billedOn(v, r.id));
   const extra = `<div class="wtn" style="page-break-before:always">
   <h2>Visits covered by season WTN ${esc(r.wtn)}</h2>
   <table><tr><td class="lbl">Date counted</td><td class="lbl">Ref</td><td class="lbl">Own WTN</td><td class="lbl">Crates</td><td class="lbl">Units</td><td class="lbl">Counted by</td></tr>
-  ${visits.map(v => `<tr><td>${esc(v.counts.length ? v.counts[v.counts.length - 1].when.split(',')[0] : ukDate(v.date))}</td><td>${esc(v.so)}</td><td>${esc(v.wtn || '')}</td><td>${v.crates}</td><td>${units(v)}</td><td>${esc([...new Set(v.counts.map(c => c.by))].join(', '))}</td></tr>`).join('')}
+  ${visits.map(v => `<tr><td>${esc(v.counts.length ? v.counts[v.counts.length - 1].when.split(',')[0] : ukDate(v.date))}</td><td>${esc(v.so)}</td><td>${esc(v.wtn || '')}</td><td>${Pipeline.entriesCrates(Pipeline.billedOn(v, r.id))}</td><td>${units(v)}</td><td>${esc([...new Set(v.counts.map(c => c.by))].join(', '))}</td></tr>`).join('')}
   </table>
   <h2 style="margin-top:22px">Invoice lines by charge code</h2>
   <table><tr><td class="lbl">Charge code</td><td class="lbl">Units</td></tr>
@@ -805,7 +805,7 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
-      orders: db.orders.map(o => ({ ...o, rollMember: o.rollupId ? null : ((Pipeline.rollMatch(o, db.customers) || {}).code || null), counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
+      orders: db.orders.map(o => ({ ...o, rollMember: o.rollVoidAt ? 'removed' : o.rollupId ? (o.invoicedAt ? null : (o.rollCode || 'pack')) : ((Pipeline.rollMatch(o, db.customers) || {}).code || (Pipeline.hasBilled(o) && !o.invoicedAt ? 'part-billed' : null)), counted: countedCrates(o), co2: co2Units(o), totals: aggregate(o), nsLines: o.status === 'done' ? nsLines(o) : undefined })),
       lastSync: db.lastSync,
       store: STORE,                 // the dashboard warns loudly if this is not ready
       products: CONFIG.products,
@@ -831,8 +831,9 @@ const server = http.createServer((req, res) => {
     const from = day(u.searchParams.get('from')), to = day(u.searchParams.get('to'));
     try {
       const row = require('./receipt-of-waste.js');
-      if (p === '/api/receipt-of-waste-info') return json(res, 200, row.summary(db.orders, CONFIG, from, to));
-      const out = row.build(db.orders, CONFIG, { from, to, part: u.searchParams.get('part'), appDir: __dirname, wtnTotals });
+      const rowOrders = Pipeline.defraOrders(db.orders, db.rollups);   // each crate entry exactly once
+      if (p === '/api/receipt-of-waste-info') return json(res, 200, row.summary(rowOrders, CONFIG, from, to));
+      const out = row.build(rowOrders, CONFIG, { from, to, part: u.searchParams.get('part'), appDir: __dirname, wtnTotals });
       res.writeHead(200, {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${out.filename}"`,
@@ -1449,16 +1450,45 @@ const server = http.createServer((req, res) => {
     if (!c) return json(res, 404, { error: 'Customer not found' });
     if (c.billing !== 'monthly') return json(res, 400, { error: `${c.name} is billed per order now — switch it back to monthly before processing a roll-up` });
     const r0 = Pipeline.openRollup(db.orders, c.code, db.customers);
-    if (!r0.ready.length) return json(res, 400, { error: `No counted, confirmed visits on the ${c.name} roll-up` });
+    if (!r0.ready.length) return json(res, 400, { error: `No counted crates on confirmed orders on the ${c.name} roll-up` });
     db.rollups = db.rollups || [];
     db.rollSeq = (db.rollSeq || 0) + 1;
     const days = r0.ready.map(o => o.date).filter(Boolean).sort();
+    const billed = r0.ready.map(o => ({ o, list: Pipeline.unbilled(o) }));
+    const all = [].concat(...billed.map(x => x.list));
     const r = { id: db.rollSeq, code: c.code, name: c.name, visitIds: r0.ready.map(o => o.id), wtn: nextWTN(),
-      from: days[0] || '', to: days[days.length - 1] || '', crates: r0.ready.reduce((a, o) => a + (Number(o.crates) || 0), 0),
+      from: days[0] || '', to: days[days.length - 1] || '', crates: Pipeline.entriesCrates(all), units: Pipeline.entriesUnits(all), entries: all.length,
       createdAt: nowStamp(), createdBy: String(b.by || '').trim() || 'Rec admin', sentAt: null, nsRef: null, processedAt: null };
     db.rollups.unshift(r);
-    r0.ready.forEach(o => { o.rollupId = r.id; o.rollCode = c.code; });
-    saveDb(); json(res, 200, { ok: true, rollup: r, left: r0.members.length - r0.ready.length + r0.pending.length });
+    /* stamp each crate entry with this pack; an order that is complete and now fully billed
+       leaves the roll-up with the pack, a part-counted one stays for its next crates */
+    billed.forEach(({ o, list }) => { list.forEach(e => { e.packId = r.id; }); o.rollCode = c.code; if (o.status === 'done') o.rollupId = r.id; });
+    saveDb(); json(res, 200, { ok: true, rollup: r, left: r0.members.filter(o => o.status === 'open').length + r0.pending.length });
+  })) return;
+
+  /* Remove empty drop-off: a member with no crates counted. Marked void and audited, never deleted. */
+  if (post('/api/roll-remove', b => {
+    const o = db.orders.find(x => x.id === Number(b.orderId));
+    if (!o) return json(res, 404, { error: 'Order not found' });
+    if (!Pipeline.rollState(o, db.customers)) return json(res, 400, { error: `${o.so} is not on a monthly roll-up` });
+    if ((o.counts || []).length) return json(res, 400, { error: `${o.so} has crates counted — it cannot be removed` });
+    if (!o.dropOff) return json(res, 400, { error: `${o.so} is a NetSuite order — close it in NetSuite` });
+    o.rollVoidAt = nowStamp(); o.rollVoidBy = String(b.by || '').trim() || 'Rec admin'; o.rollVoidWhy = 'empty drop-off removed from the monthly roll-up';
+    saveDb(); json(res, 200, { ok: true, so: o.so });
+  })) return;
+  /* Finish: a part-counted member whose counted crates are all billed and no more are
+     coming. It closes at what came in and leaves the roll-up with its last pack. */
+  if (post('/api/roll-finish', b => {
+    const o = db.orders.find(x => x.id === Number(b.orderId));
+    if (!o) return json(res, 404, { error: 'Order not found' });
+    if (Pipeline.rollState(o, db.customers) !== 'member') return json(res, 400, { error: `${o.so} is not a confirmed roll-up order` });
+    if (!Pipeline.hasBilled(o) || Pipeline.unbilled(o).length) return json(res, 400, { error: `${o.so} still has crates to bill — Process them first` });
+    const last = Math.max(...o.counts.map(c => c.packId || 0)), r = (db.rollups || []).find(x => x.id === last);
+    if (o.status === 'open') { o.short = { expected: o.crates, received: countedCrates(o), reason: 'finished on the monthly roll-up', when: day() }; o.crates = countedCrates(o); o.status = 'done'; }
+    o.rollupId = last; o.rollFinishedAt = nowStamp();
+    if (r && r.sentAt) o.wtnSentAt = r.sentAt;
+    if (r && r.processedAt) { o.invoicedAt = String(r.processedAt).split(',')[0]; o.nsRef = r.nsRef; }
+    saveDb(); json(res, 200, { ok: true, so: o.so, pack: r && r.wtn });
   })) return;
 
   /* Season WTN: sent / processed on NetSuite (and back). The visits carry the same
@@ -1466,7 +1496,7 @@ const server = http.createServer((req, res) => {
   if (post('/api/rollup-mark', b => {
     const r = (db.rollups || []).find(x => x.id === Number(b.id));
     if (!r || r.voidedAt) return json(res, 404, { error: 'Roll-up not found' });
-    const visits = r.visitIds.map(id => db.orders.find(o => o.id === id)).filter(Boolean);
+    const visits = db.orders.filter(o => o.rollupId === r.id);   // part-counted ones stay on the open roll-up
     const on = b.value !== false, stamp = on ? day() : null;
     if (b.field === 'sent' && !on && r.processedAt) return json(res, 400, { error: `${r.wtn} is processed on NetSuite — undo that first` });
     if (b.field === 'sent') {
@@ -1490,6 +1520,7 @@ const server = http.createServer((req, res) => {
     if (r.sentAt) return json(res, 400, { error: `${r.wtn} is marked as sent — untick that first` });
     r.voidedAt = nowStamp(); r.voidedBy = String(b.by || '').trim() || 'Rec admin';
     const still = (Pipeline.findCustomer(db.customers, r.code) || {}).billing === 'monthly';
+    db.orders.forEach(o => (o.counts || []).forEach(c => { if (c.packId === r.id) delete c.packId; }));
     db.orders.forEach(o => { if (o.rollupId !== r.id) return; delete o.rollupId;
       if (!still && o.rollCode) o.noSoExpected = null; });   // per order again: back to its own stage
     saveDb(); json(res, 200, { ok: true, wtn: r.wtn });
@@ -1506,6 +1537,10 @@ const server = http.createServer((req, res) => {
     if (c.billing === to) return json(res, 400, { error: `${c.name} is already ${to}` });
     if (to === 'per-order' && (db.rollups || []).some(r => r.code === c.code && !r.sentAt && !r.voidedAt))
       return json(res, 400, { error: 'Mark the pack sent or void it first' });
+    if (to === 'per-order') {
+      const part = Pipeline.openRollup(db.orders, c.code, db.customers).members.filter(o => Pipeline.hasBilled(o));
+      if (part.length) return json(res, 400, { error: `${part.length} open order(s) already have crates billed on a season WTN (${part.slice(0, 5).map(o => o.so).join(', ')}${part.length > 5 ? '…' : ''}) — Finish them first so nothing is billed twice` });
+    }
     /* Membership is derived, so switching billing is all it takes: monthly pulls every open
        order of this customer into the roll-up now; per order puts each back in its stage. */
     const moved = Pipeline.movesOnToggle(db.orders, db.customers, c.code, to);

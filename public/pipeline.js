@@ -109,7 +109,7 @@
     return (o.rollOutAt && /^rejected/.test(o.rollOutWhy || '')) ? o.rollCode : null;   // 385cc58 data
   }
   function rollMatch(o, customers, now) {
-    if (!o || o.rollupId || o.invoicedAt || o.wtnSentAt || isAged(o, now)) return null;
+    if (!o || o.rollVoidAt || o.rollupId || o.invoicedAt || o.wtnSentAt || isAged(o, now)) return null;
     const rej = rejectedCode(o), typed = !!o.dropOff || o.source === 'unmatched' || o.source === 'moved';
     const cn = companyNorm(o.cust), n = norm(o.cust);
     for (const c of customers || []) {
@@ -130,6 +130,7 @@
     return m ? (m.trust === 'trusted' ? 'member' : 'pending') : null;
   }
   function stageOf(o, now, customers) {
+    if (o.rollVoidAt) return 'removed';            // empty drop-off taken off a roll-up (kept, audited)
     if (rollState(o, customers, now)) return 'monthly';
     if (o.rollupId) return 'rolled';
     if (o.status === 'open') return isAged(o, now) ? 'archive' : 'awaiting';
@@ -151,10 +152,42 @@
     const byDate = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id;
     const members = mine.filter(x => x.m.trust === 'trusted').map(x => x.o).sort(byDate);
     const pending = mine.filter(x => x.m.trust === 'confirm').map(x => x.o).sort(byDate);
-    const ready = members.filter(o => o.status === 'done');
+    /* Monthly accounts bill every crate counted, not whole orders: a confirmed member with
+       any crate not yet on a pack is ready, complete or part-counted. */
+    const ready = members.filter(o => unbilled(o).length);
     return { code, members, pending, ready,
-      counting: members.filter(o => o.status === 'open' && countedCrates(o) > 0),
-      awaiting: members.filter(o => o.status === 'open' && !countedCrates(o)) };
+      empty: members.filter(o => !(o.counts || []).length),                         // nothing counted: not billable
+      billedOpen: members.filter(o => (o.counts || []).length && !unbilled(o).length) };   // all billed, still open
+  }
+  /* ---------- per-crate billing ----------
+     Each crate entry (order.counts[i]) records the pack that billed it in packId. Packs
+     from 385cc58 billed whole orders (order.rollupId) — their entries count as billed too. */
+  function entryPack(o, c) { return (c && c.packId) || (o && o.rollupId) || null; }
+  function unbilled(o) { return (o.counts || []).filter(c => !entryPack(o, c)); }
+  function billedOn(o, packId) { return (o.counts || []).filter(c => entryPack(o, c) === packId); }
+  function hasBilled(o) { return (o.counts || []).some(c => entryPack(o, c)); }
+  function crateN(c) { return c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1; }
+  function entriesCrates(list) { return (list || []).reduce((a, c) => a + crateN(c), 0); }
+  function entriesUnits(list) { return (list || []).reduce((a, c) => a + (c.lines || []).reduce((s, l) => s + (Number(l.q) || 0), 0), 0); }
+  /* The orders the Defra receipt of waste export should see: every crate entry exactly once.
+     An entry billed on a season pack is reported under the season WTN; every other entry
+     under its own order's WTN. Entries on an open drop-off that is not on a pack yet have no
+     WTN at all and wait for one, as before. */
+  function defraOrders(orders, rollups) {
+    const live = new Map((rollups || []).filter(r => !r.voidedAt && r.wtn).map(r => [r.id, r]));
+    const out = [];
+    (orders || []).forEach(o => {
+      if (!o.wtn) return;
+      const own = (o.counts || []).filter(c => !live.has(entryPack(o, c)));
+      if (!own.length && (o.counts || []).length) return;          // all of it is on season WTNs
+      out.push(own.length === (o.counts || []).length ? o : Object.assign({}, o, { counts: own, crates: entriesCrates(own) }));
+    });
+    live.forEach(r => {
+      const counts = [];
+      (orders || []).forEach(o => (o.counts || []).forEach(c => { if (entryPack(o, c) === r.id) counts.push(c); }));
+      if (counts.length) out.push({ id: 'R' + r.id, so: 'Season ' + r.code, cust: r.name, wtn: r.wtn, date: r.from, counts, crates: entriesCrates(counts) });
+    });
+    return out;
   }
   function countedCrates(o) { return (o.counts || []).reduce((a, c) => a + (c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1), 0); }
   function orderUnits(o) { return (o.counts || []).reduce((a, c) => a + (c.lines || []).reduce((s, l) => s + (Number(l.q) || 0), 0), 0); }
@@ -180,5 +213,5 @@
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
     classifyDropoff, seedCustomers, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
-    movesOnToggle, countedCrates, orderUnits, adminCheck };
+    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });

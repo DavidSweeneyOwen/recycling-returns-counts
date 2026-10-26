@@ -73,10 +73,25 @@ t('385cc58 roll-stamped noSoExpected does not hide a reverted drop-off from No S
 t('visit on a season WTN -> rolled', P.stageOf(Object.assign({}, nsDone, { rollupId: 1 }), undefined, CM) === 'rolled');
 const R = P.openRollup(ALL, 'CNI0222', CM);
 t('roll-up: members by state', R.members.map(o => o.id).sort().join() === '10,11,12,13,16' && R.pending.map(o => o.id).sort().join() === '14,15,17'
-  && R.counting.map(o => o.id).join() === '13' && R.awaiting.map(o => o.id).join() === '12');
-t('roll-up: Process takes only confirmed, fully counted members', R.ready.map(o => o.id).sort().join() === '10,11,16');
+  && R.empty.map(o => o.id).join() === '12' && R.billedOpen.length === 0);
+t('roll-up: Process takes every confirmed member with a counted crate, part-counted too', R.ready.map(o => o.id).sort().join() === '10,11,13,16');
 t('roll-up: crates and units totals', R.members.reduce((a, o) => a + P.orderUnits(o), 0) === 22 && R.members.reduce((a, o) => a + P.countedCrates(o), 0) === 4
-  && R.pending.reduce((a, o) => a + P.orderUnits(o), 0) === 14 && R.ready.reduce((a, o) => a + P.orderUnits(o), 0) === 18);
+  && R.pending.reduce((a, o) => a + P.orderUnits(o), 0) === 14 && R.ready.reduce((a, o) => a + P.orderUnits(o), 0) === 22);
+// per-crate billing and the Defra mapping: every entry exactly once
+const e = (q, packId) => Object.assign({ crateFrom: 1, crateTo: 1, by: 'T', when: '01/10/2026, 10:00', lines: [{ p: 'Water 6L', q }] }, packId ? { packId } : {});
+const part = O({ id: 30, so: 'DROP-2026-0030', cust: 'x', status: 'open', crates: 10, counts: [e(4, 1), e(5, 1), e(6)] });
+t('per crate: billed entries are not billed again', P.unbilled(part).length === 1 && P.entriesUnits(P.unbilled(part)) === 6 && P.billedOn(part, 1).length === 2 && P.hasBilled(part));
+const done = O({ id: 31, so: 'SO1C', cust: 'y', wtn: 'WTN-1', counts: [e(2, 1), e(3)] });
+const legacy = O({ id: 32, so: 'SO2C', cust: 'y', wtn: 'WTN-2', rollupId: 2, counts: [e(7)] });
+const plain = O({ id: 33, so: 'SO3C', cust: 'z', wtn: 'WTN-3', counts: [e(1)] });
+const DF = P.defraOrders([part, done, legacy, plain], [{ id: 1, wtn: 'WTN-S1', code: 'C', name: 'C' }, { id: 2, wtn: 'WTN-S2', code: 'C', name: 'C' }]);
+const allEntries = [part, done, legacy, plain].reduce((a, o) => a + o.counts.length, 0);
+const inDefra = DF.reduce((a, o) => a + o.counts.length, 0) + P.unbilled(part).length;   // the open drop-off's unbilled crate has no WTN yet
+t('Defra: every crate entry exactly once (season, own WTN, or waiting)', inDefra === allEntries
+  && DF.find(o => o.wtn === 'WTN-S1').counts.length === 3 && DF.find(o => o.wtn === 'WTN-1').counts.length === 1
+  && DF.find(o => o.wtn === 'WTN-S2').counts.length === 1 && !DF.find(o => o.wtn === 'WTN-2') && DF.find(o => o.wtn === 'WTN-3'));
+t('Defra: a voided pack gives its entries back to the own WTN', P.defraOrders([done], [{ id: 1, wtn: 'WTN-S1', voidedAt: 'x' }]).find(o => o.wtn === 'WTN-1').counts.length === 2);
+t('removed drop-off sits in no stage', P.stageOf(O({ status: 'open', rollVoidAt: 'x' }), undefined, CM) === 'removed');
 t('rollupStage', P.rollupStage({}) === 'pack' && P.rollupStage({ sentAt: 'x' }) === 'wtn' && P.rollupStage({ sentAt: 'x', processedAt: 'y' }) === 'processed' && P.rollupStage({ voidedAt: 'x' }) === 'void');
 // customers + matching
 const cs = P.seedCustomers(JSON.parse(fs.readFileSync(path.join(APP, 'config.json'), 'utf8')));
@@ -250,7 +265,7 @@ async function e2e() {
     t('guard on a pulled-in SO: move-crate refused', await r409('/api/move-crate', { orderId: 1, countIndex: 0, so: 'SO888888' }));
     t('guard on a pending drop-off: set-so refused', await r409('/api/set-so', { orderId: 3, so: 'SO777777' }));
     const pr = (await req(port3, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
-    t('Process: only the confirmed, fully counted order (not the open SO, not the unconfirmed drop-off)', pr.ok && pr.rollup.visitIds.join() === '1' && pr.left === 2);
+    t('Process: only the confirmed, fully counted order (not the open SO, not the unconfirmed drop-off)', pr.ok && pr.rollup.visitIds.join() === '1' && pr.left === 2);   // open SO 2 has nothing counted
     t('Process: season pack lists the SO number', (await req(port3, 'GET', '/wtn/rollup/' + pr.rollup.id)).text.includes('SO860001C'));
     t('revert refused while the pack is unsent', (await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K)).status === 400);
     await req(port3, 'POST', '/api/rollup-mark', { id: pr.rollup.id, field: 'sent', value: true });
@@ -262,6 +277,44 @@ async function e2e() {
     t('revert: members go back to Awaiting / No SO yet, the sent pack stays', off.ok && off.split === 2 && stg(2) === 'awaiting' && stg(3) === 'noso' && stg(1) === 'rolled');
     t('revert: nothing lost or duplicated', st.orders.length === 5 && new Set(st.orders.map(o => o.id)).size === 5);
   } finally { s3.child.kill(); fs.rmSync(s3.dir, { recursive: true, force: true }); }
+
+  /* ---- per-crate billing on one drop-off across two packs ---- */
+  const port4 = port + 3;
+  const s4 = await boot(port4, 'k4');
+  try {
+    const K = { 'X-Admin-Key': 'k4' };
+    const mk = async () => (await req(port4, 'POST', '/api/dropoff', { cust: 'x', custCode: 'CNI0222', by: 'T', crates: 10 })).json.order;
+    const cnt = async (o, n, q) => (await req(port4, 'POST', '/api/count', { orderId: o.id, by: 'T', crates: n, lines: [{ p: 'Water 6L', q }] })).json;
+    const o = await mk(), empty = await mk();
+    await cnt(o, 1, 5); await cnt(o, 1, 7);                      // 2 crates, 12 units
+    const p1 = (await req(port4, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    await cnt(o, 1, 4);                                          // 1 more crate on the SAME drop-off
+    let st = (await req(port4, 'GET', '/api/state')).json, me = () => st.orders.find(x => x.id === o.id);
+    t('per crate: pack 1 bills the 2 crates counted so far on a part-counted drop-off', p1.ok && p1.rollup.crates === 2 && p1.rollup.units === 12);
+    t('per crate: the part-counted drop-off stays on the open roll-up', P.stageOf(me(), undefined, st.customers) === 'monthly' && P.unbilled(me()).length === 1);
+    t('per crate: Remove empty drop-off refused once crates are counted', (await req(port4, 'POST', '/api/roll-remove', { orderId: o.id })).status === 400);
+    t('per crate: amend refused once any crate is billed', (await req(port4, 'POST', '/api/amend', { orderId: o.id, reason: 'x', crates: 3 })).status === 409);
+    await req(port4, 'POST', '/api/rollup-mark', { id: p1.rollup.id, field: 'sent', value: true });
+    const rv1 = await req(port4, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K);
+    t('revert refused while an open order has crates already billed', rv1.status === 400 && /billed on a season WTN/.test(rv1.json.error));
+    const p2 = (await req(port4, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    st = (await req(port4, 'GET', '/api/state')).json;
+    t('per crate: pack 2 bills only the crate counted after pack 1', p2.ok && p2.rollup.crates === 1 && p2.rollup.units === 4);
+    t('per crate: never billed twice, never skipped (2 + 1 crates, 12 + 4 = 16 units)', p1.rollup.crates + p2.rollup.crates === P.countedCrates(me())
+      && p1.rollup.units + p2.rollup.units === P.orderUnits(me()) && me().counts.every(c => c.packId));
+    const s1 = (await req(port4, 'GET', '/wtn/rollup/' + p1.rollup.id)).text, s2 = (await req(port4, 'GET', '/wtn/rollup/' + p2.rollup.id)).text;
+    t('per crate: each season WTN shows its own crates', s1.includes(p1.rollup.wtn) && s2.includes(p2.rollup.wtn) && /<td>2<\/td><td>12<\/td>/.test(s1) && /<td>1<\/td><td>4<\/td>/.test(s2));
+    const info = (await req(port4, 'GET', '/api/receipt-of-waste-info')).json;
+    t('Defra: two season WTNs, the three crate entries once each', info.count === 2);
+    t('Remove empty drop-off: kept, audited, in no stage', (await req(port4, 'POST', '/api/roll-remove', { orderId: empty.id, by: 'T' })).json.ok);
+    await req(port4, 'POST', '/api/rollup-mark', { id: p2.rollup.id, field: 'sent', value: true });
+    t('Finish: a fully billed part-counted drop-off closes on its last pack', (await req(port4, 'POST', '/api/roll-finish', { orderId: o.id, by: 'T' })).json.ok);
+    st = (await req(port4, 'GET', '/api/state')).json;
+    const em = st.orders.find(x => x.id === empty.id);
+    t('removed drop-off kept with its audit trail', em && em.rollVoidAt && em.rollVoidBy === 'T' && P.stageOf(em, undefined, st.customers) === 'removed' && em.rollMember === 'removed');
+    t('finished drop-off left the roll-up on pack 2, closed at 3 crates', me().rollupId === p2.rollup.id && me().status === 'done' && me().crates === 3 && me().wtnSentAt);
+    t('revert allowed once nothing part-billed is open', (await req(port4, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K)).json.ok);
+  } finally { s4.child.kill(); fs.rmSync(s4.dir, { recursive: true, force: true }); }
   console.log('     done');
 }
 

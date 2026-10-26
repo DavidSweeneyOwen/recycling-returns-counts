@@ -238,14 +238,19 @@ async function api(path,body,headers){
   try{const r=await fetch(path,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},headers||{}),body:JSON.stringify(body)});return await r.json();}
   catch(e){return {error:'Server unreachable — nothing was saved'};}
 }
-function rollVisits(r){return (r.visitIds||[]).map(id=>STATE.orders.find(o=>o.id===id)).filter(Boolean);}
+function rollVisits(r){return STATE.orders.filter(o=>P.billedOn(o,r.id).length);}
+function eLines(es,f){const m={};(es||[]).forEach(c=>(c.lines||[]).forEach(l=>{const k=f(l);m[k]=(m[k]||0)+Number(l.q);}));return m;}
+function sumProductsE(es){return eLines(es,l=>l.p);}
+function sumCodesE(es){return eLines(es,l=>l.other?'Other':((PRODMAP[l.p]||{}).code||'UNMAPPED'));}
+function unbilledOf(list){return [].concat(...list.map(o=>P.unbilled(o)));}
+function packEntries(r){return [].concat(...STATE.orders.map(o=>P.billedOn(o,r.id)));}
 function sumProducts(vs){const m={};vs.forEach(o=>(o.totals||[]).forEach(t=>{m[t.p]=(m[t.p]||0)+t.q;}));return m;}
 function sumCodes(vs){const m={};vs.forEach(o=>(o.counts||[]).forEach(c=>(c.lines||[]).forEach(l=>{const k=l.other?'Other':((PRODMAP[l.p]||{}).code||'UNMAPPED');m[k]=(m[k]||0)+Number(l.q);})));return m;}
 function kvList(m){const k=Object.keys(m).sort(),t=k.reduce((a,x)=>a+m[x],0);return k.map(x=>`<div class="kv"><span>${esc(x)}</span><b class="mono">${m[x]}</b></div>`).join('')+`<div class="kv total"><span>Total</span><b class="mono">${t}</b></div>`;}
 
 /* ============ stages ============ */
 function buckets(){
-  const b={awaiting:[],noso:[],counted:[],wtn:[],processed:[],archive:[],monthly:[],rolled:[]};
+  const b={awaiting:[],noso:[],counted:[],wtn:[],processed:[],archive:[],monthly:[],rolled:[],removed:[]};
   (STATE.orders||[]).forEach(o=>{(b[stageOf(o)]||b.counted).push(o);});
   const R=STATE.rollups||[];
   b.rollPack=R.filter(r=>P.rollupStage(r)==='pack');
@@ -463,51 +468,74 @@ const VIEWS={
 function rollSection(c){
   const R=openRoll(c.code),all=R.members.concat(R.pending);
   const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs ADMIN_KEY</span>`):'';
-  const oldest=all.slice().sort(byDate)[0];
-  const top=`<div><span class="badge">Monthly rolling</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${all.length?` · open since ${esc(ukDate(oldest.date))} · no SO until you process`:' · nothing open since the last Process'}</div></div>`;
+  const oldestO=all.slice().sort(byDate)[0];
+  const top=`<div><span class="badge">Monthly rolling · billed by the crate</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${all.length?` · open since ${esc(ukDate(oldestO.date))} · no SO until you process`:' · nothing open since the last Process'}</div></div>`;
   if(!all.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">Every new ${esc(c.name)} order — NetSuite SO or drop-off — joins this roll-up.</span>${revert}</div></section>`;
+  const ub=o=>P.unbilled(o),uc=o=>P.entriesCrates(ub(o)),uu=o=>P.entriesUnits(ub(o));
   const sum=(l,f)=>l.reduce((a,o)=>a+f(o),0);
   const groups=[
     ['Needs confirm',R.pending,'Typed on the tablet or matched by alias — not billed until you confirm.'],
-    ['Counted — ready to bill',R.ready,''],
-    ['Being counted',R.counting,'Part counted — stays on the roll-up until the last crate is in.'],
-    ['Awaiting count',R.awaiting,'No crates counted yet.']];
+    ['Ready to bill',R.ready,'Every crate counted so far is billed, whether or not more are coming.'],
+    ['Billed — no new crates',R.billedOpen,'Everything counted is on a season WTN. More crates go on the next one; Finish when no more are coming.'],
+    ['No crates counted yet',R.empty,'Nothing to bill. Remove an empty drop-off if nothing is coming.']];
   const vrow=o=>{
     const pend=rollStateOf(o)==='pending',ph=[...new Set([o.photoId,...(o.counts||[]).map(x=>x.photoId)].filter(Boolean))];
     const th=ph.length?`<a class="thumb" href="/api/photo/${encodeURIComponent(ph[0])}" target="_blank" title="View photo"><img src="/api/photo/${encodeURIComponent(ph[0])}" alt="Photo for ${esc(o.so)}" loading="lazy"></a>`:'<span class="thumb">No photo</span>';
-    const kind=P.isPlaceholder(o.so)?'Drop-off':'NetSuite SO';
+    const kind=P.isPlaceholder(o.so)?'Drop-off':'NetSuite SO',billedC=P.entriesCrates((o.counts||[]).filter(x=>P.entryPack(o,x)));
     const match=pend?`<b>“${esc(o.typedCust||o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>${kind}${o.dropOff?' typed on the tablet':' matched by alias'}</small>`
-      :`<span class="tick">✓</span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}</small>`;
+      :`<span class="tick">✓</span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
     const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
-    const last=pend?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button> ${photos}</div>`
-      :`${esc(counterNames(o)||o.by||'')} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button>`;
-    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}</div><div class="num">${o.counted} / ${o.crates}</div><div class="num">${units(o)}</div><div>${last}</div></div>`;
+    const act=pend?`<button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button>`
+      :!(o.counts||[]).length&&o.dropOff?`<button class="lbtn" onclick="rollRemove(${o.id})">Remove empty drop-off</button>`
+      :(o.counts||[]).length&&!ub(o).length?`<button class="lbtn" onclick="rollFinish(${o.id})">Finish</button>`:'';
+    const last=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${pend?'':esc(counterNames(o)||o.by||'')} ${act} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button></div>`;
+    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${uu(o)}</div>${last}</div>`;
   };
-  const grp=([label,list,note])=>list.length?`<div class="sec-title" style="margin:18px 0 4px">${label} · ${plural(list.length,'order')} · ${sum(list,o=>o.counted)} crates · ${sum(list,units)} units${label==='Needs confirm'?` <button class="btn amber sm" style="margin-left:8px" onclick="rollConfirmAll(${jsq(c.code)})">Confirm all ${list.length}</button>`:''}</div>${note?`<p class="meta" style="margin-bottom:4px">${note}</p>`:''}${list.slice().sort(byDate).map(vrow).join('')}`:'';
-  const both=(fa,fb)=>{const a=fa(all),b=fb(R.ready),k=[...new Set([...Object.keys(a),...Object.keys(b)])].sort();
-    return `<div class="kv" style="color:var(--ink-3);font-size:12px"><span></span><span style="display:flex;gap:28px"><span>On roll-up</span><span>Ready to bill</span></span></div>`
-      +k.map(x=>`<div class="kv"><span class="mono">${esc(x)}</span><span style="display:flex;gap:28px"><b class="mono" style="min-width:64px;text-align:right">${a[x]||0}</b><b class="mono" style="min-width:76px;text-align:right">${b[x]||0}</b></span></div>`).join('')
-      +`<div class="kv total"><span>Total</span><span style="display:flex;gap:28px"><b class="mono" style="min-width:64px;text-align:right">${Object.values(a).reduce((p,q)=>p+q,0)}</b><b class="mono" style="min-width:76px;text-align:right">${Object.values(b).reduce((p,q)=>p+q,0)}</b></span></div>`;};
-  const first=R.ready.length?(lastCountDate(R.ready.slice().sort(byDate)[0])||ukDate(R.ready[0].date)):'';
+  const grp=([label,list,note])=>list.length?`<div class="sec-title" style="margin:18px 0 4px">${label} · ${plural(list.length,'order')} · ${plural(sum(list,uc),'crate')} · ${sum(list,uu)} units${label==='Needs confirm'?` <button class="btn amber sm" style="margin-left:8px" onclick="confirmAllDialog(${jsq(c.code)})">Confirm by name…</button>`:''}</div>${note?`<p class="meta" style="margin-bottom:4px">${note}</p>`:''}${list.slice().sort(byDate).map(vrow).join('')}`:'';
+  const allE=unbilledOf(all),readyE=unbilledOf(R.ready);
+  const both=(f)=>{const a=f(allE),b=f(readyE),k=[...new Set([...Object.keys(a),...Object.keys(b)])].sort();
+    const col=(x,w)=>`<b class="mono" style="min-width:${w}px;text-align:right">${x}</b>`;
+    return `<div class="kv" style="color:var(--ink-3);font-size:12px"><span></span><span style="display:flex;gap:28px"><span>Not billed yet</span><span>Ready to bill</span></span></div>`
+      +k.map(x=>`<div class="kv"><span class="mono">${esc(x)}</span><span style="display:flex;gap:28px">${col(a[x]||0,86)}${col(b[x]||0,76)}</span></div>`).join('')
+      +`<div class="kv total"><span>Total</span><span style="display:flex;gap:28px">${col(Object.values(a).reduce((p,q)=>p+q,0),86)}${col(Object.values(b).reduce((p,q)=>p+q,0),76)}</span></div>`;};
   return `<section class="roll s-monthly"><div class="roll-head">${top}
-     <div class="stats"><div class="stat"><div class="v">${all.length}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${sum(all,o=>o.counted)}<small style="font-size:14px;color:var(--ink-3)"> / ${sum(all,o=>o.crates)}</small></div><div class="k">Crates counted / expected</div></div><div class="stat"><div class="v">${sum(all,units)}</div><div class="k">Units counted</div></div><div class="stat"><div class="v">${R.ready.length}</div><div class="k">Ready to bill</div></div></div></div>
+     <div class="stats"><div class="stat"><div class="v">${all.length}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${P.entriesCrates(allE)}</div><div class="k">Crates not billed</div></div><div class="stat"><div class="v">${P.entriesUnits(allE)}</div><div class="k">Units not billed</div></div><div class="stat"><div class="v">${P.entriesUnits(readyE)}</div><div class="k">Units ready to bill</div></div></div></div>
     ${R.pending.length?`<div class="alert" role="alert"><b>${plural(R.pending.length,'order')} to confirm.</b> Typed on the tablet or matched by alias. Nothing is billed until you confirm.</div>`:''}
     <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${groups.map(grp).join('')}</div>
-    <div class="roll-cols"><div><h4>Units by product</h4>${both(sumProducts,sumProducts)}</div><div><h4>Units by charge code</h4>${both(sumCodes,sumCodes)}</div></div>
-    <div class="roll-foot"><span class="hint">Process raises one season WTN and one invoice pack for every confirmed, fully counted order. Anything still being counted or waiting for Confirm stays on the next roll-up.</span>
-      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(R.ready.length,'order')}${first?' since '+esc(first):''}</button></span></div></section>`;
+    <div class="roll-cols"><div><h4>Units by product</h4>${both(sumProductsE)}</div><div><h4>Units by charge code</h4>${both(sumCodesE)}</div></div>
+    <div class="roll-foot"><span class="hint">Process raises one season WTN and one invoice pack for every crate counted on a confirmed order. Crates counted later go on the next one.</span>
+      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(P.entriesCrates(readyE),'crate')} on ${plural(R.ready.length,'order')}</button></span></div></section>`;
 }
-async function rollConfirmAll(code){
-  const R=openRoll(code);if(!R.pending.length)return;
-  if(!confirm(`Confirm all ${R.pending.length} orders as ${code}? Check the names and photos first — each one is then billed on this account.`))return;
-  const j=await api('/api/roll-confirm',{orderIds:R.pending.map(o=>o.id),confirm:true,by:adminName()});
+/* Confirm by name: every typed name with its number of orders; Rec Admin ticks the ones to accept. */
+function confirmAllDialog(code){
+  const R=openRoll(code),g={};R.pending.forEach(o=>{const k=String(o.typedCust||o.cust||'').trim();(g[k]=g[k]||[]).push(o);});
+  const names=Object.keys(g).sort((a,b)=>g[b].length-g[a].length);
+  openDialog(`<h3 id="dTitle">Confirm orders as ${esc(code)}</h3><p class="lead">Each name below was typed on the tablet or matched by alias. Tick only the names that are this customer.</p>
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">${names.map((n,i)=>`<label class="tickbox" style="font-size:14px"><input type="checkbox" class="cfName" data-i="${i}"> “${esc(n)}” ×${g[n].length} <span class="meta">· ${plural(P.entriesUnits(unbilledOf(g[n])),'unit')}</span></label>`).join('')}</div>
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="confirmPicked(${jsq(code)})">Confirm ticked names</button></div>`);
+  confirmAllDialog.groups=names.map(n=>g[n].map(o=>o.id));
+}
+async function confirmPicked(code){
+  const ids=[...document.querySelectorAll('.cfName:checked')].flatMap(x=>confirmAllDialog.groups[+x.dataset.i]);
+  if(!ids.length){toast('Tick at least one name');return;}
+  const j=await api('/api/roll-confirm',{orderIds:ids,confirm:true,by:adminName()});
   if(j.error){toast(j.error);return;}
-  toast(`${j.count} orders confirmed onto ${code}`);refresh();
+  closeDialog();toast(`${plural(j.count,'order')} confirmed onto ${code}`);refresh();
+}
+async function rollRemove(id){
+  if(!confirm('Remove this empty drop-off from the roll-up? It is kept on record as removed, never deleted.'))return;
+  const j=await api('/api/roll-remove',{orderId:id,by:adminName()});if(j.error){toast(j.error);return;}
+  toast(`${j.so} removed from the roll-up`);refresh();
+}
+async function rollFinish(id){
+  if(!confirm('Finish this order? Everything counted is already billed; no more crates are expected on it.'))return;
+  const j=await api('/api/roll-finish',{orderId:id,by:adminName()});if(j.error){toast(j.error);return;}
+  toast(`${j.so} finished on ${j.pack||'its season WTN'}`);refresh();
 }
 function packCard(r){
   const vs=rollVisits(r);
   return `<section class="roll s-wtn"><div class="roll-head"><div><span class="badge">Pack ready — not sent yet</span><h3>${esc(r.name)} — season WTN <span class="mono">${esc(r.wtn)}</span></h3>
-    <div class="meta">${plural(vs.length,'visit')}, ${esc(ukDate(r.from))} to ${esc(ukDate(r.to))} · ${plural(r.crates,'crate')} · generated ${esc(r.createdAt)} by ${esc(r.createdBy)}</div></div></div>
+    <div class="meta">${plural(vs.length,'order')}, ${esc(ukDate(r.from))} to ${esc(ukDate(r.to))} · ${plural(P.entriesCrates(packEntries(r)),'crate')} · ${P.entriesUnits(packEntries(r))} units · generated ${esc(r.createdAt)} by ${esc(r.createdBy)}</div></div></div>
     <div class="roll-foot"><span class="hint">Download the pack, send it to the customer yourself, then mark it as sent. It then waits in WTN sent for the NetSuite number.</span>
     <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="lbtn" onclick="rollUndo(${r.id})">Void this pack</button><a class="btn quiet" href="/wtn/rollup/${r.id}?print=1" target="_blank">Download pack (PDF)</a><button class="btn" onclick="rollMark(${r.id},'sent',true)">Mark as sent</button></span></div></section>`;
 }
@@ -515,9 +543,9 @@ function rollCard(r){
   const vs=rollVisits(r),key='r'+r.id,on=wtnPicks.has(key);
   return `<article class="card s-monthly ${on?'sel-on':''}" data-key="${key}"><div class="card-top"><div><div class="ref"><label class="pick"><input type="checkbox" ${on?'checked':''} onchange="togglePick('wtn','${key}',this.checked)" aria-label="Select ${esc(r.wtn)}"></label><span>Season WTN · ${esc(r.wtn)}</span></div>
     <div class="cust">${esc(r.name)}</div><div class="meta">${esc(r.code)} · ${plural(vs.length,'visit')}, ${esc(ukDate(r.from))} to ${esc(ukDate(r.to))}</div></div>${agePill(daysSinceUK(r.sentAt))}</div>
-    <div class="facts"><span><b>${r.crates}</b> crates</span><span><b>${vs.reduce((a,o)=>a+units(o),0)}</b> units</span></div>
+    <div class="facts"><span><b>${P.entriesCrates(packEntries(r))}</b> crates</span><span><b>${P.entriesUnits(packEntries(r))}</b> units</span></div>
     <div class="tags"><span class="badge s-monthly">Monthly roll-up</span></div>
-    <div class="lines">${Object.entries(sumProducts(vs)).sort().map(([p,q])=>`<div><span>${esc(p)}</span><b>${q}</b></div>`).join('')}</div>
+    <div class="lines">${Object.entries(sumProductsE(packEntries(r))).sort().map(([p,q])=>`<div><span>${esc(p)}</span><b>${q}</b></div>`).join('')}</div>
     <div class="card-foot"><div class="rowx"><span class="badge s-wtn"><span class="mono">${esc(r.wtn)}</span> · sent ${esc(r.sentAt)}</span></div>
       <div class="rowx"><a class="btn quiet sm" href="/wtn/rollup/${r.id}?print=1" target="_blank">Download pack (PDF)</a><a class="btn quiet sm" href="/wtn/rollup/${r.id}" target="_blank">Reprint</a><button class="lbtn" onclick="rollMark(${r.id},'sent',false)">Not sent — back to Monthly</button></div>
       <div class="field"><label for="nsr${r.id}">NetSuite SO or invoice number</label><input class="in" id="nsr${r.id}" placeholder="e.g. SO-48300"></div>
@@ -525,14 +553,14 @@ function rollCard(r){
 }
 function processDialog(code){
   const c=P.findCustomer(STATE.customers,code),R=openRoll(code);if(!c||!R.ready.length)return;
-  const codes=sumCodes(R.ready),tot=Object.values(codes).reduce((a,b)=>a+b,0);
-  const left=R.members.length-R.ready.length+R.pending.length;
-  openDialog(`<h3 id="dTitle">Generate WTN &amp; invoice pack</h3><p class="lead">One season WTN covers every confirmed visit. The app builds the pack; you send it.</p>
-    <dl class="dl"><dt>Customer</dt><dd>${esc(c.name)} <span class="mono">(${esc(c.code)})</span></dd><dt>WTN number</dt><dd>Next in sequence<small>One season WTN for all ${plural(R.ready.length,'visit')}; each visit keeps its own WTN on record</small></dd>
-    <dt>Covers</dt><dd>${plural(R.ready.length,'visit')}, ${esc(ukDate(R.ready[0].date))} to ${esc(ukDate(R.ready[R.ready.length-1].date))}</dd></dl>
+  const es=unbilledOf(R.ready),codes=sumCodesE(es),tot=Object.values(codes).reduce((a,b)=>a+b,0);
+  const left=R.pending.length+R.empty.length;
+  openDialog(`<h3 id="dTitle">Generate WTN &amp; invoice pack</h3><p class="lead">One season WTN covers every crate counted so far on a confirmed order. The app builds the pack; you send it.</p>
+    <dl class="dl"><dt>Customer</dt><dd>${esc(c.name)} <span class="mono">(${esc(c.code)})</span></dd><dt>WTN number</dt><dd>Next in sequence</dd>
+    <dt>Covers</dt><dd>${plural(P.entriesCrates(es),'crate')} on ${plural(R.ready.length,'order')}<small>${esc(R.ready.map(o=>o.so).join(', '))}</small></dd></dl>
     <table><thead><tr><th>Charge code</th><th class="num">Units</th></tr></thead><tbody>${Object.keys(codes).sort().map(k=>`<tr><td class="mono">${esc(k)}</td><td class="num">${codes[k]}</td></tr>`).join('')}<tr><td><b>Total</b></td><td class="num"><b>${tot}</b></td></tr></tbody></table>
-    <p class="d-note">Prices are applied in NetSuite, so none are shown here.</p>
-    ${left?`<div class="warn-box">${plural(left,'visit')} still counting or awaiting confirmation ${left===1?'is':'are'} left out and stay${left===1?'s':''} on the open roll-up.</div>`:''}
+    <p class="d-note">Prices are applied in NetSuite, so none are shown here. Crates counted on these orders after today go on the next pack.</p>
+    ${left?`<div class="warn-box">${plural(left,'order')} waiting for Confirm or with nothing counted ${left===1?'stays':'stay'} on the open roll-up.</div>`:''}
     <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="rollupProcess(${jsq(code)})">Generate WTN &amp; invoice pack</button></div>`);
 }
 async function rollupProcess(code){

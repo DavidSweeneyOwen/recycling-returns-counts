@@ -79,4 +79,6 @@ When ready: create an Integration record in NetSuite (Setup → Integration), ge
 
 ## Monthly roll-ups and the Defra export
 
-A season WTN (one per processed monthly roll-up) takes the next WTN number, but the Defra receipt of waste export lists each visit under its own WTN, so season numbers show as gaps in the export's WTN sequence. That is expected: listing the season WTN as well would count the same waste twice.
+Monthly accounts are billed by the crate: Process puts every crate counted on a confirmed order onto one season WTN, and records the pack on each crate entry (`counts[i].packId`). A crate counted later on the same drop-off goes on the next pack.
+
+The Defra receipt of waste export lists every crate entry exactly once: an entry billed on a season pack under the season WTN, any other entry under its own collection's WTN. A collection whose crates are all on season WTNs does not appear under its own WTN number, so those numbers are gaps in the export.
