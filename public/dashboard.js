@@ -262,13 +262,13 @@ function buckets(){
 const STAGE_NAV=[['awaiting','Awaiting count'],['noso','No SO yet'],['counted','Counted'],['wtn','WTN sent'],['processed','Processed on NetSuite']];
 function stageCount(k){if(k==='wtn')return B.wtn.length+B.rollWtn.length;if(k==='processed')return B.processed.length+B.rollDone.length;return B[k].length;}
 function renderNav(){
-  const st=STAGE_NAV.map(([k,l])=>`<button class="nav-item s-${k}" role="tab" aria-selected="${VIEW===k}" onclick="go('${k}')"><span class="dot"></span><span class="grow">${l}</span><span class="cnt">${stageCount(k)}</span></button>`).join('');
+  const st=STAGE_NAV.map(([k,l])=>`<button class="nav-item s-${k}" role="tab" aria-selected="${VIEW===k}" onclick="go('${k}')"><span class="dot"></span><span class="grow">${l}</span><span class="cnt">${N(stageCount(k))}</span></button>`).join('');
   const cs=STATE.customers||[],monthlyN=cs.filter(c=>c.billing==='monthly').length;
   const other=[
     ['monthly','Monthly accounts','roll','s-monthly',B.pending.length?`<span class="flag" title="Visits waiting for Confirm">${B.pending.length} to confirm</span>`:`<span class="cnt">${monthlyN}</span>`],
     ['amend','Amendments','edit','s-neutral',`<span class="cnt">${STATE.orders.filter(o=>o.amended).length}</span>`],
     ['reports','Reports','chart','s-neutral',''],
-    ['archive','Archive','box','s-neutral',`<span class="cnt">${B.archive.length}</span>`],
+    ['archive','Archive','box','s-neutral',`<span class="cnt">${N(B.archive.length)}</span>`],
     ['customers','Customers','users','s-neutral',STATE.adminEnabled?`<span class="cnt">${cs.length}</span>`:`<span class="cnt" style="display:flex" title="Read-only until ADMIN_KEY is set">${ICON.lock}</span>`]
   ].map(([k,l,ic,cl,right])=>`<button class="nav-item ${cl}" role="tab" aria-selected="${VIEW===k}" onclick="go('${k}')">${ICON[ic]}<span class="grow">${l}</span>${right}</button>`).join('');
   document.getElementById('nav').innerHTML=`<div class="navgroup"><div class="navlabel">Pipeline</div>${st}</div><div class="divider"></div><div class="navgroup">${other}</div>`;
@@ -300,17 +300,30 @@ function render(entering){
   else if(isAm){renderAdminList();amendToday();}
   else{pipe.innerHTML=(VIEWS[VIEW]||VIEWS.awaiting)();paintPicks();}
 }
-function head(cls,title,today,sub,right){
-  return `<div class="view-head ${cls}"><div><h2>${title}</h2><div class="today"><span class="pip"></span><span>${today}</span></div>${sub?`<p class="sub">${sub}</p>`:''}</div>${right||''}</div>`;
+/* The guide (/guide.html) is only linked once the server really serves it: probed once at start. */
+let GUIDE_OK=false;
+function qm(key,label){return GUIDE_OK?`<a class="qmark" href="/guide.html#${key}" target="_blank" rel="noopener" aria-label="Guide: ${esc(label)}" title="Open the guide for ${esc(label)}">?</a>`:'';}
+function probeGuide(){
+  fetch('/guide.html',{cache:'no-store'}).then(r=>{
+    if(r.ok&&/html/.test(r.headers.get('content-type')||'')){
+      GUIDE_OK=true;document.getElementById('guideLink').hidden=false;
+      document.querySelectorAll('.guide-q').forEach(e=>{e.hidden=false;});if(STATE)render();}
+  }).catch(()=>{});
+}
+/* Title row: the noun, the Today line, one sentence on what to do here (with its "?"), and the lead figure on the right. */
+function head(cls,title,today,what,right,lead,gk){
+  const lf=lead?`<div class="leadfig"><div class="big${lead[0]===0?' zero':''}">${Number(lead[0]).toLocaleString('en-GB')}</div><div class="lbl">${lead[1]}</div></div>`:'';
+  return `<div class="view-head ${cls}"><div class="vh-l"><h1>${title}</h1><div class="today"><span class="pip"></span><span>${today}</span></div>${what?`<p class="what"><span>${what}</span>${gk?qm(gk,title):''}</p>`:''}</div>${(lf||right)?`<div class="vh-r">${lf}${right||''}</div>`:''}</div>`;
 }
 function searchBox(k,ph){return `<input class="search" type="search" id="q_${k}" placeholder="${ph}" aria-label="${ph}" value="${esc(Q[k]||'')}" oninput="onSearch('${k}',this)">`;}
+const N=n=>Number(n).toLocaleString('en-GB');
 function onSearch(k,el){Q[k]=el.value;const p=el.selectionStart;render();const n=document.getElementById('q_'+k);if(n){n.focus();try{n.setSelectionRange(p,p);}catch(e){}}}
 function empty(t,s){return `<div class="empty"><b>${t}</b>${s}</div>`;}
 
 /* ============ cards ============ */
-function photoLinks(o){
+function photoLinks(o,compact){
   const ids=[...new Set([o.photoId,...(o.counts||[]).map(c=>c.photoId)].filter(Boolean))];
-  return ids.map((id,i)=>`<a class="btn quiet sm" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('');
+  return ids.map((id,i)=>`<a class="${compact?'lbtn':'btn quiet sm'}" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('');
 }
 function tagsFor(o,stage){
   const t=[];
@@ -359,19 +372,28 @@ const VIEWS={
  awaiting(){
   const all=B.awaiting.slice().sort(byDate),l=all.filter(o=>matches(o,Q.awaiting));
   const today=all.reduce((a,o)=>a+countsToday(o).reduce((s,c)=>s+(c.crateTo?c.crateTo-c.crateFrom+1:1),0),0);
-  return head('s-awaiting','Awaiting count',`<b>${plural(all.length,'order')}</b> awaiting · ${all.reduce((a,o)=>a+(o.crates-o.counted),0)} crates still to come · ${all.filter(o=>!o.counted).length} not started · <b>${plural(today,'crate')} counted today</b> · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
-    'Counting happens on /count. An order moves to Counted when its last crate is in.',searchBox('awaiting','Search SO or customer'))
-   +grid(l,o=>{
-     const sibs=openDropSiblings(o);
-     const merge=(sibs.length>1&&sibs[0].id===o.id)?`<button class="btn quiet sm" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>`:'';
-     return card(o,'awaiting',`<span class="badge s-awaiting">${o.counted?'Partly counted':'Not started'}</span>${photoLinks(o)}${merge}${undoBtn(o)}${detailsBtn(o)}`
-       +(o.counted>0?`<button class="btn sm primary" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close short</button>`:''),{age:agePill(P.ageDays(o.date))});
-   },empty('Nothing awaiting count','Every collection has been counted, or none match the search.'));
+  const shown=SHOW_ALL?l:l.slice(0,PAGE);
+  const row=o=>{
+    const sibs=openDropSiblings(o),pct=o.crates?Math.round(o.counted/o.crates*100):0;
+    const merge=(sibs.length>1&&sibs[0].id===o.id)?`<button class="btn quiet sm" onclick="mergeDrops(${o.id})">Merge ${sibs.length} drop-offs into one</button>`:'';
+    const tg=tagsFor(o,'awaiting');
+    return `<tr><td data-label="Order"><span class="mono">${esc(o.so)}</span>${tg?`<div class="tagrow">${tg}</div>`:''}</td>
+      <td data-label="Customer"><b style="font-weight:600">${esc(o.cust)}</b><span class="sub2">${o.dropOff?'Dropped off':'Created'} ${esc(ukDate(o.date))}${o.by?' · '+esc(o.by):''}</span></td>
+      <td data-label="Counted"><div class="pbar s-awaiting"><div class="prog" role="img" aria-label="${pct}% counted"><i style="width:${pct}%"></i></div><span class="mono">${o.counted} of ${o.crates}</span></div></td>
+      <td class="num" data-label="Units">${o.totals.length?N(units(o)):'<span style="color:var(--ink-3)">—</span>'}</td>
+      <td data-label="Age" style="white-space:nowrap;color:var(--ink-2)">${plural(P.ageDays(o.date),'day')}</td>
+      <td data-label=""><div class="rowact">${photoLinks(o,true)}${merge}${undoBtn(o)}${detailsBtn(o)}${o.counted>0?`<button class="btn quiet sm" onclick="closeShort(${o.id},${o.crates},${o.counted})">Close short</button>`:''}</div></td></tr>`;
+  };
+  return head('s-awaiting','Awaiting count',`${N(all.reduce((a,o)=>a+(o.crates-o.counted),0))} crates still to come · ${N(all.filter(o=>!o.counted).length)} orders not started · <b>${plural(today,'crate')} counted today</b> · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
+    'Nothing to do until the rec team count the crates on /count. Close short only when the customer says fewer are coming.',searchBox('awaiting','Search SO or customer'),[all.length,'orders awaiting count'],'stage-awaiting')
+   +(l.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>Order</th><th>Customer</th><th>Crates counted</th><th class="num">Units</th><th>Age</th><th></th></tr></thead><tbody>${shown.map(row).join('')}</tbody></table></div>`
+     +(l.length>shown.length?`<p class="morebar"><button class="btn quiet" onclick="SHOW_ALL=true;render()">Show all ${N(l.length)}</button> <span class="meta">Showing the oldest ${shown.length} — search to find a specific one</span></p>`:'')
+     :empty('Nothing awaiting count','Every collection has been counted, or none match the search.'));
  },
  noso(){
   const all=B.noso.slice().sort(byDate),l=all.filter(o=>matches(o,Q.noso));
-  return head('s-noso','No SO yet',`<b>${plural(all.length,'drop-off')}</b> need a sales order · ${all.filter(o=>o.needsReview).length} flagged for review · <b>${all.filter(o=>lastCountDate(o)===todayUK()).length} counted today</b> · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
-    'Counted drop-offs with no NetSuite SO, including names typed freely on /count and photos whose number did not match. Attach the real SO to move one on. If several rows are one delivery, tick them and combine.',searchBox('noso','Search ref or customer'))
+  return head('s-noso','No SO yet',`${all.filter(o=>o.needsReview).length} flagged for review · <b>${all.filter(o=>lastCountDate(o)===todayUK()).length} counted today</b> · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
+    'Type the real SO against each drop-off and press Link SO. If several rows are one delivery, tick them and Combine.',searchBox('noso','Search ref or customer'),[all.length,all.length===1?'drop-off needs an SO':'drop-offs need an SO'],'stage-noso')
    +`<div class="bulk s-noso" id="nosoBar" hidden><span class="msg" id="nosoMsg"></span><button class="btn" onclick="consolidatePicked()">Combine into one</button><button class="btn quiet" onclick="clearPicks('noso')">Clear</button></div>`
    +grid(l,o=>{
      const sibs=monthlySiblings(o),tgt=sibs.find(x=>!P.isPlaceholder(x.so));
@@ -383,8 +405,8 @@ const VIEWS={
  },
  counted(){
   const all=B.counted.slice().sort(byDate),l=all.filter(o=>matches(o,Q.counted));
-  return head('s-counted','Counted',`<b>${plural(all.length,'order')}</b> ready for the WTN · <b>${all.filter(o=>lastCountDate(o)===todayUK()).length} completed today</b> · ${plural(all.filter(o=>o.co2>0&&!o.creditAt).length,'CO2 credit')} due · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
-    'Fully counted. Check the WTN, send it to the customer, then mark it sent.',searchBox('counted','Search SO, customer or WTN'))
+  return head('s-counted','Counted',`<b>${all.filter(o=>lastCountDate(o)===todayUK()).length} completed today</b> · ${plural(all.filter(o=>o.co2>0&&!o.creditAt).length,'CO2 credit')} due · oldest ${plural(oldest(all,o=>P.ageDays(o.date)),'day')}`,
+    'Fully counted. Check the WTN, send it to the customer yourself, then Mark WTN sent.',searchBox('counted','Search SO, customer or WTN'),[all.length,'orders ready for the WTN'],'stage-counted')
    +grid(l,o=>card(o,'counted',
       (P.isPlaceholder(o.so)?`<div class="field"><label for="cntSo${o.id}">No SO — attach one</label><input class="in" id="cntSo${o.id}" placeholder="SO / TFO no." onkeydown="if(event.key==='Enter')attachSo(${o.id},'cntSo${o.id}')"></div>`:'')
       +`<a class="btn quiet sm" href="/wtn/${o.id}" target="_blank">View WTN</a>${creditBox(o)}${photoLinks(o)}${undoBtn(o)}${detailsBtn(o)}<button class="btn primary" onclick="mark(${o.id},'wtnSent',true)">Mark WTN sent</button>`,
@@ -394,8 +416,8 @@ const VIEWS={
   const all=B.wtn.slice().sort((a,b)=>daysSinceUK(b.wtnSentAt)-daysSinceUK(a.wtnSentAt)),l=all.filter(o=>matches(o,Q.wtn));
   const rolls=B.rollWtn.filter(r=>!Q.wtn||(r.name+' '+r.code+' '+r.wtn).toLowerCase().includes(Q.wtn.toLowerCase()));
   const total=all.length+B.rollWtn.length,sentToday=all.filter(o=>o.wtnSentAt===todayUK()).length+B.rollWtn.filter(r=>r.sentAt===todayUK()).length;
-  return head('s-wtn','WTN sent',`<b>${plural(total,'order')}</b> waiting for NetSuite · <b>${sentToday} sent today</b> · oldest sent ${plural(Math.max(oldest(all,o=>daysSinceUK(o.wtnSentAt)),oldest(B.rollWtn,r=>daysSinceUK(r.sentAt))),'day')} ago`,
-    'Once it is done in NetSuite, enter the SO or invoice number and mark it processed.',searchBox('wtn','Search SO, customer or WTN'))
+  return head('s-wtn','WTN sent',`<b>${sentToday} sent today</b> · oldest sent ${plural(Math.max(oldest(all,o=>daysSinceUK(o.wtnSentAt)),oldest(B.rollWtn,r=>daysSinceUK(r.sentAt))),'day')} ago`,
+    'When it is done in NetSuite, type the SO or invoice number and Mark processed on NetSuite.',searchBox('wtn','Search SO, customer or WTN'),[total,'orders waiting for NetSuite'],'stage-wtn')
    +`<div class="bulk s-wtn" id="wtnBar"><label class="tickbox"><input type="checkbox" id="wtnAll" onchange="pickAllWtn(this.checked)"> Select all</label><span class="msg" id="wtnMsg"></span><button class="btn" id="wtnBulk" onclick="downloadSelected()" disabled>Download selected WTNs (0)</button></div>`
    +((l.length||rolls.length)?`<div class="grid">${rolls.map(rollCard).join('')}${l.map(o=>card(o,'wtn',
       `<div class="rowx"><span class="badge s-wtn"><span class="mono">${esc(o.wtn||'')}</span> · sent ${esc(o.wtnSentAt)}</span>${creditBox(o)}</div>`
@@ -417,8 +439,8 @@ const VIEWS={
       <td data-label="CO2 credit">${o.co2>0?(o.creditAt?esc(o.creditAt):`<label class="tickbox"><input type="checkbox" onchange="mark(${o.id},'credit',this.checked)">due — ${o.co2}</label>`):'n/a'}</td>
       <td data-label="WTN"><a class="lbtn" href="/wtn/${o.id}?print=1" target="_blank">${esc(o.wtn||'WTN')} (PDF)</a> <button class="lbtn" onclick="openDetails(${o.id})">Details</button></td></tr>`;
   };
-  return head('s-processed','Processed on NetSuite',`<b>${plural(total,'order')}</b> processed · <b>${today} today</b>`,
-    'Done in NetSuite. The NetSuite SO or invoice number is recorded against each one.',searchBox('processed','Search ref, customer, WTN or NetSuite no.'))
+  return head('s-processed','Processed on NetSuite',`<b>${today} today</b> · latest ${esc((rows[0]&&rows[0].when)||'—')}`,
+    'Nothing to do here. It is the record: reprint a WTN or open Details if someone asks.',searchBox('processed','Search ref, customer, WTN or NetSuite no.'),[total,'orders processed'],'stage-processed')
    +`<div class="notice"><span>Next phase: one click will raise the SO and invoice in NetSuite for you.</span><span style="display:flex;gap:10px;align-items:center"><button class="btn" disabled aria-disabled="true">Process in NetSuite</button><span class="badge s-awaiting">Coming soon</span></span></div>`
    +(rows.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>Order</th><th>Customer</th><th>NetSuite no.</th><th>Processed</th><th>By</th><th>CO2 credit</th><th>WTN</th></tr></thead><tbody>${shown.map(row).join('')}</tbody></table></div>`
      +(rows.length>shown.length?`<p style="margin-top:12px"><button class="btn quiet" onclick="SHOW_ALL=true;render()">Show all ${rows.length}</button> <span class="meta">Showing the latest ${shown.length}</span></p>`:'')
@@ -428,15 +450,15 @@ const VIEWS={
   const cs=STATE.customers||[];
   const accts=cs.filter(c=>c.billing==='monthly'||openRoll(c.code).members.length||openRoll(c.code).pending.length);
   const visitsToday=B.monthly.filter(o=>countsToday(o).length).length;
-  return head('s-monthly','Monthly accounts',`<b>${plural(accts.length,'account')}</b> on monthly rolling${B.pending.length?` · <b style="color:#7a4a00">${plural(B.pending.length,'visit')} to confirm</b>`:''} · ${plural(visitsToday,'visit')} counted today`,
-    'Each visit counted for a monthly account joins one open roll-up instead of making its own card. The roll-up closes when you click Process, not on a calendar date.','')
+  return head('s-monthly','Monthly accounts',`<b>${plural(accts.length,'account')}</b> on monthly rolling${B.pending.length?` · <b style="color:var(--amber)">${plural(B.pending.length,'visit')} to confirm</b>`:''} · ${plural(visitsToday,'visit')} counted today`,
+    'Work down the four steps: confirm the visits, remove empty drop-offs, then Process. A roll-up closes when you Process, not on a calendar date.','',null,'monthly')
    +B.rollPack.map(packCard).join('')
    +(accts.length?accts.map(rollSection).join(''):empty('No monthly accounts','Switch a customer to monthly rolling in Customers (needs the admin key).'));
  },
  archive(){
   const all=B.archive.slice().sort(byDate),l=all.filter(o=>matches(o,Q.archive));
-  return head('s-neutral','Archive',`<b>${plural(all.length,'collection')}</b> still awaiting a count three months after the SO was raised`,
-    'If the delivery is still expected, put it back on Awaiting count and it picks up where it left off.',searchBox('archive','Search SO or customer'))
+  return head('s-neutral','Archive',`Still uncounted three months after the SO was raised`,
+    'If the delivery is still expected, put it back on Awaiting count and it picks up where it left off.',searchBox('archive','Search SO or customer'),[all.length,'collections archived'],'archive')
    +(l.length?`<div class="tablewrap"><table class="stack"><thead><tr><th>SO</th><th>Customer</th><th>Raised</th><th>Age</th><th>Counted so far</th><th></th></tr></thead><tbody>${(SHOW_ALL?l:l.slice(-PAGE).reverse()).map(o=>`<tr>
       <td class="mono" data-label="SO">${esc(o.so)}</td><td data-label="Customer">${esc(o.cust)}</td><td data-label="Raised">${esc(ukDate(o.date))}</td>
       <td data-label="Age"><span class="age old">${plural(Math.floor(P.ageDays(o.date)/30.4),'month')}</span></td>
@@ -454,7 +476,7 @@ const VIEWS={
   const btn=c=>!STATE.adminEnabled?`<span class="lock-line" title="Read-only">${ICON.lock}Read-only</span>`
     :c.billing==='monthly'?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`
     :`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'monthly')">Switch to monthly</button>`;
-  return head('s-neutral','Customers',`${lock}`,'How each customer is billed. Monthly rolling applies to drop-offs picked on /count from the moment it is switched on; counts already made stay as they are. Reverting splits the open roll-up back into its own orders.',searchBox('customers','Search name, code or alias'))
+  return head('s-neutral','Customers',`${lock}`,'How each customer is billed. Switching a customer to monthly pulls their open orders into one roll-up. Reverting splits it back out. It is refused while a pack is unsent, or while an open order still has billed crates (Finish it first).',searchBox('customers','Search name, code or alias'),null,'customers')
    +`<div class="tablewrap"><table class="stack"><thead><tr><th>Customer</th><th>Aliases typed on /count</th><th class="num">Visits picked on /count</th><th>Billing</th></tr></thead><tbody>${l.map(c=>{const h=(c.history||[])[0];return `<tr>
       <td data-label="Customer"><b style="font-weight:600">${esc(c.name)}</b><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(c.code||'no code')}</div>${c.note?`<div class="meta">${esc(c.note)}</div>`:''}${h?`<div class="meta">Changed by ${esc(h.by)}, ${esc(h.when)}</div>`:''}</td>
       <td data-label="Aliases">${(c.aliases||[]).map(a=>`<span class="alias">${esc(a)}</span>`).join('')||'—'}</td>
@@ -465,47 +487,63 @@ const VIEWS={
 };
 
 /* ============ monthly roll-ups ============ */
+const ROLL_SHOW={},ROLL_CAP=10;
+function rollShow(k){ROLL_SHOW[k]=true;render();}
+function jumpTo(id){const e=document.getElementById(id);if(e){e.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}}
 function rollSection(c){
   const R=openRoll(c.code),all=R.members.concat(R.pending);
-  const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs ADMIN_KEY</span>`):'';
+  const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs the admin key</span>`):'';
   const oldestO=all.slice().sort(byDate)[0];
   const top=`<div><span class="badge">Monthly rolling · billed by the crate</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${all.length?` · open since ${esc(ukDate(oldestO.date))} · no SO until you process`:' · nothing open since the last Process'}</div></div>`;
   if(!all.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">Every new ${esc(c.name)} order — NetSuite SO or drop-off — joins this roll-up.</span>${revert}</div></section>`;
   const ub=o=>P.unbilled(o),uc=o=>P.entriesCrates(ub(o)),uu=o=>P.entriesUnits(ub(o));
   const sum=(l,f)=>l.reduce((a,o)=>a+f(o),0);
   const groups=[
-    ['Needs confirm',R.pending,'Typed on the tablet or matched by alias — not billed until you confirm.'],
-    ['Ready to bill',R.ready,'Every crate counted so far is billed, whether or not more are coming.'],
-    ['Billed — no new crates',R.billedOpen,'Everything counted is on a season WTN. More crates go on the next one; Finish when no more are coming.'],
-    ['No crates counted yet',R.empty,'Nothing to bill. Remove an empty drop-off if nothing is coming.']];
+    ['pending','Needs confirm',R.pending,'Typed on the tablet or matched by alias — not billed until you confirm.'],
+    ['ready','Ready to bill',R.ready,'Every crate counted so far is billed, whether or not more are coming.'],
+    ['billed','Billed — no new crates',R.billedOpen,'Everything counted is on a season WTN. More crates go on the next one; Finish when no more are coming.'],
+    ['empty','No crates counted yet',R.empty,'Nothing to bill. Remove an empty drop-off if nothing is coming.']];
   const vrow=o=>{
     const pend=rollStateOf(o)==='pending',ph=[...new Set([o.photoId,...(o.counts||[]).map(x=>x.photoId)].filter(Boolean))];
     const th=ph.length?`<a class="thumb" href="/api/photo/${encodeURIComponent(ph[0])}" target="_blank" title="View photo"><img src="/api/photo/${encodeURIComponent(ph[0])}" alt="Photo for ${esc(o.so)}" loading="lazy"></a>`:'<span class="thumb">No photo</span>';
     const kind=P.isPlaceholder(o.so)?'Drop-off':'NetSuite SO',billedC=P.entriesCrates((o.counts||[]).filter(x=>P.entryPack(o,x)));
     const match=pend?`<b>“${esc(o.typedCust||o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>${kind}${o.dropOff?' typed on the tablet':' matched by alias'}</small>`
       :`<span class="tick">✓</span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
-    const soNote=P.isPlaceholder(o.so)?'':`<small style="color:#7a4a00;font-weight:600;background:#fef0c7;padding:2px 6px;border-radius:6px;display:inline-block;margin-top:4px">Has NetSuite SO ${esc(o.so)} — close it in NetSuite when the pack is invoiced</small>`;
+    const soNote=P.isPlaceholder(o.so)?'':`<span class="soNote">Has NetSuite SO ${esc(o.so)} — close it in NetSuite when the pack is invoiced</span>`;
     const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
     const act=pend?`<button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button>`
-      :!(o.counts||[]).length&&o.dropOff?`<button class="lbtn" onclick="rollRemove(${o.id})">Remove empty drop-off</button>`
-      :(o.counts||[]).length&&!ub(o).length?`<button class="lbtn" onclick="rollFinish(${o.id})">Finish</button>`:'';
-    const last=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${pend?'':esc(counterNames(o)||o.by||'')} ${act} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button></div>`;
-    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}${soNote}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${uu(o)}</div>${last}</div>`;
+      :!(o.counts||[]).length&&o.dropOff?`<button class="btn quiet sm" onclick="rollRemove(${o.id})">Remove empty drop-off</button>`
+      :(o.counts||[]).length&&!ub(o).length?`<button class="btn quiet sm" onclick="rollFinish(${o.id})">Finish</button>`:'';
+    const last=`<div class="vact">${pend?'':esc(counterNames(o)||o.by||'')} ${act} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button></div>`;
+    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}${soNote}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${N(uu(o))}</div>${last}</div>`;
   };
-  const grp=([label,list,note])=>list.length?`<div class="sec-title" style="margin:18px 0 4px">${label} · ${plural(list.length,'order')} · ${plural(sum(list,uc),'crate')} · ${sum(list,uu)} units${label==='Needs confirm'?` <button class="btn amber sm" style="margin-left:8px" onclick="confirmAllDialog(${jsq(c.code)})">Confirm by name…</button>`:''}</div>${note?`<p class="meta" style="margin-bottom:4px">${note}</p>`:''}${list.slice().sort(byDate).map(vrow).join('')}`:'';
+  const grp=([key,label,list,note])=>{
+    if(!list.length)return '';
+    const sk=c.code+key,sorted=list.slice().sort(byDate),shown=ROLL_SHOW[sk]?sorted:sorted.slice(0,ROLL_CAP);
+    return `<div class="vgroup" id="g-${esc(c.code)}-${key}">${label}<span class="gm">${plural(list.length,'order')} · ${plural(sum(list,uc),'crate')} · ${N(sum(list,uu))} units</span></div>${note?`<p class="gnote">${note}</p>`:''}${shown.map(vrow).join('')}`
+      +(sorted.length>shown.length?`<p class="morebar"><button class="btn quiet sm" onclick="rollShow(${jsq(sk)})">Show all ${plural(sorted.length,'order')}</button><span class="meta">Showing the oldest ${shown.length}</span></p>`:'');
+  };
   const allE=unbilledOf(all),readyE=unbilledOf(R.ready);
+  const removable=R.empty.filter(o=>o.dropOff).length,pending=R.pending.length;
+  const names=new Set(R.pending.map(o=>String(o.typedCust||o.cust||'').trim())).size;
+  /* The four things Rec Admin does here, in the order they do them. Each button calls the same function the row/dialog always did. */
+  const steps=`<ol class="steps">
+    <li class="${pending?'alarm':'done'}"><div class="sn">Needs confirm</div><div class="sd">${pending?`<b>${plural(pending,'visit')}</b> typed on the tablet or matched by alias. Nothing is billed until you confirm.`:'No visits are waiting for Confirm.'}</div><div class="sa">${pending?`<button class="btn quiet sm" onclick="jumpTo('g-${esc(c.code)}-pending')">Review the visits</button>`:''}</div></li>
+    <li class="${pending?'todo':'done'}"><div class="sn">Confirm by name</div><div class="sd">${pending?`Tick the <b>${plural(names,'typed name')}</b> that are ${esc(c.name)} and confirm them all at once.`:'Nothing to confirm.'}</div><div class="sa"><button class="btn amber sm" onclick="confirmAllDialog(${jsq(c.code)})" ${pending?'':'disabled'}>Confirm by name…</button></div></li>
+    <li class="${removable?'todo':'done'}"><div class="sn">Remove empty drop-off</div><div class="sd">${removable?`<b>${plural(removable,'drop-off')}</b> with nothing counted. Remove each from its row; it stays on record, never deleted.`:'No empty drop-offs to remove.'}</div><div class="sa">${removable?`<button class="btn quiet sm" onclick="jumpTo('g-${esc(c.code)}-empty')">Show them</button>`:''}</div></li>
+    <li class="${R.ready.length?'todo':''}"><div class="sn">Process</div><div class="sd">${R.ready.length?`<b>${plural(P.entriesCrates(readyE),'crate')}</b> on ${plural(R.ready.length,'confirmed order')} ready. One season WTN and invoice pack.`:'Nothing ready to bill yet. Confirm visits or wait for counts.'}</div><div class="sa"><button class="btn red sm" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name.split(' ')[0])}</button></div></li></ol>`;
   const both=(f)=>{const a=f(allE),b=f(readyE),k=[...new Set([...Object.keys(a),...Object.keys(b)])].sort();
-    const col=(x,w)=>`<b class="mono" style="min-width:${w}px;text-align:right">${x}</b>`;
-    return `<div class="kv" style="color:var(--ink-3);font-size:12px"><span></span><span style="display:flex;gap:28px"><span>Not billed yet</span><span>Ready to bill</span></span></div>`
-      +k.map(x=>`<div class="kv"><span class="mono">${esc(x)}</span><span style="display:flex;gap:28px">${col(a[x]||0,86)}${col(b[x]||0,76)}</span></div>`).join('')
-      +`<div class="kv total"><span>Total</span><span style="display:flex;gap:28px">${col(Object.values(a).reduce((p,q)=>p+q,0),86)}${col(Object.values(b).reduce((p,q)=>p+q,0),76)}</span></div>`;};
+    const col=(x,c2)=>`<b class="mono ${c2}">${x}</b>`;
+    return `<div class="kv hd"><span></span><span class="cols"><span class="c1" style="min-width:86px;text-align:right">Not billed yet</span><span style="min-width:76px;text-align:right">Ready to bill</span></span></div>`
+      +k.map(x=>`<div class="kv"><span class="mono">${esc(x)}</span><span class="cols">${col(a[x]||0,'c1')}${col(b[x]||0,'c2')}</span></div>`).join('')
+      +`<div class="kv total"><span>Total</span><span class="cols">${col(Object.values(a).reduce((p,q)=>p+q,0),'c1')}${col(Object.values(b).reduce((p,q)=>p+q,0),'c2')}</span></div>`;};
   return `<section class="roll s-monthly"><div class="roll-head">${top}
-     <div class="stats"><div class="stat"><div class="v">${all.length}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${P.entriesCrates(allE)}</div><div class="k">Crates not billed</div></div><div class="stat"><div class="v">${P.entriesUnits(allE)}</div><div class="k">Units not billed</div></div><div class="stat"><div class="v">${P.entriesUnits(readyE)}</div><div class="k">Units ready to bill</div></div></div></div>
-    ${R.pending.length?`<div class="alert" role="alert"><b>${plural(R.pending.length,'order')} to confirm.</b> Typed on the tablet or matched by alias. Nothing is billed until you confirm.</div>`:''}
+     <div class="stats"><div class="stat big1"><div class="v">${N(P.entriesUnits(readyE))}</div><div class="k">Units ready to bill</div></div><div class="stat"><div class="v">${N(all.length)}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${N(P.entriesCrates(allE))}</div><div class="k">Crates not billed</div></div><div class="stat"><div class="v">${N(P.entriesUnits(allE))}</div><div class="k">Units not billed</div></div></div></div>
+    ${steps}
     <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${groups.map(grp).join('')}</div>
     <div class="roll-cols"><div><h4>Units by product</h4>${both(sumProductsE)}</div><div><h4>Units by charge code</h4>${both(sumCodesE)}</div></div>
     <div class="roll-foot"><span class="hint">Process raises one season WTN and one invoice pack for every crate counted on a confirmed order. Crates counted later go on the next one.</span>
-      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}<button class="btn" onclick="processDialog(${jsq(c.code)})" ${R.ready.length?'':'disabled'}>Process ${esc(c.name)} — ${plural(P.entriesCrates(readyE),'crate')} on ${plural(R.ready.length,'order')}</button></span></div></section>`;
+      <span style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${revert}</span></div></section>`;
 }
 /* Confirm by name: every typed name with its number of orders; Rec Admin ticks the ones to accept. */
 function confirmAllDialog(code){
@@ -673,7 +711,20 @@ function openDialog(html,cls){lastFocus=document.activeElement;const d=document.
   const s=document.getElementById('scrim');s.classList.add('show');s.setAttribute('aria-hidden','false');
   const f=d.querySelector('input:not([type=checkbox])')||d.querySelector('.btn:not(.quiet)');f&&f.focus();}
 function closeDialog(){const s=document.getElementById('scrim');s.classList.remove('show');s.setAttribute('aria-hidden','true');if(lastFocus&&document.contains(lastFocus))lastFocus.focus();}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('scrim').classList.contains('show'))closeDialog();});
+document.addEventListener('keydown',e=>{
+  const open=document.getElementById('scrim').classList.contains('show');
+  if(e.key==='Escape'&&open)closeDialog();
+  /* Keep Tab inside an open dialog. */
+  if(e.key==='Tab'&&open){
+    const f=[...document.getElementById('dialog').querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
+    if(!f.length)return;const first=f[0],last=f[f.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+    else if(!document.getElementById('dialog').contains(document.activeElement)){e.preventDefault();first.focus();}
+  }
+  /* "/" jumps to the search box on a stage. */
+  if(e.key==='/'&&!open&&!/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'')){const s=document.querySelector('.search');if(s){e.preventDefault();s.focus();}}
+});
 const STAGE_NAME={awaiting:'Awaiting count',noso:'No SO yet',counted:'Counted',wtn:'WTN sent',processed:'Processed on NetSuite',archive:'Archive',monthly:'Monthly roll-up',rolled:'On a season WTN'};
 function openDetails(id){
   const o=STATE.orders.find(x=>x.id===id);if(!o)return;
@@ -699,7 +750,9 @@ function amendToday(){
 /* ============ data ============ */
 async function refresh(){
   try{const r=await fetch('/api/state');if(r.status===401){location.reload();return;}STATE=await r.json();}
-  catch(e){document.getElementById('syncMsg').textContent='Server unreachable';return;}
+  catch(e){document.getElementById('syncMsg').textContent='Server unreachable';
+    if(!STATE)document.getElementById('viewPipe').innerHTML='<div class="errblock"><b>Couldn’t load the dashboard.</b>The server did not answer. Nothing has been changed. <button class="btn quiet sm" style="margin-left:8px" onclick="refresh()">Try again</button></div>';
+    return;}
   PRODMAP={};(STATE.products||[]).forEach(p=>PRODMAP[p.p]={size:p.size,type:p.group,code:p.code,buyback:!!p.buyback});
   ADMIN_PRODS=STATE.products||[];
   MONTHLY=STATE.monthlyCustomers||[];
@@ -916,14 +969,16 @@ function renderReports(){
   drawCharts(byType,trend);
 }
 function drawCharts(byType,trend){
-  const pal=['#d63420','#b29a6b','#3a536b','#1c1f23','#5e6670','#8a4fc4','#1e7d4f','#e8930c'];
+  /* Ink and slate only: the brand red is reserved for things that need doing, never a data series. */
+  const pal=['#1d1d1b','#3a536b','#575756','#6f8aa3','#8a8a88','#a9bccd','#b2b2b0','#d1d1d0'];
+  if(typeof Chart!=='undefined'){Chart.defaults.font.family="'IBM Plex Sans',system-ui,sans-serif";Chart.defaults.color='#575756';}
   if(chartTypeRef)chartTypeRef.destroy();
   chartTypeRef=new Chart(document.getElementById('chartTypeCanvas'),{type:'doughnut',
     data:{labels:byType.map(t=>t.k),datasets:[{data:byType.map(t=>t.v),backgroundColor:pal}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'}}}});
   if(chartTrendRef)chartTrendRef.destroy();
   chartTrendRef=new Chart(document.getElementById('chartTrendCanvas'),{type:'bar',
-    data:{labels:trend.labels,datasets:[{label:'Units',data:trend.data,backgroundColor:'#2d5b8a'}]},
+    data:{labels:trend.labels,datasets:[{label:'Units',data:trend.data,backgroundColor:'#1d1d1b'}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{maxRotation:60,minRotation:0}}}}});
 }
 function rangeLabel(){
@@ -1007,7 +1062,7 @@ function renderAdminList(){
   if(q)os=os.filter(o=>o.so.toLowerCase().includes(q)||(o.cust||'').toLowerCase().includes(q));
   os=os.slice(0,60);
   if(!os.length){list.innerHTML='<div class="empty">No matching orders.</div>';return;}
-  list.innerHTML=os.map(o=>`<div class="resrow" onclick="openEdit(${o.id})">
+  list.innerHTML=os.map(o=>`<div class="resrow" tabindex="0" role="button" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEdit(${o.id})}" onclick="openEdit(${o.id})">
     <span class="so">${esc(o.so)}</span><span class="cust">${esc(o.cust)}</span>
     ${statusTag(o)} ${o.amended?'<span class="tag amd">amended</span>':''}
     <span style="color:var(--ink-faint)">${o.counts&&o.counts.length?o.counts.reduce((a,c)=>a+c.lines.reduce((x,l)=>x+Number(l.q),0),0)+' units':'no count'}</span>
@@ -1155,5 +1210,5 @@ async function rowDownload(){
 }
 /* ============ start ============ */
 try{const v=location.hash.slice(1)||localStorage.getItem('rrView');if(v&&(VIEWS[v]||v==='reports'||v==='amend'))VIEW=v;}catch(e){}
-refresh();
+refresh();probeGuide();
 setInterval(refresh,30000);
