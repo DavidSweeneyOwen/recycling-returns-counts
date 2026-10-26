@@ -710,6 +710,7 @@ let lastFocus=null;
 function openDialog(html,cls){lastFocus=document.activeElement;const d=document.getElementById('dialog');d.className='dialog '+(cls||'');d.innerHTML=html;
   const s=document.getElementById('scrim');s.classList.add('show');s.setAttribute('aria-hidden','false');
   const f=d.querySelector('input:not([type=checkbox])')||d.querySelector('.btn:not(.quiet)');f&&f.focus();}
+function scrimClick(e){if(e.target===e.currentTarget)closeDialog();}
 function closeDialog(){const s=document.getElementById('scrim');s.classList.remove('show');s.setAttribute('aria-hidden','true');if(lastFocus&&document.contains(lastFocus))lastFocus.focus();}
 document.addEventListener('keydown',e=>{
   const open=document.getElementById('scrim').classList.contains('show');
