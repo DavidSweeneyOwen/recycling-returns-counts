@@ -360,6 +360,149 @@ table.rep th.n{font-family:var(--sans)}
   .stack td>div{text-align:right}.stack td .tagrow{justify-content:flex-end}
   .pbar{min-width:0;flex:1}
 }
+/* ===== REPORTS (redesign). Grid: hero 12 cols (5 + 7), charts 8 + 4, row two 7 + 5, gutter 16. ===== */
+.rp-hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:var(--gap);margin-bottom:var(--gap);align-items:stretch}
+.rp-nyb{border:1px solid var(--ink);border-radius:6px;padding:22px 24px 20px;background:var(--surface);display:flex;flex-direction:column;min-width:0}
+.nyb-k{font-size:14px;font-weight:600;color:var(--ink-2)}
+.nyb-v{display:flex;align-items:baseline;gap:10px;margin-top:6px}
+.nyb-v span{font-family:var(--display);font-weight:800;font-size:88px;line-height:.95;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.nyb-v span.zero{color:#a3a3a1}
+.nyb-v small{font-size:15px;color:var(--ink-3)}
+.nyb-d{margin-top:8px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.nyb-s{font-size:13px;color:var(--ink-2);margin-top:10px;max-width:52ch}
+.nyb-bar{display:flex;gap:2px;height:12px;margin-top:18px;border-radius:2px;overflow:hidden}
+.nyb-bar i{display:block;min-width:2px}
+.nyb-l{list-style:none;margin-top:10px;display:flex;flex-direction:column}
+.nyb-b{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;border-bottom:1px solid var(--rule);padding:6px 4px;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;text-align:left;min-height:32px;transition:background-color .12s ease}
+.nyb-b i{width:10px;height:10px;border-radius:2px;flex:none}
+.nyb-b span{flex:1;min-width:0}
+.nyb-b b{font-weight:600}
+@media(hover:hover){.nyb-b:hover{background:var(--raised)}}
+.nyb-a{display:flex;gap:10px;flex-wrap:wrap;margin-top:auto;padding-top:16px}
+.rp-metrics{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr auto;border:1px solid var(--line);border-radius:6px;align-content:start}
+.m-c{display:flex;flex-direction:column;justify-content:center;padding:20px 24px 18px;border-top:1px solid var(--line);border-left:1px solid var(--line);min-width:0}
+.m-c:nth-child(-n+2){border-top:none}.m-c:nth-child(odd){border-left:none}
+.m-k{font-size:13px;color:var(--ink-3)}
+.m-v{font-family:var(--display);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:4px}
+.m-d{margin-top:6px;font-size:12.5px}
+.m-also{grid-column:1/-1;border-top:1px solid var(--line);padding:12px 24px;font-size:13px;color:var(--ink-2)}
+.m-also b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.dt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.dt.good{color:var(--positive)}.dt.bad{color:var(--red-ink)}.dt.flat{color:var(--ink-3);font-weight:500}
+.bsl{color:var(--ink-3);font-size:12px;font-weight:400}
+.rp-bar{position:sticky;top:0;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 16px 10px;margin-bottom:var(--gap)}
+.rp-sel{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px 12px;align-items:end}
+.rp-bar label{display:block;font-size:12px;color:var(--ink-2);font-weight:500;margin-bottom:3px}
+.rp-bar select,.rp-bar input{width:100%;min-height:32px;padding:3px 8px;border:1px solid var(--line-2);border-radius:var(--r);font:inherit;font-size:13px;background:#fff;color:var(--ink)}
+.rp-line{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:10px}
+.rp-q{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.rp-q .cl{font-size:12px;color:var(--ink-3);margin-right:2px}
+.rp-q .chip{height:28px;padding:0 12px;font-size:12.5px}
+.rp-act{display:flex;gap:6px;flex-wrap:wrap}
+.rp-chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:99px;background:var(--ink);color:#fff;border:none;font:inherit;font-size:12.5px;font-weight:500;cursor:pointer;transition:transform .14s var(--ease)}
+.rp-chip:active{transform:scale(.97)}
+.rp-chip span{font-size:15px;line-height:1;opacity:.8}
+.rp-fill{flex:1}
+.rp-meta{font-size:12.5px;color:var(--ink-3);margin-top:8px}
+.rp-meta b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.rp-charts{display:grid;grid-template-columns:minmax(0,8fr) minmax(0,4fr);gap:var(--gap);margin-bottom:var(--gap);align-items:stretch}
+.rp-row2{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.rp-card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px 20px 16px;min-width:0;position:relative}
+.rp-ch{display:flex;align-items:baseline;gap:8px 16px;flex-wrap:wrap;margin-bottom:12px}
+.rp-ch h3{font-size:16px;font-weight:600;margin:0}
+.rp-ch .lg{display:flex;gap:14px;font-size:12.5px;color:var(--ink-2);flex:1;flex-wrap:wrap}
+.rp-ch .lg span{display:inline-flex;align-items:center;gap:6px}
+.rp-ch .lg i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.rp-ch .lg b{font-weight:600;color:var(--ink)}
+.rp-ch .hint{font-size:12px;color:var(--ink-3)}
+.rp-plot{position:relative;min-height:270px}
+.rp-plot svg{display:block;max-width:100%}
+.rp-plot .gl{stroke:#e5e5e5;stroke-width:1}.rp-plot .gl.base{stroke:#a3a3a1}
+.rp-plot .ax{font-size:11.5px;fill:#575756;font-family:var(--sans)}
+.rp-plot .dlabel{font-size:12px;font-weight:600;fill:var(--ink);font-family:var(--sans)}
+.rp-plot .xh{stroke:#1d1d1b;stroke-width:1;stroke-dasharray:3 3}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;border-radius:4px;padding:8px 10px;font-size:12px;display:flex;flex-direction:column;gap:3px;z-index:5;box-shadow:var(--shadow-float);white-space:nowrap}
+.tip b{font-weight:600}.tip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+.rp-empty{padding:48px 12px;text-align:center;color:var(--ink-3);border:1px dashed var(--line-2);border-radius:6px;font-size:13px}
+.rp-tv{margin-top:12px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:4px}
+ul.bl{list-style:none;display:flex;flex-direction:column;color:var(--ink)}
+.bl-r{display:grid;grid-template-columns:minmax(90px,34%) 1fr 64px 58px;gap:10px;align-items:center;width:100%;background:none;border:none;border-bottom:1px solid var(--rule);padding:0 4px;min-height:38px;font:inherit;font-size:13px;color:var(--ink);text-align:left;cursor:pointer;transition:background-color .12s ease}
+div.bl-r{cursor:default}
+@media(hover:hover){button.bl-r:hover{background:var(--raised)}}
+.bl-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bl-t{height:10px;background:none;display:flex;gap:2px;min-width:0}
+.bl-t i{display:block;height:10px;background:var(--ink);border-radius:0 3px 3px 0}
+.bl-t i.s2{background:#6f8aa3}
+.bl:not(.cu) .bl-r{grid-template-columns:minmax(80px,30%) 1fr 56px 40px}
+.bl-v{text-align:right;font-weight:600;font-size:12.5px}.bl-p{text-align:right;color:var(--ink-3);font-size:12px;white-space:nowrap}
+.cu .bl-r{grid-template-columns:minmax(110px,32%) 1fr 56px 64px}
+.rp-defra{background:var(--ink);color:#fff;border-radius:6px;padding:20px 22px 20px;display:flex;flex-direction:column;min-width:0}
+.df-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.df-h h3{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.01em;margin:0}
+.df-badge{font-size:11.5px;font-weight:600;background:#fff;color:var(--ink);border-radius:99px;padding:2px 10px}
+.df-s{font-size:13px;color:#d1d1d0;margin-top:8px}
+.df-dates{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-top:14px}
+.rp-defra label{display:block;font-size:12px;color:#d1d1d0;margin-bottom:3px}
+.rp-defra input{width:100%;min-height:34px;padding:3px 8px;border:1px solid #575756;border-radius:var(--r);background:#fff;color:var(--ink);font:inherit;font-size:13px}
+.rp-defra .btn{background:#fff;color:var(--ink);border-color:#fff}
+@media(hover:hover){.rp-defra .btn:hover{background:#e5e5e5}}
+.rp-defra :focus-visible{outline-color:#fff}
+.df-res{display:flex;gap:18px;align-items:center;margin-top:16px;padding:14px 0;border-top:1px solid #3a3a38;border-bottom:1px solid #3a3a38}
+.df-n span{font-family:var(--display);font-weight:800;font-size:56px;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.df-n small{display:block;font-size:12px;color:#d1d1d0;margin-top:4px}
+.df-m{font-size:13px;color:#d1d1d0;min-width:0}
+.df-m b{display:block;color:#fff;font-size:15px;font-weight:600;margin-bottom:2px}
+.rp-defra .meta-line{margin:0}
+.df-warn{margin-top:12px;font-size:12.5px;color:#f5d28a}
+.df-warn:empty{display:none}
+.df-warn b{display:block;font-weight:600;margin-bottom:6px}
+.df-warn .dm{display:flex;gap:6px;flex-wrap:wrap}
+.df-warn i{font-style:normal;border:1px solid #6b5a2c;border-radius:99px;padding:1px 9px;color:#f5d28a;font-size:12px}
+.df-i{list-style:none;margin-top:12px;font-size:12.5px;color:#d1d1d0;display:flex;flex-direction:column;gap:4px}
+.df-i li{padding-left:14px;position:relative}.df-i li::before{content:"";position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:50%;background:#8a8a88}
+.df-dl{margin-top:auto;align-self:flex-start;min-height:40px;padding:0 20px}
+.df-i+.df-dl{margin-top:16px}
+.rp-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px 0 14px;overflow-x:auto}
+.rp-tab{background:none;border:none;border-bottom:2px solid transparent;padding:8px 12px;font:inherit;font-size:14px;font-weight:500;color:var(--ink-2);cursor:pointer;white-space:nowrap;margin-bottom:-1px}
+.rp-tab[aria-selected=true]{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+@media(hover:hover){.rp-tab:hover{color:var(--ink)}}
+.rp-pane .exp{font-size:13px;color:var(--ink-3);margin:0 0 12px;max-width:90ch}
+.rp-tw{overflow:auto;max-height:min(560px,72vh);border:1px solid var(--line);border-radius:4px}
+.rp-tw table.rep{border-collapse:separate;border-spacing:0;font-size:13px;width:100%}
+.rp-tw th{position:sticky;top:0;background:#fff;z-index:2;border-bottom:1px solid var(--line-2);padding:0}
+.rp-tw th.n,.rp-tw td.n{text-align:right}
+.rp-tw th .sb{width:100%;display:flex;align-items:center;gap:6px;background:none;border:none;font:inherit;font-size:12px;font-weight:500;color:var(--ink-2);padding:9px 12px;cursor:pointer;white-space:nowrap;text-align:left}
+.rp-tw th.n .sb{justify-content:flex-end}
+.rp-tw th[aria-sort=ascending] .sb,.rp-tw th[aria-sort=descending] .sb{color:var(--ink);font-weight:600}
+.si{font-size:9px;width:10px}
+.rp-tw th.n .si{order:-1}
+.rp-row2 .rp-card{display:flex;flex-direction:column}
+.rp-row2 #rpCust{flex:1;display:flex}
+.rp-row2 ul.cu{flex:1;width:100%}
+.rp-row2 ul.cu li{flex:1;display:flex}
+.rp-row2 ul.cu .bl-r{min-height:38px;height:100%}
+.rp-tw td{padding:8px 12px;border-bottom:1px solid var(--rule)}
+.rp-tw td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.rp-tw td.z{color:#a3a3a1}
+.rp-tw tfoot td{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--ink);border-bottom:none;font-weight:600;z-index:2}
+.rp-tw td:first-child,.rp-tw th:first-child .sb{padding-left:14px}
+.rp-tv table.rep th,.rp-tv table.rep td{padding:6px 12px;font-size:12.5px}
+.rp-tv th.n,.rp-tv td.n{text-align:right;font-family:var(--mono)}
+.bl-n{display:flex;align-items:center;gap:6px;min-width:0}
+.bl-n .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.vn{flex:none;font-size:11px;font-weight:500;color:var(--ink-2);background:var(--active);border-radius:99px;padding:0 7px;line-height:18px;cursor:help;white-space:nowrap;margin-left:6px}
+.bl-n .vn{margin-left:0}
+.vn:focus-visible{outline:2px solid var(--ink)}
+@media(max-width:1280px){.rp-hero{grid-template-columns:1fr}.rp-charts,.rp-row2{grid-template-columns:1fr}}
+@media(max-width:1100px){.rp-bar{position:static}}
+@media(max-width:640px){
+  .nyb-v span{font-size:64px}.m-v{font-size:34px}.m-c{padding:14px 14px 12px}.m-also{padding:10px 14px}
+  .rp-card{padding:14px 14px 12px}.rp-nyb{padding:16px 16px 16px}
+  .bl-r{grid-template-columns:minmax(70px,36%) 1fr 48px!important}.bl-p{display:none}
+  .df-dates{grid-template-columns:1fr 1fr}.df-dates .btn{grid-column:1/-1}
+  .df-res{flex-direction:column;align-items:flex-start;gap:8px}
+}
+
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -435,27 +578,18 @@ table.rep th.n{font-family:var(--sans)}
     <div id="storeWarn" class="storewarn" style="display:none"></div>
     <div id="viewPipe"><div class="skel" aria-busy="true" aria-label="Loading"><div class="sk sk-h"></div><div class="sk sk-t"></div><div class="sk sk-r"></div><div class="sk sk-r"></div><div class="sk sk-r"></div><div class="sk sk-r"></div><div class="sk sk-r"></div></div></div>
 
-    <!-- ===================== REPORTS (live logic, restyled) ===================== -->
+    <!-- ===================== REPORTS (redesign) ===================== -->
     <section id="viewReports" style="display:none">
       <div class="view-head"><div class="vh-l"><h1>Reports</h1><div class="today"><span class="pip"></span><span id="repToday"></span></div>
-        <p class="what"><span>Everything counted, with the month-end counted vs billed reconciliation and the Defra receipt of waste download.</span><a class="qmark guide-q" href="/guide.html#reports" target="_blank" rel="noopener" aria-label="Guide: Reports" hidden>?</a></p></div></div>
-      <section class="panel" id="rowPanel">
-        <h3>Defra receipt of waste</h3>
-        <p class="exp">Every WTN on record, written into Defra&rsquo;s own spreadsheet. Pick the dates it was received, or take them all. A long range comes down as several files.</p>
-        <div class="defra-grid">
-          <div>
-            <div class="defra-steps">
-              <div><label for="rowFrom">Received from</label><input type="date" id="rowFrom" onchange="rowInfo()"></div>
-              <div><label for="rowTo">Received to</label><input type="date" id="rowTo" onchange="rowInfo()"></div>
-            </div>
-            <div class="defra-act"><button type="button" class="btn ghost" onclick="rowAll()">All dates</button><button type="button" class="btn" onclick="rowDownload()">Download spreadsheet</button></div>
-          </div>
-          <div class="defra-res" aria-live="polite"><div class="k">What will download</div><div class="meta-line" id="rowMeta">Checking…</div><div class="meta-line" id="rowWarn"></div></div>
-        </div>
-      </section>
-      <section class="panel">
-        <h3>Filter the report</h3>
-        <div class="filters" style="margin-top:12px">
+        <p class="what"><span>What was counted, what has been billed, and what is still waiting. Also the month-end counted vs billed table and the Defra receipt of waste download.</span><a class="qmark guide-q" href="/guide.html#reports" target="_blank" rel="noopener" aria-label="Guide: Reports" hidden>?</a></p></div></div>
+
+      <div class="rp-hero">
+        <section class="rp-nyb" id="rpNyb" aria-label="Not yet billed"></section>
+        <div class="rp-metrics" id="kpis" aria-label="Headline figures"></div>
+      </div>
+
+      <div class="rp-bar" id="rpBar" role="search" aria-label="Report filters">
+        <div class="rp-sel">
           <div><label for="fRange">Date range</label>
             <select id="fRange" onchange="onRangeChange();reportsToday()">
               <option value="mtd">This month (MTD)</option><option value="lastmonth">Last month</option>
@@ -475,34 +609,74 @@ table.rep th.n{font-family:var(--sans)}
             <option value="unbilled">Not yet billed</option><option value="open">Still open (part-counted)</option>
             <option value="amended">Amended</option></select></div>
         </div>
-        <div class="chips">
-          <span class="cl">Quick accounts</span>
-          <button type="button" class="chip" onclick="quickCust('Marlowe')">Marlowe</button>
-          <button type="button" class="chip" onclick="quickCust('Mitie')">Mitie</button>
-          <button type="button" class="chip" onclick="quickCust('Chubb')">Chubb</button>
-          <button type="button" class="chip" onclick="quickCust('')">Clear</button>
-          <span style="flex:1"></span>
+        <div class="rp-line">
+          <div class="rp-q"><span class="cl">Quick accounts</span>
+            <button type="button" class="chip" onclick="quickCust('Marlowe')">Marlowe</button>
+            <button type="button" class="chip" onclick="quickCust('Mitie')">Mitie</button>
+            <button type="button" class="chip" onclick="quickCust('Chubb')">Chubb</button></div>
+          <div class="rp-act" id="rpChips" aria-live="polite"></div>
+          <button type="button" class="btn sm ghost" id="rpReset" onclick="resetFilters()" disabled>Reset filters</button>
+          <span class="rp-fill"></span>
           <button type="button" class="btn small ghost" onclick="exportXlsx()">Export Excel</button>
           <button type="button" class="btn small ghost" onclick="exportPptx()">Export PowerPoint</button>
         </div>
-        <div class="meta-line" id="metaLine" style="margin-bottom:0"></div>
+        <div class="rp-meta" id="metaLine" aria-live="polite"></div>
+      </div>
+
+      <div class="rp-charts">
+        <section class="rp-card" aria-labelledby="hTime">
+          <div class="rp-ch"><h3 id="hTime">Units by period</h3><div class="lg" id="rpTimeLegend"></div><button type="button" class="lbtn" aria-pressed="false" aria-controls="rpTimeTbl" onclick="toggleTv('rpTimeTbl',this)">View as table</button></div>
+          <div class="rp-plot" id="rpTime"></div>
+          <div class="rp-tv" id="rpTimeTbl" hidden></div>
+        </section>
+        <section class="rp-card" aria-labelledby="hType">
+          <div class="rp-ch"><h3 id="hType">Mix by type</h3><span class="hint">Click a type to filter</span></div>
+          <div id="rpType"></div>
+        </section>
+      </div>
+
+      <div class="rp-charts rp-row2">
+        <section class="rp-card" aria-labelledby="hCust">
+          <div class="rp-ch"><h3 id="hCust">Top customers</h3><div class="lg"><span><i style="background:#1d1d1b"></i>Billed</span><span><i style="background:#6f8aa3"></i>Not yet billed</span></div></div>
+          <div id="rpCust"></div>
+        </section>
+
+        <section class="rp-defra" id="rowPanel" aria-labelledby="hDefra">
+          <div class="df-h"><span class="df-badge">Compliance</span><h3 id="hDefra">Defra receipt of waste</h3></div>
+          <p class="df-s">Every WTN on record, written into Defra&rsquo;s own spreadsheet and reported by when the waste was received, never by billing.</p>
+          <div class="df-dates">
+            <div><label for="rowFrom">Received from</label><input type="date" id="rowFrom" onchange="rowInfo()"></div>
+            <div><label for="rowTo">Received to</label><input type="date" id="rowTo" onchange="rowInfo()"></div>
+            <button type="button" class="btn sm" id="dfAll" onclick="rowAll()">All dates</button>
+          </div>
+          <div class="df-res" aria-live="polite">
+            <div class="df-n"><span id="rowCount">&mdash;</span><small>waste transfer notes</small></div>
+            <div class="df-m"><b id="rowFiles"></b><span id="rowMeta">Checking&hellip;</span></div>
+          </div>
+          <div class="df-warn" id="rowWarn"></div>
+          <ul class="df-i"><li>One row per collection. Roll-up orders get one row per count day.</li><li>The received date is the last count on the WTN.</li><li>Defra&rsquo;s sheet holds 330 rows, so a long range downloads as several files.</li></ul>
+          <button type="button" class="btn df-dl" onclick="rowDownload()">Download spreadsheet</button>
+        </section>
+      </div>
+
+      <section class="rp-card rp-tables" aria-label="Tables">
+        <div class="rp-tabs" role="tablist" aria-label="Report tables" onkeydown="tabKey(event)">
+          <button type="button" role="tab" class="rp-tab" data-tab="recon" aria-selected="true" onclick="setTab('recon')">Counted vs billed</button>
+          <button type="button" role="tab" class="rp-tab" data-tab="cust" aria-selected="false" tabindex="-1" onclick="setTab('cust')">By customer</button>
+          <button type="button" role="tab" class="rp-tab" data-tab="billing" aria-selected="false" tabindex="-1" onclick="setTab('billing')">Billing view</button>
+          <button type="button" role="tab" class="rp-tab" data-tab="prod" aria-selected="false" tabindex="-1" onclick="setTab('prod')">By product</button>
+          <button type="button" role="tab" class="rp-tab" data-tab="type" aria-selected="false" tabindex="-1" onclick="setTab('type')">By type</button>
+        </div>
+        <div class="rp-pane" data-pane="recon" role="tabpanel">
+          <p class="exp">Counted is what the rec team logged. Amended is the net correction from Amendments. Billed is what has actually been invoiced &mdash; this is the month-end figure.</p>
+          <div class="rp-tw"><table class="rep" id="tblRecon"></table></div></div>
+        <div class="rp-pane" data-pane="cust" role="tabpanel" hidden><div class="rp-tw"><table class="rep" id="tblCust"></table></div></div>
+        <div class="rp-pane" data-pane="billing" role="tabpanel" hidden>
+          <p class="exp">Billing view &mdash; customer &times; charge code. Mirrors the month-end Smartsheet filter: each customer&rsquo;s totals per NetSuite scrapping-charge code.</p>
+          <div class="rp-tw"><table class="rep" id="tblBilling"></table></div></div>
+        <div class="rp-pane" data-pane="prod" role="tabpanel" hidden><div class="rp-tw"><table class="rep" id="tblProd"></table></div></div>
+        <div class="rp-pane" data-pane="type" role="tabpanel" hidden><div class="rp-tw"><table class="rep" id="tblType"></table></div></div>
       </section>
-      <div class="kpis" id="kpis"></div>
-      <div class="grid2">
-        <section class="panel"><h3>Units by type</h3><div class="chartbox"><canvas id="chartTypeCanvas"></canvas></div></section>
-        <section class="panel"><h3>Trend over time</h3><div class="chartbox"><canvas id="chartTrendCanvas"></canvas></div></section>
-      </div>
-      <section class="panel"><h3>By customer</h3><div class="tablewrap"><table class="rep" id="tblCust"></table></div></section>
-      <div class="grid2">
-        <section class="panel"><h3>By product</h3><div class="tablewrap"><table class="rep" id="tblProd"></table></div></section>
-        <section class="panel"><h3>By type</h3><div class="tablewrap"><table class="rep" id="tblType"></table></div></section>
-      </div>
-      <section class="panel"><h3>Counted vs billed</h3>
-        <p class="exp">Counted is what the rec team logged. Amended is the net correction from Amendments. Billed is what has actually been invoiced &mdash; this is the month-end figure.</p>
-        <div class="tablewrap"><table class="rep" id="tblRecon"></table></div></section>
-      <section class="panel"><h3>Billing view &mdash; customer &times; charge code</h3>
-        <p class="exp">Mirrors the month-end Smartsheet filter: each customer&rsquo;s totals per NetSuite scrapping-charge code.</p>
-        <div class="tablewrap"><table class="rep" id="tblBilling"></table></div></section>
     </section>
 
     <!-- ===================== AMENDMENTS (live logic, restyled) ===================== -->
