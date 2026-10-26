@@ -120,6 +120,11 @@
   function rollMatch(o, customers, now) {
     if (!o || o.rollVoidAt || o.rollupId || o.invoicedAt || o.wtnSentAt) return null;
     if (isAged(o, now) && !hasBilled(o)) return null;   // part-billed: stays until Finish, never drops into Archive
+    /* Per-order billing is whole-order (one Invoiced tick), so it can never bill just the crates
+       left on a part-billed order. Such an order therefore stays on the roll-up of the account that
+       billed it (rollCode) until it is finished — whatever that account's billing is now — so every
+       later crate is billed exactly once, on the next roll-up. */
+    if (o.rollCode && partBilled(o)) { const c = findCustomer(customers, o.rollCode); if (c) return { code: c.code, trust: 'trusted', sticky: true }; }
     const rej = rejectedCode(o), typed = !!o.dropOff || o.source === 'unmatched' || o.source === 'moved';
     const cn = companyNorm(o.cust), n = norm(o.cust);
     for (const c of customers || []) {
@@ -180,6 +185,8 @@
      externally is done: it sits in Processed on NetSuite until a new crate is counted on it. */
   function isExt(id) { return typeof id === 'string' && /^ext:/.test(id); }
   function extDone(o) { return !!o && (o.counts || []).length > 0 && !unbilled(o).length && (o.counts || []).some(c => isExt(c.packId)); }
+  /* Billed crates (season pack or already billed) on an order that is not invoiced and not finished. */
+  function partBilled(o) { return !!o && hasBilled(o) && !o.invoicedAt && !o.rollupId && !(o.status === 'done' && !unbilled(o).length); }
   function lastExtBill(o) { return ((o && o.extBills) || []).filter(x => !x.undoneAt).slice(-1)[0] || null; }
   function unbilled(o) { return (o.counts || []).filter(c => !entryPack(o, c)); }
   function billedOn(o, packId) { return (o.counts || []).filter(c => entryPack(o, c) === packId); }
@@ -235,5 +242,5 @@
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
     classifyDropoff, seedCustomers, addAliases, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
-    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, entriesCrates, entriesUnits, defraOrders, adminCheck };
+    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });

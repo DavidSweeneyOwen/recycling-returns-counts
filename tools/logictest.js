@@ -317,7 +317,7 @@ async function e2e() {
     t('per crate: amend refused once any crate is billed', (await req(port4, 'POST', '/api/amend', { orderId: o.id, reason: 'x', crates: 3 })).status === 409);
     await req(port4, 'POST', '/api/rollup-mark', { id: p1.rollup.id, field: 'sent', value: true });
     const rv1 = await req(port4, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K);
-    t('revert refused while an open order has crates already billed', rv1.status === 400 && /billed on a season WTN/.test(rv1.json.error));
+    t('revert refused while an open order has crates already billed', rv1.status === 400 && /already billed/.test(rv1.json.error) && /Finish them first/.test(rv1.json.error));
     const p2 = (await req(port4, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
     st = (await req(port4, 'GET', '/api/state')).json;
     t('per crate: pack 2 bills only the crate counted after pack 1', p2.ok && p2.rollup.crates === 1 && p2.rollup.units === 4);
@@ -433,6 +433,70 @@ async function e2e() {
     t('undo restores the order to the roll-up exactly', u3.ok && u2.ok && P.rollState(by(3), st.customers) === 'member' && P.unbilled(by(3)).length === 1
       && P.rollState(by(2), st.customers) === 'pending' && !by(2).rollConfirmedAt && by(2).extBills[0].undoneAt && by(3).extBills[0].undoneBy === 'A');
   } finally { s7.child.kill(); fs.rmSync(s7.dir, { recursive: true, force: true }); }
+
+  /* ---- probe9: revert and part-billed orders; a later crate is always billable exactly once ---- */
+  const port8 = port + 7;
+  const s8 = await boot(port8, 'k8');
+  try {
+    const K = { 'X-Admin-Key': 'k8' }, x = (p, b, h) => req(port8, 'POST', p, b, h);
+    const mk = async n => (await x('/api/dropoff', { cust: 'x', custCode: 'CNI0222', by: 'T', crates: n })).json.order.id;
+    const cnt = (id, q) => x('/api/count', { orderId: id, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q }] });
+    const units = (st, id) => P.orderUnits(st.orders.find(o => o.id === id));
+    // instance 1: mark an open drop-off with 1 of 3 crates counted
+    const d = await mk(3); await cnt(d, 5);
+    await x('/api/roll-extbill', { orderId: d, ref: 'INV1' });
+    const rv = await x('/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'A' }, K);
+    t('probe9-1: revert refused while a marked order is open, naming it', rv.status === 400 && rv.json.error.includes('DROP-') && /Finish them first/.test(rv.json.error));
+    await cnt(d, 7); await cnt(d, 9);
+    let st = (await req(port8, 'GET', '/api/state')).json;
+    t('probe9-1: the later crates are back on the roll-up', P.stageOf(st.orders.find(o => o.id === d), undefined, st.customers) === 'monthly');
+    const p1 = (await x('/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    st = (await req(port8, 'GET', '/api/state')).json;
+    const od = st.orders.find(o => o.id === d);
+    t('probe9-1: the later crates are billed exactly once', p1.ok && p1.rollup.units === 16 && od.counts.filter(c => c.packId === 'ext:1').length === 1 && od.counts.filter(c => c.packId === p1.rollup.id).length === 2);
+    // instance 2: one crate marked, a later crate packed, order still open (extDone + pack)
+    const e = await mk(5); await cnt(e, 2);
+    await x('/api/roll-extbill', { orderId: e, ref: 'INV2' }); await cnt(e, 3);
+    const p2 = (await x('/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    st = (await req(port8, 'GET', '/api/state')).json;
+    t('probe9-2: marked + packed open order sits in Processed', p2.ok && P.stageOf(st.orders.find(o => o.id === e), undefined, st.customers) === 'processed');
+    for (const r of [p1, p2]) await x('/api/rollup-mark', { id: r.rollup.id, field: 'sent', value: true });
+    const rv2 = await x('/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'A' }, K);
+    t('probe9-2: revert still refused, it names the part-billed order', rv2.status === 400 && rv2.json.error.includes(st.orders.find(o => o.id === e).so));
+    // the same order can't be marked again with nothing unbilled, and gets its next crate billed once
+    t('probe9-2: nothing left to mark', (await x('/api/roll-extbill', { orderId: e, ref: 'INV3' })).status === 400);
+    await cnt(e, 4);
+    const p3 = (await x('/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    t('probe9-2: a further crate is billed exactly once', p3.ok && p3.rollup.units === 4);
+    // Finish both, then revert is allowed
+    for (const r of [p3]) await x('/api/rollup-mark', { id: r.rollup.id, field: 'sent', value: true });
+    const f1 = (await x('/api/roll-finish', { orderId: d })).json, f2 = (await x('/api/roll-finish', { orderId: e })).json;
+    const rv3 = (await x('/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'A' }, K)).json; 
+    st = (await req(port8, 'GET', '/api/state')).json;
+    t('probe9: after Finish, revert is allowed and the orders stay billed (d closed itself on its last crate)', f2.ok && rv3.ok && st.orders.find(x => x.id === d).rollupId === p1.rollup.id
+      && [d, e].every(id => { const o = st.orders.find(x => x.id === id); return o.status === 'done' && !P.unbilled(o).length; }));
+    // invariant: whatever the billing mode, a part-billed order with a later crate stays billable once
+    const g = await mk(4); await cnt(g, 6);
+    st = (await req(port8, 'GET', '/api/state')).json;
+    t('invariant: per-order again, a new picked drop-off is per order', P.rollState(st.orders.find(o => o.id === g), st.customers) === null);
+  } finally { s8.child.kill(); fs.rmSync(s8.dir, { recursive: true, force: true }); }
+  /* invariant on a store left inconsistent (e.g. by older code): per-order account, open order with
+     an already-billed crate and a later unbilled one. It stays on the roll-up and bills once. */
+  const port9 = port + 8;
+  const zw = (q, packId) => Object.assign({ crateFrom: 1, crateTo: 1, by: 'T', when: '20/10/2026, 10:00', lines: [{ p: 'Water 6L', q }] }, packId ? { packId } : {});
+  const s9 = await boot(port9, 'k9', { seq: 2, wtnSeq: { 2026: 90 }, extSeq: 1, lastSync: null, rollups: [],
+    customers: [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb'], billing: 'per-order', history: [], note: '' }],
+    orders: [{ id: 1, so: 'DROP-2026-0951', cust: 'Chubb Fire and Security Ltd', custCode: 'CNI0222', custMatch: 'picked', rollCode: 'CNI0222', date: iso(3), by: 'T', crates: 4,
+      counts: [zw(5, 'ext:1'), zw(6)], status: 'open', wtn: 'WTN-2026-0091', finalSo: null, source: 'dropoff', dropOff: true, extBills: [{ n: 1, ref: 'INV1', packsAtMark: [] }] }] });
+  try {
+    let st = (await req(port9, 'GET', '/api/state')).json;
+    t('invariant: per-order account, part-billed order stays on its roll-up (not per-order billable)', P.stageOf(st.orders[0], undefined, st.customers) === 'monthly'
+      && (await req(port9, 'POST', '/api/mark', { orderId: 1, field: 'invoiced', value: true })).status === 409);
+    const pr = (await req(port9, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    st = (await req(port9, 'GET', '/api/state')).json;
+    t('invariant: its later crate is billed exactly once, then nothing is left', pr.ok && pr.rollup.units === 6 && !P.unbilled(st.orders[0]).length
+      && (await req(port9, 'POST', '/api/rollup-process', { code: 'CNI0222' })).status === 400);
+  } finally { s9.child.kill(); fs.rmSync(s9.dir, { recursive: true, force: true }); }
   console.log('     done');
 }
 
