@@ -112,13 +112,14 @@
                 and any alias match — excluded from Process until Rec Admin confirms
        none     no match: stays per order
      "Not <code>" (rollRejectCode) takes an order off that account for good. */
-  function companyNorm(s) { return norm(String(s || '').replace(/&/g, ' and ')).replace(/\b(ltd|limited|plc|llp|inc|co)\b/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function companyNorm(s) { return norm(String(s || '').replace(/&/g, ' and ')).replace(/\b(ltd|limited)\b/g, ' ').replace(/\s+/g, ' ').trim(); }
   function rejectedCode(o) {
     if (o.rollRejectCode) return o.rollRejectCode;
     return (o.rollOutAt && /^rejected/.test(o.rollOutWhy || '')) ? o.rollCode : null;   // 385cc58 data
   }
   function rollMatch(o, customers, now) {
-    if (!o || o.rollVoidAt || o.rollupId || o.invoicedAt || o.wtnSentAt || isAged(o, now)) return null;
+    if (!o || o.rollVoidAt || o.rollupId || o.invoicedAt || o.wtnSentAt) return null;
+    if (isAged(o, now) && !hasBilled(o)) return null;   // part-billed: stays until Finish, never drops into Archive
     const rej = rejectedCode(o), typed = !!o.dropOff || o.source === 'unmatched' || o.source === 'moved';
     const cn = companyNorm(o.cust), n = norm(o.cust);
     for (const c of customers || []) {
@@ -178,23 +179,23 @@
   function crateN(c) { return c.crateTo ? (c.crateTo - c.crateFrom + 1) : 1; }
   function entriesCrates(list) { return (list || []).reduce((a, c) => a + crateN(c), 0); }
   function entriesUnits(list) { return (list || []).reduce((a, c) => a + (c.lines || []).reduce((s, l) => s + (Number(l.q) || 0), 0), 0); }
-  /* The orders the Defra receipt of waste export should see: every crate entry exactly once.
-     An entry billed on a season pack is reported under the season WTN; every other entry
-     under its own order's WTN. Entries on an open drop-off that is not on a pack yet have no
-     WTN at all and wait for one, as before. */
+  /* The rows the Defra receipt of waste export should see. Receipt reporting is by when the
+     waste came in, never by billing, so Process can never change a filed return:
+       one row per order per count day, dated by that day's crate entries (the export dates a
+       row by its last entry), under the order's OWN WTN — the season WTN only rides along as
+       seasonWtn for reference. Open orders are included as soon as they have a WTN; drop-offs
+       and monthly-roll-up orders get theirs on their first counted crate. */
+  function countDay(c) { return String((c && c.when) || '').split(',')[0].trim(); }
   function defraOrders(orders, rollups) {
-    const live = new Map((rollups || []).filter(r => !r.voidedAt && r.wtn).map(r => [r.id, r]));
+    const packs = new Map((rollups || []).filter(r => !r.voidedAt && r.wtn).map(r => [r.id, r.wtn]));
     const out = [];
     (orders || []).forEach(o => {
-      if (!o.wtn) return;
-      const own = (o.counts || []).filter(c => !live.has(entryPack(o, c)));
-      if (!own.length && (o.counts || []).length) return;          // all of it is on season WTNs
-      out.push(own.length === (o.counts || []).length ? o : Object.assign({}, o, { counts: own, crates: entriesCrates(own) }));
-    });
-    live.forEach(r => {
-      const counts = [];
-      (orders || []).forEach(o => (o.counts || []).forEach(c => { if (entryPack(o, c) === r.id) counts.push(c); }));
-      if (counts.length) out.push({ id: 'R' + r.id, so: 'Season ' + r.code, cust: r.name, wtn: r.wtn, date: r.from, counts, crates: entriesCrates(counts) });
+      if (!o.wtn || o.rollVoidAt || !(o.counts || []).length) return;
+      const days = new Map();
+      o.counts.forEach(c => { const d = countDay(c) || 'undated'; (days.get(d) || days.set(d, []).get(d)).push(c); });
+      if (days.size === 1) { const only = [...days.values()][0]; out.push(Object.assign({}, o, { seasonWtn: packs.get(entryPack(o, only[0])) || null })); return; }
+      days.forEach((counts, d) => out.push(Object.assign({}, o, { counts, crates: entriesCrates(counts), defraDay: d,
+        seasonWtn: [...new Set(counts.map(c => packs.get(entryPack(o, c))).filter(Boolean))].join(', ') || null })));
     });
     return out;
   }

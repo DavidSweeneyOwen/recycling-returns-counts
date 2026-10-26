@@ -512,6 +512,8 @@ if (SELF_URL) {
 function onStoreReady() {
   if (!Array.isArray(db.customers)) db.customers = Pipeline.seedCustomers(CONFIG);
   Pipeline.addAliases(db.customers);   // additive; saved with the next normal save
+  db.orders.filter(o => !o.wtn && (o.counts || []).length && (Pipeline.rollState(o, db.customers) || Pipeline.hasBilled(o)))
+    .sort((a, b) => a.id - b.id).forEach(o => { o.wtn = nextWTN(); o.wtnFromRollup = nowStamp(); });
   if (!Array.isArray(db.rollups)) db.rollups = [];
   return startSync();
 }
@@ -540,10 +542,14 @@ function addCount(orderId, by, lines, crates, photoId) {
      SO/TFO number against the label later. */
   const clean = photoId ? String(photoId).replace(/[^\w.-]/g, '') : null;
   o.counts.push({ crateFrom: already + 1, crateTo: already + n, by, when: nowStamp(), lines, ...(clean ? { photoId: clean } : {}) });
+  /* An order on a monthly roll-up can stay open for months while its crates are billed, so it
+     takes its own WTN on its first counted crate: the Defra receipt of waste export reports
+     every crate under it, by the day it came in. Per-order collections keep theirs for completion. */
+  if (!o.wtn && Pipeline.rollState(o, db.customers)) o.wtn = nextWTN();
   let completed = false;
   if (countedCrates(o) >= o.crates) {
     o.status = 'done';
-    o.wtn = nextWTN();
+    if (!o.wtn) o.wtn = nextWTN();   // never re-number a WTN already issued
     completed = true;
     createNetSuiteSalesOrder(o);   // Phase 3 — no-op until enabled in config
   }
@@ -679,7 +685,10 @@ function rollupAsOrder(r) {
    can never be billed twice, folded into another account, or deleted under a pack.
    allowOpen: amendments may still correct the counts of a visit on the OPEN roll-up
    (before Process) — never once it is on a pack. */
-function rollLocked(o) { return !!o && (!!o.rollupId || !!Pipeline.rollState(o, db.customers)); }
+function rollLocked(o) {
+  return !!o && (!!o.rollupId || !!Pipeline.rollState(o, db.customers)
+    || (Pipeline.hasBilled(o) && !o.invoicedAt));   // a crate already on a season pack can never move or be billed again
+}
 function rollGuard(res, orders, opts) {
   const o = (orders || []).find(x => x && (opts && opts.allowOpen ? (!!x.rollupId || Pipeline.hasBilled(x)) : rollLocked(x)));
   if (!o) return false;
@@ -699,7 +708,8 @@ function seasonWtnHtml(r) {
   <table><tr><td class="lbl">Charge code</td><td class="lbl">Units</td></tr>
   ${nsLines(o).map(l => `<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}
   <tr><td class="lbl">Total</td><td class="lbl">${nsLines(o).reduce((a, l) => a + l.q, 0)}</td></tr></table>
-  <p class="small" style="margin-top:10px">${esc(r.name)} (${esc(r.code)}) &middot; ${visits.length} visit(s) &middot; prices are applied in NetSuite.</p>
+  <p class="small" style="margin-top:10px">${esc(r.name)} (${esc(r.code)}) &middot; ${visits.length} order(s) &middot; prices are applied in NetSuite.</p>
+  ${visits.filter(v => !Pipeline.isPlaceholder(v.so)).map(v => `<p class="small"><b>Has NetSuite SO ${esc(v.so)} — close it in NetSuite when the pack is invoiced.</b></p>`).join('')}
 </div></body>`;
   return wtnHtml(o).replace(/<\/body>/, extra);
 }
@@ -1003,7 +1013,7 @@ const server = http.createServer((req, res) => {
         o.short = { expected: o.crates, received, reason: String(reason || '').trim(), when: nowStamp().split(',')[0] };
         o.crates = received;                 // WTN + totals now reflect what actually came back
         o.status = 'done';
-        o.wtn = nextWTN();
+        o.wtn = o.wtn || nextWTN();
         createNetSuiteSalesOrder(o);         // Phase 3 — raises the SO against the actual count
         saveDb();
         json(res, 200, { ok: true, wtn: o.wtn, received, expected: o.short.expected });
@@ -1076,7 +1086,7 @@ const server = http.createServer((req, res) => {
         });
         keep.mergedFrom = (keep.mergedFrom || []).concat(merged);
         keep.mergedAt = nowStamp().split(',')[0];
-        if (countedCrates(keep) >= keep.crates) { keep.status = 'done'; keep.wtn = nextWTN(); }
+        if (countedCrates(keep) >= keep.crates) { keep.status = 'done'; keep.wtn = keep.wtn || nextWTN(); }
         saveDb();
         json(res, 200, { ok: true, into: keep.so, merged: merged.length, crates: keep.crates, completed: keep.status === 'done', wtn: keep.wtn });
       } catch (e) { json(res, 400, { error: 'Bad request' }); }
@@ -1102,6 +1112,8 @@ const server = http.createServer((req, res) => {
         const missing = ids.filter((i, n) => !sources[n]);
         if (missing.length) return json(res, 404, { error: `Collection ${missing.join(', ')} not found — refresh and try again` });
         if (rollGuard(res, sources)) return;
+        const billedSrc = sources.find(o => Pipeline.hasBilled(o));
+        if (billedSrc) return json(res, 409, { error: `${billedSrc.so} has crates billed on a season WTN — it cannot be folded into another collection` });
         const invoiced = sources.filter(o => o.invoicedAt);
         if (invoiced.length) return json(res, 400, { error: `${invoiced.map(o => o.so).join(', ')} already invoiced — leave those out` });
 
@@ -1250,6 +1262,7 @@ const server = http.createServer((req, res) => {
         const i = Number(countIndex);
         const c = (src.counts || [])[i];
         if (!c) return json(res, 400, { error: 'That crate is not on this collection — refresh and try again' });
+        if (Pipeline.entryPack(src, c)) return json(res, 409, { error: 'That crate is billed on a season WTN — it cannot be moved' });
         if (src.invoicedAt) return json(res, 400, { error: `${src.so} is already invoiced — crates can't be moved off it` });
         let dst = db.orders.find(x => x.so === norm);
         if (dst && rollGuard(res, [dst])) return;
@@ -1418,6 +1431,7 @@ const server = http.createServer((req, res) => {
     if (!o) return json(res, 404, { error: 'Order not found' });
     if (rollGuard(res, [o])) return;
     if (o.status !== 'done') return json(res, 400, { error: 'Order not counted yet' });
+    if (Pipeline.hasBilled(o)) return json(res, 409, { error: `${o.so} has crates billed on a season WTN — bill it from Monthly accounts` });
     const ref = String(b.nsRef || '').trim().toUpperCase();
     if (!ref) return json(res, 400, { error: 'Enter the NetSuite SO or invoice number' });
     o.nsRef = ref; o.invoicedAt = day(); o.processedAt = nowStamp(); o.processedBy = String(b.by || '').trim() || 'Rec admin';

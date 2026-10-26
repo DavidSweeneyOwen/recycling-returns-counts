@@ -81,4 +81,8 @@ When ready: create an Integration record in NetSuite (Setup → Integration), ge
 
 Monthly accounts are billed by the crate: Process puts every crate counted on a confirmed order onto one season WTN, and records the pack on each crate entry (`counts[i].packId`). A crate counted later on the same drop-off goes on the next pack.
 
-The Defra receipt of waste export lists every crate entry exactly once: an entry billed on a season pack under the season WTN, any other entry under its own collection's WTN. A collection whose crates are all on season WTNs does not appear under its own WTN number, so those numbers are gaps in the export.
+The Defra receipt of waste export reports by receipt, never by billing: one row per collection per count day, dated by that day's crate entries, under the collection's own WTN. Process never moves a receipt between quarters. An order on a monthly roll-up takes its own WTN on its first counted crate so it can be reported while it is still open; the season WTN is a billing document only.
+
+### Before rollback
+
+Before rolling back to the `pre-redesign-2026-10-23` tag, Finish every part-billed roll-up order (Monthly accounts, "Billed — no new crates"). The old code does not know about billed crate entries (`counts[i].packId`) and would offer them for per-order billing again.

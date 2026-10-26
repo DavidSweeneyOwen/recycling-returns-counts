@@ -484,12 +484,13 @@ function rollSection(c){
     const kind=P.isPlaceholder(o.so)?'Drop-off':'NetSuite SO',billedC=P.entriesCrates((o.counts||[]).filter(x=>P.entryPack(o,x)));
     const match=pend?`<b>“${esc(o.typedCust||o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>${kind}${o.dropOff?' typed on the tablet':' matched by alias'}</small>`
       :`<span class="tick">✓</span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
+    const soNote=P.isPlaceholder(o.so)?'':`<small style="color:#7a4a00;font-weight:600;background:#fef0c7;padding:2px 6px;border-radius:6px;display:inline-block;margin-top:4px">Has NetSuite SO ${esc(o.so)} — close it in NetSuite when the pack is invoiced</small>`;
     const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
     const act=pend?`<button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button>`
       :!(o.counts||[]).length&&o.dropOff?`<button class="lbtn" onclick="rollRemove(${o.id})">Remove empty drop-off</button>`
       :(o.counts||[]).length&&!ub(o).length?`<button class="lbtn" onclick="rollFinish(${o.id})">Finish</button>`:'';
     const last=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${pend?'':esc(counterNames(o)||o.by||'')} ${act} ${photos} <button class="lbtn" onclick="openDetails(${o.id})">Details</button></div>`;
-    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${uu(o)}</div>${last}</div>`;
+    return `<div class="visit ${pend?'pending':''}">${th}<div><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(o.so)}${o.dropRef?' · was '+esc(o.dropRef):''}</div><div>${esc(lastCountDate(o)||ukDate(o.date))}</div></div><div class="match">${match}${soNote}</div><div class="num">${plural(uc(o),'crate')}</div><div class="num">${uu(o)}</div>${last}</div>`;
   };
   const grp=([label,list,note])=>list.length?`<div class="sec-title" style="margin:18px 0 4px">${label} · ${plural(list.length,'order')} · ${plural(sum(list,uc),'crate')} · ${sum(list,uu)} units${label==='Needs confirm'?` <button class="btn amber sm" style="margin-left:8px" onclick="confirmAllDialog(${jsq(c.code)})">Confirm by name…</button>`:''}</div>${note?`<p class="meta" style="margin-bottom:4px">${note}</p>`:''}${list.slice().sort(byDate).map(vrow).join('')}`:'';
   const allE=unbilledOf(all),readyE=unbilledOf(R.ready);

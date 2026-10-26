@@ -85,16 +85,21 @@ t('roll-up: crates and units totals', R.members.reduce((a, o) => a + P.orderUnit
 const e = (q, packId) => Object.assign({ crateFrom: 1, crateTo: 1, by: 'T', when: '01/10/2026, 10:00', lines: [{ p: 'Water 6L', q }] }, packId ? { packId } : {});
 const part = O({ id: 30, so: 'DROP-2026-0030', cust: 'x', status: 'open', crates: 10, counts: [e(4, 1), e(5, 1), e(6)] });
 t('per crate: billed entries are not billed again', P.unbilled(part).length === 1 && P.entriesUnits(P.unbilled(part)) === 6 && P.billedOn(part, 1).length === 2 && P.hasBilled(part));
-const done = O({ id: 31, so: 'SO1C', cust: 'y', wtn: 'WTN-1', counts: [e(2, 1), e(3)] });
-const legacy = O({ id: 32, so: 'SO2C', cust: 'y', wtn: 'WTN-2', rollupId: 2, counts: [e(7)] });
-const plain = O({ id: 33, so: 'SO3C', cust: 'z', wtn: 'WTN-3', counts: [e(1)] });
-const DF = P.defraOrders([part, done, legacy, plain], [{ id: 1, wtn: 'WTN-S1', code: 'C', name: 'C' }, { id: 2, wtn: 'WTN-S2', code: 'C', name: 'C' }]);
-const allEntries = [part, done, legacy, plain].reduce((a, o) => a + o.counts.length, 0);
-const inDefra = DF.reduce((a, o) => a + o.counts.length, 0) + P.unbilled(part).length;   // the open drop-off's unbilled crate has no WTN yet
-t('Defra: every crate entry exactly once (season, own WTN, or waiting)', inDefra === allEntries
-  && DF.find(o => o.wtn === 'WTN-S1').counts.length === 3 && DF.find(o => o.wtn === 'WTN-1').counts.length === 1
-  && DF.find(o => o.wtn === 'WTN-S2').counts.length === 1 && !DF.find(o => o.wtn === 'WTN-2') && DF.find(o => o.wtn === 'WTN-3'));
-t('Defra: a voided pack gives its entries back to the own WTN', P.defraOrders([done], [{ id: 1, wtn: 'WTN-S1', voidedAt: 'x' }]).find(o => o.wtn === 'WTN-1').counts.length === 2);
+const ew = (q, when, packId) => Object.assign({ crateFrom: 1, crateTo: 1, by: 'T', when, lines: [{ p: 'Water 6L', q }] }, packId ? { packId } : {});
+const multi = O({ id: 31, so: 'DROP-2026-0031', cust: 'Chubb', wtn: 'WTN-31', status: 'open', crates: 10,
+  counts: [ew(4, '20/09/2026, 10:00', 1), ew(5, '20/09/2026, 15:00'), ew(6, '02/10/2026, 09:00', 2)] });
+const plain = O({ id: 33, so: 'SO3C', cust: 'z', wtn: 'WTN-3', counts: [ew(1, '05/10/2026, 09:00')] });
+const nowtn = O({ id: 34, so: 'SO4C', cust: 'z', status: 'open', counts: [ew(1, '05/10/2026, 09:00')] });
+const RU = [{ id: 1, wtn: 'WTN-S1', code: 'C', name: 'C' }, { id: 2, wtn: 'WTN-S2', code: 'C', name: 'C' }];
+const DF = P.defraOrders([multi, plain, nowtn], RU), last = o => o.counts[o.counts.length - 1].when.split(',')[0];
+t('Defra: one row per order per count day, under the order\'s own WTN', DF.length === 3 && DF.filter(o => o.wtn === 'WTN-31').map(last).sort().join() === '02/10/2026,20/09/2026');
+t('Defra: every counted entry with a WTN appears exactly once', DF.reduce((n, o) => n + o.counts.length, 0) === 4);
+t('Defra: the season WTN only rides along as a reference', DF.find(o => last(o) === '20/09/2026').seasonWtn === 'WTN-S1' && DF.every(o => !/^WTN-S/.test(o.wtn)));
+t('Defra: billing does not change the rows (same rows before and after Process)', JSON.stringify(P.defraOrders([Object.assign({}, multi, { counts: multi.counts.map(c => Object.assign({}, c, { packId: undefined })) })], []).map(o => [o.wtn, last(o), o.counts.length]))
+  === JSON.stringify(P.defraOrders([multi], RU).map(o => [o.wtn, last(o), o.counts.length])));
+t('companyNorm: Ltd and Limited match, Plc / LLP / Inc do not', P.companyNorm('Acme Ltd') === P.companyNorm('ACME LIMITED') && P.companyNorm('Acme Plc') !== P.companyNorm('Acme') && P.companyNorm('Acme LLP') !== P.companyNorm('Acme Inc'));
+const agedBilled = O({ id: 35, so: 'SO850035C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', status: 'open', date: iso(120), crates: 5, counts: [ew(3, '01/07/2026, 10:00', 1)] });
+t('blocker 1: a part-billed order never ages out into Archive', P.stageOf(agedBilled, undefined, CM) === 'monthly');
 t('removed drop-off sits in no stage', P.stageOf(O({ status: 'open', rollVoidAt: 'x' }), undefined, CM) === 'removed');
 t('rollupStage', P.rollupStage({}) === 'pack' && P.rollupStage({ sentAt: 'x' }) === 'wtn' && P.rollupStage({ sentAt: 'x', processedAt: 'y' }) === 'processed' && P.rollupStage({ voidedAt: 'x' }) === 'void');
 // customers + matching
@@ -311,7 +316,7 @@ async function e2e() {
     const s1 = (await req(port4, 'GET', '/wtn/rollup/' + p1.rollup.id)).text, s2 = (await req(port4, 'GET', '/wtn/rollup/' + p2.rollup.id)).text;
     t('per crate: each season WTN shows its own crates', s1.includes(p1.rollup.wtn) && s2.includes(p2.rollup.wtn) && /<td>2<\/td><td>12<\/td>/.test(s1) && /<td>1<\/td><td>4<\/td>/.test(s2));
     const info = (await req(port4, 'GET', '/api/receipt-of-waste-info')).json;
-    t('Defra: two season WTNs, the three crate entries once each', info.count === 2);
+    t('Defra: the drop-off is reported under its own WTN, not the season WTNs', info.count === 1 && /^WTN-/.test(me().wtn) && me().wtn !== p1.rollup.wtn);
     t('Remove empty drop-off: kept, audited, in no stage', (await req(port4, 'POST', '/api/roll-remove', { orderId: empty.id, by: 'T' })).json.ok);
     await req(port4, 'POST', '/api/rollup-mark', { id: p2.rollup.id, field: 'sent', value: true });
     t('Finish: a fully billed part-counted drop-off closes on its last pack', (await req(port4, 'POST', '/api/roll-finish', { orderId: o.id, by: 'T' })).json.ok);
@@ -321,6 +326,51 @@ async function e2e() {
     t('finished drop-off left the roll-up on pack 2, closed at 3 crates', me().rollupId === p2.rollup.id && me().status === 'done' && me().crates === 3 && me().wtnSentAt);
     t('revert allowed once nothing part-billed is open', (await req(port4, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K)).json.ok);
   } finally { s4.child.kill(); fs.rmSync(s4.dir, { recursive: true, force: true }); }
+
+  /* ---- blocker 1: billed crates can never move to another customer or be billed again ---- */
+  const port5 = port + 4;
+  const cw = (q, when, packId) => Object.assign({ crateFrom: 1, crateTo: 1, by: 'T', when, lines: [{ p: 'Water 6L', q }] }, packId ? { packId } : {});
+  const chubb = { code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb'], billing: 'monthly', history: [], note: '' };
+  const s5 = await boot(port5, 'k5', { seq: 9, wtnSeq: { 2026: 50 }, lastSync: null, customers: [chubb],
+    rollups: [{ id: 1, code: 'CNI0222', name: chubb.name, visitIds: [5, 7], wtn: 'WTN-2026-0040', from: iso(120), to: iso(110), crates: 2, createdAt: 'x', createdBy: 'T', sentAt: '01/08/2026', nsRef: null, processedAt: null }],
+    orders: [
+      { id: 5, so: 'SO860005C', cust: 'Chubb Fire and Security Ltd', date: iso(120), by: 'NS', crates: 5, counts: [cw(3, '01/07/2026, 10:00', 1), cw(2, '02/07/2026, 10:00')], status: 'open', wtn: 'WTN-2026-0031', finalSo: null, source: 'netsuite' },
+      { id: 6, so: 'SO860006C', cust: 'Acme Ltd', date: iso(2), by: 'NS', crates: 1, counts: [cw(1, '20/10/2026, 10:00')], status: 'done', wtn: 'WTN-2026-0032', finalSo: null, source: 'netsuite' },
+      { id: 7, so: 'DROP-2026-0907', cust: 'Chubb Fire and Security Ltd', custCode: 'CNI0222', custMatch: 'picked', date: iso(115), by: 'T', crates: 4, counts: [cw(4, '05/07/2026, 10:00', 1)], status: 'open', wtn: 'WTN-2026-0033', finalSo: null, source: 'dropoff', dropOff: true }] });
+  try {
+    let st = (await req(port5, 'GET', '/api/state')).json;
+    t('blocker 1: aged part-billed orders stay on the roll-up, not Archive', [5, 7].every(i => P.stageOf(st.orders.find(o => o.id === i), undefined, st.customers) === 'monthly'));
+    const r409 = async (p, body) => (await req(port5, 'POST', p, body)).status === 409;
+    t('blocker 1: move-crate refuses a billed crate', await r409('/api/move-crate', { orderId: 5, countIndex: 0, so: 'SO860006C' }));
+    t('blocker 1: consolidate refuses a part-billed source', await r409('/api/consolidate', { targetId: 6, sourceIds: [7] }));
+    t('blocker 1: per-order Processed refuses a part-billed order', await r409('/api/process', { orderId: 5, nsRef: 'SO1' }));
+    t('blocker 1: Invoiced tick refuses a part-billed order', await r409('/api/mark', { orderId: 7, field: 'invoiced', value: true }));
+    const pr = (await req(port5, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' })).json;
+    st = (await req(port5, 'GET', '/api/state')).json;
+    const acme = st.orders.find(o => o.id === 6);
+    t('blocker 1: Process bills only the unbilled crate, nothing twice', pr.ok && pr.rollup.crates === 1 && pr.rollup.units === 2 && acme.counts.length === 1
+      && st.orders.reduce((n, o) => n + o.counts.filter(c => c.packId).length, 0) === 3);
+  } finally { s5.child.kill(); fs.rmSync(s5.dir, { recursive: true, force: true }); }
+
+  /* ---- blocker 2: Defra reports by receipt; Process never moves a crate between quarters ---- */
+  const port6 = port + 5;
+  const s6 = await boot(port6, 'k6', { seq: 3, wtnSeq: { 2026: 70 }, lastSync: null, customers: [chubb], rollups: [],
+    orders: [{ id: 1, so: 'DROP-2026-0901', cust: 'Chubb Fire and Security Ltd', custCode: 'CNI0222', custMatch: 'picked', date: '2026-09-20', by: 'T', crates: 10,
+      counts: [cw(6, '20/09/2026, 10:00')], status: 'open', wtn: null, finalSo: null, source: 'dropoff', dropOff: true }] });
+  try {
+    const q = async (f, to) => (await req(port6, 'GET', `/api/receipt-of-waste-info?from=${f}&to=${to}`)).json.count;
+    let st = (await req(port6, 'GET', '/api/state')).json;
+    t('blocker 2: an open roll-up drop-off counted without a WTN gets its own on boot', /^WTN-2026-0071$/.test(st.orders[0].wtn));
+    const q3a = await q('2026-07-01', '2026-09-30');
+    await req(port6, 'POST', '/api/rollup-process', { code: 'CNI0222', by: 'T' });
+    const q3b = await q('2026-07-01', '2026-09-30'), q4b = await q('2026-10-01', '2026-12-31');
+    await req(port6, 'POST', '/api/count', { orderId: 1, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q: 2 }] });   // counted today
+    const q3c = await q('2026-07-01', '2026-09-30'), all = await q('', '');
+    t('blocker 2: the 20/09 crate is in the Q3 export before and after Process', q3a === 1 && q3b === 1 && q3c === 1 && q4b === 0);
+    t('blocker 2: a later crate on the same drop-off is its own row on its own day, nothing twice', all === 2);
+    st = (await req(port6, 'GET', '/api/state')).json;
+    t('blocker 2: the WTN on that drop-off never changes', st.orders[0].wtn === 'WTN-2026-0071');
+  } finally { s6.child.kill(); fs.rmSync(s6.dir, { recursive: true, force: true }); }
   console.log('     done');
 }
 
