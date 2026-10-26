@@ -103,6 +103,7 @@
     <h1>Recycling Count</h1>
     <div class="head-sub">Rec team crate counting</div>
   </div>
+  <a id="howto" href="/guide.html#tablet" target="_blank" rel="noopener" hidden style="margin-left:auto;color:#fff;font-size:13px;border:1px solid #6b7480;padding:6px 12px;text-decoration:none;font-family:var(--mono)">How to</a>
   <div class="who" id="who" style="display:none">
     Counting as<b id="whoName"></b><a onclick="logout()">switch user</a>
   </div>
@@ -213,6 +214,8 @@
 <div class="toast" id="toast"></div>
 
 <script src="/pipeline.js"></script>
+<script>/* "How to" shows only when the guide is really served and not behind the access-key gate */
+fetch("/guide.html",{cache:"no-store"}).then(function(r){return r.ok?r.text():"";}).then(function(t){if(t&&!/access key/i.test(t.slice(0,3000)))document.getElementById("howto").hidden=false;}).catch(function(){});</script>
 <script>
 let STATE=null,active=null,counter=null,photoId=null;
 /* Drop-off customer picker: suggests accounts by code, name or alias. A pick is

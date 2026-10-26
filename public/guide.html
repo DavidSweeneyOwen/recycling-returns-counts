@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recycling Returns — How to use</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#f4f4f4;--surface:#fff;--raised:#fafafa;--active:#e8e8e8;
+  --ink:#1d1d1b;--ink-2:#575756;--ink-3:#6b6b69;
+  --line:#e5e5e5;--line-2:#d1d1d0;--rule:#efefef;
+  --red:#e00713;--amber:#8a4b00;--amber-soft:#fdf1dc;--amber-line:#f0d29a;--positive:#2a7030;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;--display:'Archivo','IBM Plex Sans',system-ui,sans-serif;
+  --r:4px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scrollbar-gutter:stable;-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--ground);color:var(--ink);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:var(--r)}
+a{color:var(--ink)}
+.shell{display:grid;grid-template-columns:272px minmax(0,1fr);min-height:100vh}
+.side{padding:20px 12px 14px 16px;position:sticky;top:0;height:100vh;overflow:auto;display:flex;flex-direction:column}
+.brand{padding:2px 6px 16px}
+.brand svg{display:block;width:132px;height:auto}
+.brand .pname{font-family:var(--display);font-weight:800;font-size:16px;margin-top:14px;line-height:1.1}
+.brand small{display:block;color:var(--ink-3);font-size:12px;margin-top:3px}
+.toc{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.toc a{display:flex;gap:10px;align-items:baseline;padding:6px 10px;border-radius:8px;text-decoration:none;color:var(--ink-2);font-size:14px;font-weight:500;line-height:1.3}
+.toc a .n{font-family:var(--mono);font-size:12px;color:var(--ink-3);width:18px;flex:none;text-align:right}
+@media(hover:hover){.toc a:hover{background:#ebebeb;color:var(--ink)}}
+.toc a.on{background:var(--active);color:var(--ink);font-weight:600}
+.back{margin-top:auto;padding-top:14px}
+.back a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500;color:var(--ink-2)}
+@media(hover:hover){.back a:hover{background:#ebebeb;color:var(--ink)}}
+.menu{display:none}
+.sheet{background:var(--surface);border:1px solid #e8e8e8;border-radius:12px;margin:8px 8px 8px 0;padding:40px 48px 80px;min-width:0}
+.col{max-width:880px}
+h1{font-family:var(--display);font-weight:800;font-size:34px;letter-spacing:-.02em;line-height:1.15}
+.intro{margin-top:10px;font-size:17px;color:var(--ink-2);max-width:62ch}
+.audience{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}
+.audience span{font-size:13px;background:var(--raised);border:1px solid var(--line);border-radius:99px;padding:3px 12px;color:var(--ink-2)}
+section{padding-top:44px;margin-top:44px;border-top:1px solid var(--line);scroll-margin-top:12px}
+section:first-of-type{margin-top:32px}
+h2{font-family:var(--display);font-weight:800;font-size:26px;letter-spacing:-.015em;line-height:1.2;display:flex;gap:12px;align-items:baseline}
+h2 .n{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--ink-3)}
+h3{font-size:17px;font-weight:600;margin:28px 0 6px;scroll-margin-top:12px}
+p{margin-top:10px;max-width:68ch}
+.lede{color:var(--ink-2);font-size:17px}
+ol,ul{margin:10px 0 0 0;padding-left:0;list-style:none;max-width:68ch}
+ol{counter-reset:s}
+ol>li{counter-increment:s;position:relative;padding:6px 0 6px 38px}
+ol>li::before{content:counter(s);position:absolute;left:0;top:7px;width:24px;height:24px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;font-weight:600;font-family:var(--mono);display:grid;place-items:center}
+ul>li{position:relative;padding:3px 0 3px 22px}
+ul>li::before{content:"";position:absolute;left:6px;top:13px;width:6px;height:6px;border-radius:50%;background:var(--line-2)}
+b,strong{font-weight:600}
+.btnlike{display:inline-block;font-size:13px;font-weight:600;border:1px solid var(--line-2);border-radius:var(--r);padding:0 8px;line-height:1.6;background:var(--surface);white-space:nowrap}
+.btnlike.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btnlike.red{background:var(--red);color:#fff;border-color:var(--red)}
+.btnlike.amber{background:#b45309;color:#fff;border-color:#b45309}
+code,.mono{font-family:var(--mono);font-size:.92em;background:var(--raised);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+figure{margin:22px 0 4px;max-width:880px}
+figure img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:6px;background:var(--raised)}
+figure.narrow{max-width:420px}
+figure.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:760px}
+figcaption{font-size:13px;color:var(--ink-3);margin-top:8px}
+.stages{list-style:none;max-width:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--line);border-radius:6px;margin-top:16px;counter-reset:none}
+.stages li{counter-increment:none;padding:14px 14px 16px;border-left:1px solid var(--line);font-size:14px}
+.stages li::before{display:none}
+.stages li:first-child{border-left:none}
+.stages b{display:block;font-size:15px;margin-bottom:4px}
+.stages i{display:block;font-style:normal;color:var(--ink-3);font-size:12px;margin-top:8px}
+.note{background:var(--amber-soft);border:1px solid var(--amber-line);color:var(--amber);border-radius:6px;padding:12px 14px;margin-top:16px;font-size:14px;max-width:68ch}
+.tip{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-top:16px;font-size:14px;max-width:68ch}
+.check{list-style:none;max-width:none;margin-top:14px;border:1px solid var(--line);border-radius:6px}
+.check li{padding:12px 16px 12px 46px;border-bottom:1px solid var(--rule);position:relative}
+.check li:last-child{border-bottom:none}
+.check li::before{content:"";position:absolute;left:16px;top:15px;width:16px;height:16px;border:1.5px solid var(--ink-3);border-radius:4px;background:none}
+.check b{display:block}
+.check span{color:var(--ink-2);font-size:14px}
+dl.faq{margin-top:12px;max-width:68ch}
+dl.faq dt{font-weight:600;margin-top:22px}
+dl.faq dd{margin-top:4px;color:var(--ink)}
+.contact{border:1px solid var(--line);border-radius:6px;padding:16px 18px;max-width:68ch;margin-top:14px}
+@media(max-width:1180px){.stages{grid-template-columns:repeat(2,minmax(0,1fr))}.stages li:nth-child(odd){border-left:none}.stages li:nth-child(n+3){border-top:1px solid var(--line)}}
+@media(max-width:900px){
+  body{background:var(--surface)}
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;padding:12px 16px;background:var(--ground)}
+  .brand{padding:0}.brand svg{width:104px}.brand .pname,.brand small{display:none}
+  .side-top{display:flex;justify-content:space-between;align-items:center}
+  .menu{display:inline-flex;min-height:36px;align-items:center;border:1px solid var(--line-2);background:var(--surface);border-radius:var(--r);padding:0 14px;font:inherit;font-size:14px;font-weight:500;cursor:pointer}
+  .toc,.back{display:none}.side.open .toc,.side.open .back{display:flex}
+  .toc a{min-height:44px;align-items:center}
+  .sheet{margin:0;border:none;border-radius:0;padding:24px 16px 64px}
+  h1{font-size:28px}h2{font-size:23px}
+  figure.pair{grid-template-columns:1fr}
+}
+@media(max-width:640px){.stages{grid-template-columns:minmax(0,1fr)}.stages li{border-left:none;border-top:1px solid var(--line)}.stages li:first-child{border-top:none}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side" aria-label="Guide contents">
+    <div class="side-top">
+      <div class="brand"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" 
+	 role="img" aria-label="CheckFire" viewBox="0 0 585 134"  >
+<style>
+	.cfl0{fill-rule:evenodd;clip-rule:evenodd;fill:#E00713;}
+	.cfl1{fill-rule:evenodd;clip-rule:evenodd;fill:#575756;}
+	.cfl2{fill-rule:evenodd;clip-rule:evenodd;fill:#B2B2B2;}
+	.cfl3{fill:#FFFFFF;}
+</style>
+<g>
+	<path class="cfl0" d="M68.7,59.5c-1.9,7-4.6,14.6-17.6,14.9c-13-0.2-20.5-8.4-20.5-24.8c0-16,7.1-23.8,20.5-24.3
+		c10.6,0.3,15.2,6,17.8,13h20.9c-1-17.2-15.4-30-39.7-30.3c-18,0-41.1,11.7-41.1,42.6c0,24.2,18.2,41.6,40.9,41.6
+		c23.6,0.2,39.1-15.1,40.3-32.8L68.7,59.5L68.7,59.5z M93.2,90.6h20.5l0.2-33.2c-0.3-8.3,6.2-12.7,10.5-12.7c4,0,10.5,1.9,10.5,8.4
+		l0.8,37.5h19.7l0.3-43.5c-2.5-12.9-10-17-21.6-17.3c-11.3,0.2-15.7,4.7-20.2,9.5l0-29H93.5L93.2,90.6L93.2,90.6z M179.5,55.5
+		c-0.2-8.4,6.8-13.2,11.6-13.2c7.4,0,13.6,4.6,13.2,13.5L179.5,55.5L179.5,55.5z M224.5,65.8c1.6,15,15,26.9,33.7,26.9
+		c16.1,0,28.8-12,29.7-25l-19.6,0c0,5.2-6.8,10.3-10.9,10.3c-7.9,0.5-13.1-5.4-13.1-16.9c0-11.2,5.7-16.3,13.9-16.9
+		c3.8,0,9.8,2.7,10.3,9l19.1,0c-1.4-14.7-16.1-23.1-30.2-23.1c-17.1,0-31,10.3-32.9,28.8c-2.2-17.1-13.9-27.8-31.6-28.6
+		c-17.4,0.3-33.7,10.3-33.7,31.3c0,16.1,11.4,31,32.7,31c14.4,0.3,29.7-7.6,31.8-19.6h-19c-1.9,3.5-4.9,6.8-10.9,6.8
+		c-9.2,0-13.9-4.6-14.2-14.2L224.5,65.8L224.5,65.8z M355.2,90.6h1.6H377l0.3-32.1h35.1V43.3h-35.1V25.8h40.8V10.3h-62.9v78.1
+		l-26.1-35.4l23.9-21.8h-23.9l-18.8,21V10.3h-20.4l0.3,80.3h20.4V71.3l5.4-4.9l15,24.2H355.2L355.2,90.6z M420.2,24h19.4V10.3h-19.4
+		V24L420.2,24z M420.2,90.6h19.4V31.9h-19.4V90.6L420.2,90.6z M490.5,43.9l0.3-12.5c-14.4-2.4-19.9,4.1-23.7,10.3V31.6h-19.6
+		l0.5,59.1h19.9V58.8c-0.3-8.2,9.5-13.9,20.7-12c-2.7,4.6-4.1,9.8-4.1,15.2c0,16.1,11.4,29.1,33.5,29.7c18,0.3,27.8-8.7,30.8-19.1
+		H531c-3.8,5.7-7.1,7.1-13.6,7.1c-8.2,0-13.3-7.9-13.3-14.2l46,0.3c1.1-25-14.4-35.9-32.1-35.9C506.5,30,496.5,35.4,490.5,43.9
+		L490.5,43.9z M504.3,55.4c1-8.4,6.5-13,12.8-13c6.5,0,12.7,2.7,13.3,12.9L504.3,55.4L504.3,55.4z"/>
+	<polygon class="cfl1" points="554.9,90.6 577.5,90.6 577.5,68.9 554.9,68.9 554.9,90.6 	"/>
+	<polygon class="cfl2" points="8.9,102.8 577.2,102.8 577.2,126.9 8.9,126.9 8.9,102.8 	"/>
+	<g>
+		<path class="cfl3" d="M486.6,108.5v3.2c-2-0.9-4-1.4-6-1.4c-1.9,0-3.3,0.4-4.3,1.3s-1.5,2-1.5,3.3c0,1.3,0.5,2.3,1.5,3.1
+			s2.3,1.2,4,1.2c0.9,0,1.8-0.2,2.6-0.5v-1.7h-2.3v-2.7h6.3v6c-0.6,0.6-1.6,1.1-2.9,1.4c-1.3,0.4-2.6,0.6-3.8,0.6
+			c-2.8,0-5.1-0.7-6.8-2.1c-1.8-1.4-2.7-3.2-2.7-5.4c0-2.2,0.9-4.1,2.7-5.5c1.8-1.4,4.1-2.1,6.9-2.1
+			C482.6,107.3,484.7,107.7,486.6,108.5z"/>
+		<path class="cfl3" d="M493,107.5h7.1c1.5,0,2.8,0.4,3.8,1.2c1,0.8,1.5,1.8,1.5,3c0,1.6-0.9,2.8-2.7,3.6c0.8,0.3,1.6,1.2,2.3,2.7
+			s1.4,2.9,2.1,4.2h-4.4c-0.3-0.5-0.7-1.4-1.4-2.8c-0.6-1.4-1.2-2.2-1.7-2.6c-0.5-0.4-1-0.6-1.5-0.6h-1.1v6h-4V107.5z M496.9,110.2
+			v3.4h2.1c0.7,0,1.2-0.1,1.6-0.4c0.4-0.3,0.6-0.7,0.6-1.3c0-1.1-0.8-1.7-2.3-1.7H496.9z"/>
+	</g>
+	<g>
+		<path class="cfl3" d="M519.5,107.3c2.7,0,4.9,0.8,6.6,2.3c1.7,1.5,2.5,3.3,2.5,5.3c0,2-0.9,3.8-2.6,5.3c-1.7,1.5-3.9,2.2-6.6,2.2
+			c-2.7,0-4.9-0.7-6.6-2.2c-1.7-1.5-2.5-3.3-2.5-5.3c0-2,0.8-3.8,2.5-5.3S516.8,107.3,519.5,107.3z M519.5,119.3
+			c1.5,0,2.7-0.4,3.6-1.2c0.9-0.8,1.4-1.9,1.4-3.3c0-1.4-0.5-2.4-1.4-3.3c-0.9-0.8-2.1-1.2-3.6-1.2c-1.5,0-2.7,0.4-3.7,1.2
+			c-0.9,0.8-1.4,1.9-1.4,3.3c0,1.3,0.5,2.4,1.4,3.3C516.8,118.9,518,119.3,519.5,119.3z"/>
+		<path class="cfl3" d="M545.9,107.5h4v8.4c0,2.2-0.7,3.8-2.1,4.9c-1.4,1.1-3.3,1.7-5.9,1.7c-2.5,0-4.5-0.6-5.9-1.7
+			c-1.4-1.1-2.1-2.7-2.1-4.9v-8.4h4v8.5c0,1,0.4,1.9,1.1,2.5c0.7,0.6,1.7,0.9,2.9,0.9c1.2,0,2.2-0.3,2.9-1c0.7-0.6,1.1-1.5,1.1-2.7
+			V107.5z"/>
+	</g>
+	<g>
+		<path class="cfl3" d="M556.1,107.5h7.1c1.6,0,2.9,0.4,3.8,1.3c1,0.9,1.4,1.9,1.4,3.1c0,1.2-0.5,2.3-1.4,3.1
+			c-0.9,0.9-2.2,1.3-3.8,1.3h-3.2v5.9h-4V107.5z M560.1,110.2v3.4h1.8c1.7,0,2.5-0.6,2.5-1.7c0-0.6-0.2-1.1-0.7-1.3
+			s-1.2-0.4-2.3-0.4H560.1z"/>
+	</g>
+</g>
+</svg><div class="pname">Recycling Returns</div><small>How to use</small></div>
+      <button class="menu" type="button" aria-expanded="false" aria-controls="toc" onclick="var s=document.getElementById('side');var o=s.classList.toggle('open');this.setAttribute('aria-expanded',o)">Contents</button>
+    </div>
+    <nav class="toc" id="toc" aria-label="Sections">
+      <a href="#stages"><span class="n">1</span>The five stages</a>
+      <a href="#routine"><span class="n">2</span>Daily routine</a>
+      <a href="#tablet"><span class="n">3</span>The tablet</a>
+      <a href="#no-so"><span class="n">4</span>No SO yet</a>
+      <a href="#monthly"><span class="n">5</span>Monthly accounts</a>
+      <a href="#wtn"><span class="n">6</span>WTN downloads and reprints</a>
+      <a href="#amendments"><span class="n">7</span>Amendments</a>
+      <a href="#reports"><span class="n">8</span>Reports and Defra</a>
+      <a href="#customers"><span class="n">9</span>Customers</a>
+      <a href="#problems"><span class="n">10</span>When something looks wrong</a>
+      <a href="#faq"><span class="n">11</span>FAQ</a>
+    </nav>
+    <div class="back"><a href="/"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>Back to the dashboard</a></div>
+  </aside>
+
+  <main class="sheet" id="main">
+    <div class="col">
+      <h1>How to use Recycling Returns</h1>
+      <p class="intro">Every crate the rec team count lands on the dashboard. This guide shows what Rec Admin does with it, from the count to NetSuite.</p>
+      <div class="audience"><span>For Rec Admin</span><span>For the rec team</span><span>Screenshots use sample names</span></div>
+
+<section id="stages">
+<h2><span class="n">1</span>The five stages and what moves an order on</h2>
+<p class="lede">An order moves left to right down the sidebar. It never skips a stage, and the count beside each stage is what is waiting there.</p>
+<ol class="stages">
+<li><b>Awaiting count</b>The SO is in, crates not all counted. <i>Moves on when the last crate is counted.</i></li>
+<li><b>No SO yet</b>Counted as a drop-off with no real SO. <i>Moves on when you Link SO.</i></li>
+<li><b>Counted</b>Fully counted, WTN made. <i>Moves on when you Mark WTN sent.</i></li>
+<li><b>WTN sent</b>With the customer, waiting for NetSuite. <i>Moves on when you enter the number and Mark processed.</i></li>
+<li><b>Processed on NetSuite</b>Done. The NetSuite number is on record. <i>End of the line.</i></li>
+</ol>
+<figure><img src="guide/g-stages.jpg" width="1100" height="520" alt="The dashboard sidebar listing the five stages with their counts, beside the Counted stage with its Today line and what to do" loading="lazy"><figcaption>Each stage names what to do and has a small ? that opens its section here.</figcaption></figure>
+
+<h3 id="stage-awaiting">Awaiting count</h3>
+<p>Nothing to do here until the rec team count the crates on the tablet. Close short only when the customer says fewer crates are coming. It issues the WTN for what was actually counted and cannot be undone.</p>
+<h3 id="stage-noso">No SO yet</h3>
+<p>Drop-offs the rec team counted without a real SO. Raise the SO in NetSuite, type it in the card and press <span class="btnlike dark">Link SO</span>. See section 4.</p>
+<h3 id="stage-counted">Counted</h3>
+<p>Press <span class="btnlike">View WTN</span> and check it. Send it to the customer yourself, then press <span class="btnlike dark">Mark WTN sent</span>. The app does not email it.</p>
+<h3 id="stage-wtn">WTN sent</h3>
+<p>When the SO or invoice exists in NetSuite, type its number into the card and press <span class="btnlike dark">Mark processed on NetSuite</span>. The number is required.</p>
+<h3 id="stage-processed">Processed on NetSuite</h3>
+<p>The record. Nothing to do. Reprint a WTN or open <b>Details</b> if someone asks. The <i>Process in NetSuite</i> button is switched off: that is a later phase.</p>
+<h3 id="archive">Archive</h3>
+<p>Orders still uncounted three months after the SO was raised move here by themselves. If the delivery is still expected, press <span class="btnlike">Still expected, back to Awaiting</span> and it picks up where it left off.</p>
+</section>
+
+<section id="routine">
+<h2><span class="n">2</span>Daily routine for Rec Admin</h2>
+<p class="lede">About fifteen minutes. Work from the top of the sidebar down, and stop at any stage showing 0.</p>
+<ul class="check">
+<li><b>Monthly accounts: the amber flag</b><span>If it says "to confirm", confirm the visits (section 5). Remove empty drop-offs while you are there.</span></li>
+<li><b>No SO yet</b><span>Raise the SO in NetSuite for each drop-off, then Link SO. Tick and Combine rows that are one delivery.</span></li>
+<li><b>Counted</b><span>View each WTN, send it, press Mark WTN sent. Tick CO2 credit issued where a buy-back credit is due.</span></li>
+<li><b>WTN sent</b><span>Anything done in NetSuite: enter its number and Mark processed on NetSuite.</span></li>
+<li><b>Awaiting count</b><span>A glance. Crates counted today are in the Today line. Close short only when a customer has told you fewer are coming.</span></li>
+<li><b>Month-end, or when a Chubb pack is due</b><span>Process the monthly account (section 5), then Reports for the counted vs billed check.</span></li>
+</ul>
+<figure><img src="guide/g-routine.jpg" width="700" height="520" alt="The sidebar with its counts and an amber flag on Monthly accounts" loading="lazy"><figcaption>Counts show what is waiting. The amber flag on Monthly accounts means visits need confirming.</figcaption></figure>
+</section>
+
+<section id="tablet">
+<h2><span class="n">3</span>The tablet (/count)</h2>
+<p class="lede">The rec team count crates on the tablet. Rec Admin never needs the tablet, but needs to know what it sends.</p>
+<ol>
+<li>Put your name in and press <b>Start Counting</b>. It goes on every crate you count.</li>
+<li><b>Take the photo first</b> of the label or paperwork, every time. It is how the office traces a collection when a number does not match.</li>
+<li>If the paperwork has an SO or transfer order number, type it and press <b>Find Collection</b>. The C is added for SOs.</li>
+<li>If the customer dropped it off with no SO, press <b>+ Customer drop-off (no SO number)</b>.</li>
+</ol>
+<h3>Picking CNI0222 from the list rather than typing it</h3>
+<p>On a drop-off, start typing <code>CNI0222</code> or <b>Chubb</b>. A list of monthly accounts appears under the box. <b>Tap the account in the list.</b> A name picked from the list is trusted, so the visit joins the Chubb roll-up with no further work.</p>
+<div class="note">If the name is typed and not picked, even when it is exactly right, the visit still reaches the dashboard, but Rec Admin has to Confirm it by hand. Picking from the list saves that step.</div>
+<figure class="pair"><div><img src="guide/g-tablet-1.jpg" width="390" height="700" alt="The tablet find screen with the Take Photo button and the drop-off button" loading="lazy"></div><div><img src="guide/g-tablet-2.jpg" width="390" height="700" alt="The drop-off form with Chubb typed and the account offered in a list" loading="lazy"></div><figcaption>Left: photo first. Right: type Chubb, then tap the account in the list.</figcaption></figure>
+<h3>Drop-off or SO?</h3>
+<ul>
+<li><b>SO:</b> NetSuite raised the order and the paperwork has its number. Type the number. The order is already on the dashboard under Awaiting count.</li>
+<li><b>Drop-off:</b> the customer brought it in and there is no SO yet. It lands on the dashboard as a drop-off. Rec Admin attaches the SO later, unless it belongs to a monthly account.</li>
+<li><b>Number does not match:</b> the tablet offers to log it anyway. A photo is required. It goes to No SO yet for the office to trace.</li>
+</ul>
+</section>
+
+<section id="no-so">
+<h2><span class="n">4</span>No SO yet: attaching an SO and combining drop-offs</h2>
+<p class="lede">A counted drop-off waits here until it has a real SO number.</p>
+<h3>Attach an SO</h3>
+<ol>
+<li>Raise the SO in NetSuite.</li>
+<li>Open <b>No SO yet</b>, find the drop-off, type the SO in <b>Attach the real SO</b>.</li>
+<li>Press <span class="btnlike dark">Link SO</span> (or Enter). The order leaves this stage.</li>
+</ol>
+<p>If NetSuite already created an empty order with that SO, the two are merged and the counts are kept. If you attach the wrong SO, press <b>Wrong SO? Undo</b> on the card and it goes back to its DROP number with its counts intact.</p>
+<figure><img src="guide/g-noso.jpg" width="1100" height="520" alt="Two No SO yet cards, each with a field for the real SO and a Link SO button" loading="lazy"><figcaption>Sample names. Type the SO in the card, then Link SO.</figcaption></figure>
+<h3>Combine drop-offs</h3>
+<p>The rec team can raise one drop-off per crate, so one delivery shows up as several rows. Tick the rows, then press <span class="btnlike dark">Combine into one</span>. The row that already has a real SO is kept, otherwise the oldest. Counts are re-sequenced, any WTNs already issued are recorded on the result, and <b>it cannot be undone</b>.</p>
+<p>On <b>Awaiting count</b>, open drop-offs for the same customer also offer <b>Merge N drop-offs into one</b>.</p>
+<h3>This customer only ever drops off</h3>
+<p>Press <b>No SO expected</b>. The row leaves this stage and future drop-offs from them skip it.</p>
+</section>
+
+<section id="monthly">
+<h2><span class="n">5</span>Monthly accounts</h2>
+<p class="lede">Chubb Fire and Security Ltd (CNI0222) is billed by the crate each month. Every open Chubb order sits on one card instead of making its own. Work down the four steps in the strip at the top of the card.</p>
+<figure><img src="guide/g-monthly.jpg" width="1100" height="560" alt="The Chubb monthly card with four steps: Needs confirm, Confirm by name, Remove empty drop-off, Process" loading="lazy"><figcaption>The four steps, in the order to do them.</figcaption></figure>
+<ol>
+<li><b>Needs confirm.</b> A visit typed on the tablet, or matched to Chubb by an alias, waits here. Nothing on it is billed. To check one, press <span class="btnlike amber">Confirm</span> on its row, or <b>Not CNI0222</b> to send it to No SO yet.</li>
+<li><b>Confirm by name.</b> Quicker: press <span class="btnlike amber">Confirm by name…</span>. It lists each typed name with how many visits used it. Tick only the names that are Chubb and press <b>Confirm ticked names</b>.</li>
+<li><b>Remove empty drop-off.</b> A Chubb drop-off with no crates counted has nothing to bill. If nothing is coming, press <span class="btnlike">Remove empty drop-off</span> on its row. It is kept on record as removed, never deleted. NetSuite orders cannot be removed here: close them in NetSuite.</li>
+<li><b>Process.</b> Press <span class="btnlike red">Process Chubb</span>. The dialog lists the charge codes and units. Press <b>Generate WTN &amp; invoice pack</b>. This makes one season WTN for every counted crate on a confirmed order. Crates counted later go on the next pack.</li>
+</ol>
+<h3>The WTN and invoice pack</h3>
+<ol>
+<li>Press <b>Download pack (PDF)</b>. It opens a printable page: choose Save as PDF.</li>
+<li>Send the pack to the customer yourself.</li>
+<li>Press <span class="btnlike dark">Mark as sent</span>. The pack moves to <b>WTN sent</b>.</li>
+<li>When NetSuite has the invoice, type its number into the pack card and press <b>Mark processed on NetSuite</b>.</li>
+</ol>
+<p>Generated the pack by mistake? Press <b>Void this pack</b> before it is sent. Its visits go back on the roll-up and the WTN number is never reused.</p>
+<h3>Finish</h3>
+<p>An order whose counted crates are all billed shows <b>Finish</b>. Press it when no more crates are coming.</p>
+<div class="note">An order that has its own NetSuite SO shows an amber "close it in NetSuite" note. Close the SO in NetSuite once the pack is invoiced.</div>
+</section>
+
+<section id="wtn">
+<h2><span class="n">6</span>WTN downloads and reprints</h2>
+<ul>
+<li><b>Counted:</b> <span class="btnlike">View WTN</span> opens it.</li>
+<li><b>WTN sent:</b> <span class="btnlike">Download WTN (PDF)</span> opens the printable page: choose Save as PDF. <span class="btnlike">Reprint</span> opens it plain.</li>
+<li><b>Several at once:</b> on WTN sent, tick the cards (or Select all) and press <b>Download selected WTNs</b>. One printable page, one WTN per sheet.</li>
+<li><b>Processed on NetSuite:</b> each row has its WTN as a PDF link.</li>
+<li><b>Season WTNs</b> (monthly packs) download the same way, from their card or the Monthly accounts page.</li>
+</ul>
+<figure><img src="guide/g-wtn.jpg" width="1100" height="520" alt="WTN sent cards with Download WTN (PDF), Reprint and a NetSuite number field" loading="lazy"><figcaption>Sample names. Download, Reprint and the NetSuite number sit on each card.</figcaption></figure>
+<p>A count that has been amended gets a new WTN from the new counts, and the card shows <b>Amended, resend WTN</b> until you have re-sent it.</p>
+</section>
+
+<section id="amendments">
+<h2><span class="n">7</span>Amendments</h2>
+<p class="lede">Use this to correct a count after the event. Every change is logged with who and why.</p>
+<ol>
+<li>Open <b>Amendments</b> and search by SO, DROP reference or customer. Click the order.</li>
+<li>Put your name in (it is remembered). Change the quantities, add a line or a crate entry, or remove an entry.</li>
+<li>Write the <b>reason</b>. It is required.</li>
+<li>Tick what must be redone: <b>Clear the raised SO</b>, <b>Untick Invoiced</b>, <b>Untick CO2 credit</b>. Only tick what applies.</li>
+<li>Press <span class="btnlike dark">Save amendment</span>. The WTN is regenerated from the new counts and flagged to be re-sent.</li>
+</ol>
+<p>Then reprint the WTN, re-raise the SO in NetSuite and re-issue the invoice or credit if you ticked those.</p>
+<div class="note">A visit on a monthly roll-up can be amended until it is on a pack. Once a pack has billed it, the change is refused. Ask David.</div>
+<figure><img src="guide/g-amend.jpg" width="1100" height="440" alt="The Amendments page with its order search" loading="lazy"><figcaption>Sample names. Search, open the order, change, give a reason, save.</figcaption></figure>
+</section>
+
+<section id="reports">
+<h2><span class="n">8</span>Reports and the Defra receipt of waste download</h2>
+<p class="lede">Reports counts everything. The month-end figure is <b>Billed</b> in the Counted vs billed table.</p>
+<ul>
+<li>Filter by date range, customer, type, size, product or stage. The quick buttons jump to Marlowe, Mitie or Chubb.</li>
+<li><b>Counted</b> is what the rec team logged. <b>Amended</b> is the net correction. <b>Billed</b> is what has been invoiced.</li>
+<li><b>Export Excel</b> and <b>Export PowerPoint</b> take whatever the filters show.</li>
+</ul>
+<h3>Defra receipt of waste</h3>
+<ol>
+<li>Pick <b>Received from</b> and <b>Received to</b>, or press <b>All dates</b>.</li>
+<li>Read the box on the right: it says how many waste transfer notes that is and how many files.</li>
+<li>Press <span class="btnlike dark">Download spreadsheet</span>.</li>
+</ol>
+<p>It fills Defra's own template with one row per WTN. Defra's sheet holds 330 rows, so a long range downloads as several files. Dates follow when the waste was received, never when it was billed, so Process never moves a row between quarters.</p>
+<div class="note">If the box lists items "left blank until set up" (such as the receiver's authorisation number), those columns are empty in the file. Ask David to add them.</div>
+<figure><img src="guide/g-reports.jpg" width="1100" height="460" alt="The Defra receipt of waste panel with date pickers, All dates, Download spreadsheet and a summary of what will download" loading="lazy"><figcaption>The right-hand box says what will download before you press it.</figcaption></figure>
+</section>
+
+<section id="customers">
+<h2><span class="n">9</span>Customers: billing mode</h2>
+<p class="lede">Each customer is billed <b>per order</b> or <b>monthly rolling</b>. Changing it needs the admin key, so it is a deliberate act.</p>
+<h3>Switch to monthly</h3>
+<ol>
+<li>Open <b>Customers</b> and press <b>Switch to monthly</b> on the customer.</li>
+<li>The dialog says how many open orders move onto the roll-up. Put in your name and the admin key.</li>
+<li>Press <b>Switch to monthly</b>. Everything typed on the tablet, or matched only by alias, waits for Confirm.</li>
+</ol>
+<h3>Revert to per order</h3>
+<p>Press <b>Revert to per order</b>, check the dialog, enter your name and the admin key. Open orders go back to their own stages. Packs already sent stay as they are. It is refused in two cases, see the FAQ.</p>
+<figure class="narrow"><img src="guide/g-customers.jpg" width="1100" height="300" alt="The Customers table filtered to Chubb, showing its aliases and Monthly rolling with a Revert to per order button" loading="lazy"><figcaption>Search narrows the list. Chubb is monthly.</figcaption></figure>
+<p>If the server has no admin key set, the buttons are replaced by a padlock and the page is read-only. Tell David.</p>
+</section>
+
+<section id="problems">
+<h2><span class="n">10</span>When something looks wrong</h2>
+<ul>
+<li><b>Try the Classic view.</b> It is the dashboard as it was before this one, on the same data. Use the <b>Classic view</b> link at the bottom of the sidebar. It is the fail-safe.</li>
+<li><b>An error banner at the top</b> saying the data store is unavailable means nothing is being saved. Do not keep working. Tell David.</li>
+<li><b>A button does nothing, or a message says the roll-up changed.</b> Refresh the page (it also updates itself every 30 seconds), then try once more.</li>
+<li><b>An order is in the wrong place.</b> Check its stage rules in section 1. Open <b>Details</b> on the card for its counts and photos.</li>
+</ul>
+<figure class="narrow"><img src="guide/g-problems.jpg" width="500" height="420" alt="The bottom of the sidebar with the Classic view link and the sync status" loading="lazy"><figcaption>Classic view, the count page and the sync status sit at the foot of the sidebar.</figcaption></figure>
+<div class="contact"><b>Who to contact</b><br>David Sweeney-Owen, Customer Experience Manager. Tell him what you pressed, the SO or DROP number, and what you saw.</div>
+</section>
+
+<section id="faq">
+<h2><span class="n">11</span>FAQ</h2>
+<dl class="faq">
+<dt>Why does a visit need Confirm?</dt>
+<dd>Anything typed on the tablet could be a different customer with a similar name, and a wrong match bills the wrong account. A name picked from the list is trusted. A name that is only typed, or matched by alias, is held until Rec Admin has looked.</dd>
+<dt>Why is Close short blocked on monthly accounts?</dt>
+<dd>An order on a monthly roll-up is billed by the crate, not as a whole order, so closing it short would break the billing. Use <b>Finish</b> on an order whose counted crates are billed, or <b>Remove empty drop-off</b> on one with nothing counted.</dd>
+<dt>Why is Revert to per order refused?</dt>
+<dd>Two reasons. A season pack exists that has not been sent: mark it sent, or void it. Or an open order already has crates billed on a season WTN: press Finish on it first, so nothing is billed twice. The message names the orders.</dd>
+<dt>Why can't I change an order that is on a pack?</dt>
+<dd>Once its crates are on a season WTN they are locked so they cannot be moved, billed again or deleted. Void the pack first if it has not been sent.</dd>
+<dt>Why does the Customers page say read-only?</dt>
+<dd>Billing changes need the admin key, and it has not been set on the server. Tell David.</dd>
+<dt>Does the app email the WTN?</dt>
+<dd>No. Download it, send it yourself, then mark it sent.</dd>
+</dl>
+</section>
+    </div>
+  </main>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a')),secs=links.map(function(a){return document.querySelector(a.getAttribute('href'));});
+  if(!('IntersectionObserver' in window))return;
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-10% 0px -80% 0px'});
+  secs.forEach(function(s){if(s)io.observe(s);});
+})();
+</script>
+</body>
+</html>

@@ -228,7 +228,7 @@ function plural(n,w,p){return n+' '+(n===1?w:(p||w+'s'));}
 function todayUK(){return new Date().toLocaleDateString('en-GB',{timeZone:'Europe/London'});}
 function units(o){return (o.totals||[]).reduce((a,t)=>a+t.q,0);}
 function daysSinceUK(s){const iso=dmy(String(s||'').split(',')[0]);return iso?P.ageDays(iso):0;}
-function agePill(n){const cls=n<=5?'':(n<=10?'mid':'old');return `<span class="age ${cls}">${n===0?'Today':plural(n,'day')}</span>`;}
+function agePill(n){const cls=n<=7?'':(n<=30?'mid':'old');return `<span class="age ${cls}">${n===0?'Today':plural(n,'day')}</span>`;}
 function oldest(list,f){return list.length?Math.max(...list.map(f)):0;}
 function byDate(a,b){return String(a.date||'').localeCompare(String(b.date||''))||a.id-b.id;}
 function matches(o,f){if(!f)return true;f=f.toLowerCase();return [o.so,o.cust,o.wtn,o.nsRef,o.dropRef,o.claimedRef,o.finalSo].some(x=>String(x||'').toLowerCase().includes(f));}
@@ -328,7 +328,7 @@ function photoLinks(o,compact){
 function tagsFor(o,stage){
   const t=[];
   if(o.dropOff)t.push('<span class="badge s-noso">Drop-off</span>');
-  if(o.needsReview)t.push(`<span class="badge s-red" title="Photographed on the tablet but the number didn't match a live collection">Needs review${o.claimedRef?' — tried '+esc(o.claimedRef):''}</span>`);
+  if(o.needsReview)t.push(`<span class="badge s-noso" title="Photographed on the tablet but the number didn't match a live collection">Needs review${o.claimedRef?' — tried '+esc(o.claimedRef):''}</span>`);
   if(stage==='noso'){const d=likelyDuplicate(o);if(d)t.push(`<span class="badge s-awaiting" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(d.so)}</span>`);}
   const m=monthlyInfo(o);if(m)t.push(`<span class="badge s-monthly" title="Tagged monthly in config">Monthly · ${esc(m.code||m.name)}</span>`);
   if(o.amended)t.push(`<span class="badge s-awaiting" title="${esc(o.amendments&&o.amendments.length?o.amendments[o.amendments.length-1].reason:'')}">Amended${o.wtnSentAt?'':' — resend WTN'}</span>`);

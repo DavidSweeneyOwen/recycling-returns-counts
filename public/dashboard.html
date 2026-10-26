@@ -117,7 +117,7 @@ a{color:inherit}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:var(--gap);align-items:stretch}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;transition:border-color .12s ease}
 @media(hover:hover){.card:hover{border-color:var(--line-2)}}
-.card.flagged{border-color:#e9a3a7}
+.card.flagged{border-color:var(--amber-line)}
 .card.sel-on{border-color:var(--ink);outline:1px solid var(--ink)}
 .card-top{padding:16px 18px 0;display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .ref{font-family:var(--mono);font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -134,6 +134,7 @@ a{color:inherit}
 .prog{height:4px;background:#ececeb;border-radius:4px;margin:12px 18px 0;overflow:hidden}.prog i{display:block;height:100%;background:var(--c);border-radius:4px}
 .card-foot{margin-top:auto;padding:14px 18px 16px;display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--rule);margin-top:12px}
 .card-foot .primary{margin-left:auto}
+.card-foot .tickbox{order:-1;flex:1 1 100%}
 .rowx{display:flex;gap:6px 10px;flex-wrap:wrap;flex:1 1 100%;align-items:center}
 .field{display:flex;flex-direction:column;gap:4px;flex:1 1 100%}
 .field label{font-size:12px;color:var(--ink-2);font-weight:500}
