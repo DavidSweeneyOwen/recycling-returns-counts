@@ -808,7 +808,7 @@ function buildRecords(){
       const pm=PRODMAP[p],known=!!pm;
       const counted=origMap[p]||0,now=curMap[p]||0;
       RECORDS.push({
-        date:lastDate,cust:o.cust||'Unknown',so:o.so,product:p,
+        date:lastDate,cust:o.cust||'Unknown',so:o.so,stage:stageOf(o),product:p,
         size:known?(pm.size||'—'):'—',
         type:known?(pm.type||'Other'):'Other',
         code:known?(pm.code||'UNMAPPED'):'OTHER',
@@ -877,8 +877,8 @@ function currentFilter(){
     size:document.getElementById('fSize').value,prod:document.getElementById('fProd').value,
     stage:document.getElementById('fStage').value};
 }
-function applyFilter(){
-  const f=currentFilter();
+function applyFilter(over){
+  const f=Object.assign(currentFilter(),over||{});
   return RECORDS.filter(r=>{
     if(f.from&&(!r.date||r.date<f.from))return false;
     if(f.to&&(!r.date||r.date>f.to))return false;
@@ -921,68 +921,182 @@ function trendBuckets(rows){
 function parseSortKey(k,unit){
   if(unit==='month'){const m=/(\d{2})\/(\d{4})/.exec(k);return m?+m[2]*100+ +m[1]:0;}
   const m=/(\d{2})\/(\d{2})\/(\d{4})/.exec(k);return m?new Date(+m[3],+m[2]-1,+m[1]).getTime():0;}
+/* =====================================================================
+   REPORTS (redesign). Same records, same filters, same totals as before:
+   applyFilter(), recon(), groupSum(), trendBuckets() and the exports are untouched.
+   What changed is how the answer is shown: headline band, charts, sortable tables.
+   ===================================================================== */
+const RP_INK='#1d1d1b',RP_SLATE='#6f8aa3';   // billed / not yet billed. Brand ink + one slate: dE 39 (validator), each series labelled and in the legend
+let RTAB='recon';const TSORT={},TBL={};
+function sgn(n){return n>0?'+':(n<0?'−':'');}
+/* The previous equivalent period for the selected range, or null for all time. */
+function priorBounds(){
+  const v=document.getElementById('fRange').value,{from,to}=rangeBounds();
+  if(v==='all'||!from||!to)return null;
+  let pf,pt;
+  if(v==='mtd'){pf=new Date(from.getFullYear(),from.getMonth()-1,1);const dim=new Date(from.getFullYear(),from.getMonth(),0).getDate();pt=new Date(pf.getFullYear(),pf.getMonth(),Math.min(to.getDate(),dim),23,59,59);}
+  else if(v==='lastmonth'){pf=new Date(from.getFullYear(),from.getMonth()-1,1);pt=new Date(from.getFullYear(),from.getMonth(),0,23,59,59);}
+  else if(v==='ytd'){pf=new Date(from.getFullYear()-1,0,1);pt=new Date(to.getFullYear()-1,to.getMonth(),to.getDate(),23,59,59);}
+  else if(v==='week'){pf=new Date(from.getTime()-7*86400000);pt=new Date(to.getTime()-7*86400000);}
+  else{const span=to-from;pt=new Date(from.getTime()-1);pf=new Date(pt.getTime()-span);}
+  return {from:pf,to:pt};
+}
+function repMetrics(rows){
+  const s=k=>rows.reduce((a,r)=>a+r[k],0),bb=(PRODMAP);
+  return {counted:s('counted'),amended:s('amended'),current:s('qty'),billed:s('billed'),unbilled:rows.filter(r=>!r.invoiced).reduce((a,r)=>a+r.qty,0),
+    collections:new Set(rows.map(r=>r.so)).size,customers:new Set(rows.map(r=>r.cust)).size,
+    co2:rows.filter(r=>(bb[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0),drops:new Set(rows.filter(r=>r.dropOff).map(r=>r.so)).size};
+}
+/* good: 'up' = a rise is good, 'down' = a rise is bad, null = neither */
+function deltaHtml(cur,prev,good){
+  if(prev===null)return `<span class="dt flat">All time, no comparison</span>`;
+  const d=cur-prev;
+  if(!d)return `<span class="dt flat">0 vs previous</span>`;
+  const txt=prev?`${d>0?'▲':'▼'} ${sgn(d)}${N(Math.abs(d))} (${sgn(d)}${(Math.abs(d)/prev*100).toFixed(1)}%)`:`${d>0?'▲':'▼'} ${sgn(d)}${N(Math.abs(d))} (new)`;
+  const bad=good==='up'?d<0:good==='down'?d>0:null;
+  return `<span class="dt ${bad===null?'flat':bad?'bad':'good'}">${txt}</span>`;
+}
+const UNB_GROUPS=[['Still being counted',['awaiting','archive'],'awaiting'],['No SO yet',['noso'],'noso'],['Counted, WTN not sent',['counted'],'counted'],['WTN sent, waiting for NetSuite',['wtn','rolled'],'wtn'],['Monthly roll-up',['monthly'],'monthly']];
+const UNB_SHADE=['#d1d5da','#a9bccd','#6f8aa3','#3a536b','#1d1d1b'];
+function paintHero(rows,cur,prior,pb){
+  const base=pb?`vs ${fmtUK(pb.from)} to ${fmtUK(pb.to)}`:'';
+  const unb=rows.filter(r=>!r.invoiced);
+  const parts=UNB_GROUPS.map(([l,st,go],i)=>({l,go,v:unb.filter(r=>st.includes(r.stage)).reduce((a,r)=>a+r.qty,0),c:UNB_SHADE[i]}));
+  const known=parts.reduce((a,p)=>a+p.v,0);
+  if(known!==cur.unbilled)parts.push({l:'Other',go:'counted',v:cur.unbilled-known,c:'#e5e5e5'});
+  const seg=parts.filter(p=>p.v>0);
+  document.getElementById('rpNyb').innerHTML=`<div class="nyb-k">Not yet billed</div>
+    <div class="nyb-v"><span class="${cur.unbilled?'':'zero'}">${N(cur.unbilled)}</span><small>units</small></div>
+    <div class="nyb-d">${deltaHtml(cur.unbilled,prior?prior.unbilled:null,'down')}${base?` <span class="bsl">${base}</span>`:''}</div>
+    <p class="nyb-s">Counted by the rec team and not yet invoiced in NetSuite. It leaves this figure when you Mark processed on NetSuite.</p>
+    ${cur.unbilled?`<div class="nyb-bar" role="img" aria-label="Where the not yet billed units sit">${seg.map(p=>`<i style="flex:${p.v};background:${p.c}" title="${esc(p.l)}: ${N(p.v)}"></i>`).join('')}</div>
+    <ul class="nyb-l">${seg.map(p=>`<li><button type="button" class="nyb-b" onclick="go('${p.go}')"><i style="background:${p.c}"></i><span>${esc(p.l)}</span><b class="mono">${N(p.v)}</b></button></li>`).join('')}</ul>`:'<p class="nyb-s"><b>Nothing waiting.</b> Everything counted in this view has been billed.</p>'}
+    <div class="nyb-a"><button type="button" class="btn sm" onclick="go('counted')">Open Counted</button><button type="button" class="btn sm ghost" onclick="go('monthly')">Open Monthly accounts</button></div>`;
+  const cell=(k,v,d)=>`<div class="m-c"><div class="m-k">${k}</div><div class="m-v">${N(v)}</div><div class="m-d">${d}</div></div>`;
+  const p=prior;
+  document.getElementById('kpis').innerHTML=cell('Units counted',cur.counted,deltaHtml(cur.counted,p?p.counted:null,'up'))
+    +cell('Units billed',cur.billed,deltaHtml(cur.billed,p?p.billed:null,'up'))
+    +cell('CO2 buy-back units',cur.co2,deltaHtml(cur.co2,p?p.co2:null,null))
+    +cell('Collections',cur.collections,deltaHtml(cur.collections,p?p.collections:null,null))
+    +`<div class="m-also">Also in this view: amended <b>${sgn(cur.amended)}${N(Math.abs(cur.amended))}</b> · current <b>${N(cur.current)}</b> · customers <b>${N(cur.customers)}</b> · drop-offs <b>${N(cur.drops)}</b>${base?` <span class="bsl">(deltas ${base})</span>`:''}</div>`;
+}
+/* ---- charts: self-drawn SVG, one axis, thin marks, tooltips, a table view for each ---- */
+function niceStep(max,n){const raw=max/n,p=Math.pow(10,Math.floor(Math.log10(raw||1))),f=raw/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;}
+function topRound(x,y,w,h,r){r=Math.min(r,w/2,h);return `M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`;}
+function bucketKey(unit,d){
+  if(unit==='day')return fmtUK(d);
+  if(unit==='week'){const t=new Date(d);t.setDate(t.getDate()-((t.getDay()+6)%7));return 'w/c '+fmtUK(t);}
+  return ('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear();
+}
+function trendSplit(rows,trend){
+  const b={},u={};rows.forEach(r=>{if(!r.date)return;const k=bucketKey(trend.unit,r.date);b[k]=(b[k]||0)+r.billed;u[k]=(u[k]||0)+(r.invoiced?0:r.qty);});
+  return trend.labels.map(k=>({k,billed:b[k]||0,unbilled:u[k]||0}));
+}
+function drawTime(rows,trend){
+  const box=document.getElementById('rpTime'),data=trendSplit(rows,trend),n=data.length;
+  const tot=data.reduce((a,d)=>a+d.billed+d.unbilled,0);
+  document.getElementById('rpTimeLegend').innerHTML=`<span><i style="background:${RP_INK}"></i>Billed <b class="mono">${N(data.reduce((a,d)=>a+d.billed,0))}</b></span><span><i style="background:${RP_SLATE}"></i>Not yet billed <b class="mono">${N(data.reduce((a,d)=>a+d.unbilled,0))}</b></span>`;
+  if(!n||!tot){box.innerHTML='<div class="rp-empty">Nothing counted in this view.</div>';document.getElementById('rpTimeTbl').innerHTML='';return;}
+  const W=Math.max(320,box.clientWidth||720),H=270,L=46,R=8,T=14,B=28,pw=W-L-R,ph=H-T-B;
+  const max=Math.max(...data.map(d=>d.billed+d.unbilled)),step=niceStep(max,4),top=Math.ceil(max/step)*step;
+  const y=v=>T+ph-(v/top)*ph,slot=pw/n,bw=Math.max(2,Math.min(34,slot*0.72));
+  let g='';for(let v=0;v<=top+1e-9;v+=step){g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" class="gl${v===0?' base':''}"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end" class="ax">${N(v)}</text>`;}
+  const every=Math.max(1,Math.ceil(n/Math.floor(pw/78)));
+  let bars='',xl='',hit='';
+  data.forEach((d,i)=>{
+    const cx=L+slot*i+slot/2,x=cx-bw/2,hb=(d.billed/top)*ph,hu=(d.unbilled/top)*ph;
+    if(hb>0)bars+=d.unbilled>0?`<rect x="${x}" y="${T+ph-hb}" width="${bw}" height="${hb}" fill="${RP_INK}"/>`:`<path d="${topRound(x,T+ph-hb,bw,hb,3)}" fill="${RP_INK}"/>`;
+    if(hu>0)bars+=`<path d="${topRound(x,T+ph-hb-hu-(hb>0?2:0),bw,hu,3)}" fill="${RP_SLATE}"/>`;
+    if(i%every===0&&(n-1-i>=every*0.6||i===n-1))xl+=`<text x="${cx}" y="${H-8}" text-anchor="middle" class="ax">${esc(d.k.replace(/^w\/c /,''))}</text>`;
+    hit+=`<rect x="${L+slot*i}" y="${T}" width="${slot}" height="${ph}" fill="transparent" data-i="${i}"/>`;
+  });
+  const last=data[n-1],lt=last.billed+last.unbilled;
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Units by period, billed and not yet billed. ${n} periods, ${N(tot)} units in total.">${g}${bars}${xl}<text x="${L+slot*(n-1)+slot/2}" y="${y(lt)-6}" text-anchor="end" class="dlabel">${N(lt)}</text><line id="rpXh" y1="${T}" y2="${T+ph}" class="xh" style="display:none"/>${hit}</svg><div class="tip" id="rpTip" hidden></div>`;
+  const tip=document.getElementById('rpTip'),xh=document.getElementById('rpXh');
+  box.querySelectorAll('rect[data-i]').forEach(r=>{
+    r.addEventListener('mousemove',e=>{const d=data[+r.dataset.i],cx=L+slot*(+r.dataset.i)+slot/2;xh.setAttribute('x1',cx);xh.setAttribute('x2',cx);xh.style.display='';
+      tip.hidden=false;tip.innerHTML=`<b>${esc(d.k)}</b><span><i style="background:${RP_INK}"></i>Billed ${N(d.billed)}</span><span><i style="background:${RP_SLATE}"></i>Not yet billed ${N(d.unbilled)}</span><span>Total ${N(d.billed+d.unbilled)}</span>`;
+      const bx=box.getBoundingClientRect();tip.style.left=Math.min(e.clientX-bx.left+14,bx.width-tip.offsetWidth-4)+'px';tip.style.top=Math.max(0,e.clientY-bx.top-tip.offsetHeight-10)+'px';});
+    r.addEventListener('mouseleave',()=>{tip.hidden=true;xh.style.display='none';});
+  });
+  document.getElementById('rpTimeTbl').innerHTML=`<table class="rep"><thead><tr><th>Period</th><th class="n">Billed</th><th class="n">Not yet billed</th><th class="n">Total</th></tr></thead><tbody>${data.map(d=>`<tr><td>${esc(d.k)}</td><td class="n">${N(d.billed)}</td><td class="n">${N(d.unbilled)}</td><td class="n">${N(d.billed+d.unbilled)}</td></tr>`).join('')}</tbody></table>`;
+}
+function drawMix(byType,total){
+  const box=document.getElementById('rpType');
+  if(!byType.length||!total){box.innerHTML='<div class="rp-empty">Nothing counted in this view.</div>';return;}
+  const max=byType[0].v;
+  box.innerHTML=`<ul class="bl">${byType.map(t=>`<li><button type="button" class="bl-r" onclick="setFilter('fType',${jsq(t.k)})" title="Filter the report to ${esc(t.k)}"><span class="bl-n">${esc(t.k)}</span><span class="bl-t"><i style="width:${Math.max(1,t.v/max*100)}%"></i></span><span class="bl-v mono">${N(t.v)}</span><span class="bl-p mono">${Math.round(t.v/total*100)}%</span></button></li>`).join('')}</ul>`;
+}
+function drawCust(rows){
+  const box=document.getElementById('rpCust'),m={};
+  rows.forEach(r=>{const o=m[r.cust]||(m[r.cust]={k:r.cust,b:0,u:0});o.b+=r.billed;o.u+=r.invoiced?0:r.qty;});
+  const all=Object.values(m).map(o=>Object.assign(o,{t:o.b+o.u})).sort((a,b)=>b.t-a.t);
+  if(!all.length){box.innerHTML='<div class="rp-empty">Nothing counted in this view.</div>';return;}
+  const top=all.slice(0,10),rest=all.slice(10);
+  if(rest.length)top.push({k:`Other (${N(rest.length)} customers)`,b:rest.reduce((a,o)=>a+o.b,0),u:rest.reduce((a,o)=>a+o.u,0),other:true});
+  top.forEach(o=>o.t=o.b+o.u);
+  const max=Math.max(...top.map(o=>o.t));
+  box.innerHTML=`<ul class="bl cu">${top.map(o=>`<li>${o.other?'<div class="bl-r">':`<button type="button" class="bl-r" onclick="setFilter('fCust',${jsq(o.k)})" title="Filter the report to ${esc(o.k)}">`}<span class="bl-n">${esc(o.k)}</span><span class="bl-t"><i class="s1" style="width:${o.b/max*100}%"></i><i class="s2" style="width:${o.u/max*100}%"></i></span><span class="bl-v mono">${N(o.t)}</span><span class="bl-p mono" title="Not yet billed">${o.u?N(o.u)+' open':'billed'}</span>${o.other?'</div>':'</button>'}</li>`).join('')}</ul>`;
+}
+function toggleTv(id,btn){const e=document.getElementById(id);e.hidden=!e.hidden;btn.setAttribute('aria-pressed',String(!e.hidden));btn.textContent=e.hidden?'View as table':'Hide table';}
+/* ---- tables: sortable, sticky header, totals row, tabular right-aligned numbers ---- */
+function paintTable(id){
+  const t=TBL[id],el=document.getElementById(id);if(!t||!el)return;
+  const s=TSORT[id];let rows=t.rows.slice();
+  if(s){const c=t.cols.find(c=>c.k===s.k);if(c){rows.sort((a,b)=>{const x=a[c.k],y=b[c.k];const r=(typeof x==='number'&&typeof y==='number')?x-y:String(x||'').localeCompare(String(y||''),'en-GB',{numeric:true});return s.dir==='asc'?r:-r;});}}
+  const cell=(c,v)=>c.n?`<td class="n${v?'':' z'}">${c.f?c.f(v):N(v)}</td>`:`<td>${esc(v)}</td>`;
+  const th=c=>`<th class="${c.n?'n':''}" aria-sort="${s&&s.k===c.k?(s.dir==='asc'?'ascending':'descending'):'none'}"><button type="button" class="sb" onclick="sortBy('${id}',${jsq(c.k)})">${esc(c.l)}<span class="si" aria-hidden="true">${s&&s.k===c.k?(s.dir==='asc'?'▲':'▼'):''}</span></button></th>`;
+  el.innerHTML=`<thead><tr>${t.cols.map(th).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${t.cols.map(c=>cell(c,r[c.k])).join('')}</tr>`).join('')}</tbody>${t.tot?`<tfoot><tr>${t.cols.map((c,i)=>c.n?`<td class="n">${c.nt?c.nt(t.tot[c.k]):(t.tot[c.k]===''||t.tot[c.k]==null?'':(c.f?c.f(t.tot[c.k]):N(t.tot[c.k])))}</td>`:`<td>${i===0?'Total':''}</td>`).join('')}</tr></tfoot>`:''}`;
+}
+function sortBy(id,k){const s=TSORT[id];TSORT[id]={k,dir:(s&&s.k===k&&s.dir==='desc')?'asc':'desc'};paintTable(id);}
+function setTab(k){RTAB=k;document.querySelectorAll('.rp-tab').forEach(b=>{const on=b.dataset.tab===k;b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});
+  document.querySelectorAll('.rp-pane').forEach(p=>{p.hidden=p.dataset.pane!==k;});}
+function tabKey(e){const tabs=[...document.querySelectorAll('.rp-tab')],i=tabs.indexOf(document.activeElement);if(i<0)return;
+  const j=e.key==='ArrowRight'?(i+1)%tabs.length:e.key==='ArrowLeft'?(i-1+tabs.length)%tabs.length:e.key==='Home'?0:e.key==='End'?tabs.length-1:-1;
+  if(j>=0){e.preventDefault();tabs[j].focus();setTab(tabs[j].dataset.tab);}}
+/* ---- filters ---- */
+function setFilter(id,v){const e=document.getElementById(id);if(!e)return;e.value=v;if(id==='fType')refreshSizeProd();renderReports();reportsToday();}
+function resetFilters(){document.getElementById('fRange').value='all';['fCust','fType','fSize','fProd','fStage'].forEach(i=>{document.getElementById(i).value='';});
+  document.getElementById('fFrom').value='';document.getElementById('fTo').value='';onRangeChange();refreshSizeProd();renderReports();reportsToday();}
+function clearFilter(id){if(id==='fRange'){document.getElementById('fRange').value='all';onRangeChange();}else setFilter(id,'');if(id==='fType')refreshSizeProd();reportsToday();}
+function activeChips(){
+  const L={fRange:'Range',fCust:'Customer',fType:'Type',fSize:'Size',fProd:'Product',fStage:'Stage'},out=[];
+  Object.keys(L).forEach(id=>{const e=document.getElementById(id),v=e.value;if(id==='fRange'?v!=='all':v)out.push([id,L[id],e.options[e.selectedIndex].text]);});
+  return out;
+}
 function renderReports(){
   const rows=applyFilter();const f=currentFilter();
-  const totalUnits=rows.reduce((a,r)=>a+r.qty,0);
-  const sos=new Set(rows.map(r=>r.so));
-  const co2=rows.filter(r=>(PRODMAP[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0);
-  const drops=new Set(rows.filter(r=>r.dropOff).map(r=>r.so));
-  const tCounted=rows.reduce((a,r)=>a+r.counted,0);
-  const tAmended=rows.reduce((a,r)=>a+r.amended,0);
-  const tBilled =rows.reduce((a,r)=>a+r.billed,0);
-  document.getElementById('kpis').innerHTML=[
-    ['Counted',tCounted],['Amended',(tAmended>0?'+':'')+tAmended],['Current',totalUnits],
-    ['Billed',tBilled],['Not yet billed',totalUnits-tBilled],
-    ['Collections',sos.size],['Customers',new Set(rows.map(r=>r.cust)).size],
-    ['CO2 buy-back units',co2],['Drop-offs',drops.size]
-  ].map(([l,n])=>`<div class="kpi"><div class="num">${typeof n==='number'?N(n):n}</div><div class="lbl">${l}</div></div>`).join('');
+  const cur=repMetrics(rows),pb=priorBounds(),prior=pb?repMetrics(applyFilter({from:pb.from,to:pb.to})):null;
   const byCust=groupSum(rows,'cust'),byProd=groupSum(rows,'product'),byType=groupSum(rows,'type');
-  const trend=trendBuckets(rows);
+  const trend=trendBuckets(rows),totalUnits=cur.current;
   LAST={rows,byCust,byProd,byType,trend,f};
-  const types=uniqueSorted(rows.map(r=>r.type));
-  let ch='<tr><th>Customer</th>'+types.map(t=>`<th class="n">${esc(t)}</th>`).join('')+'<th class="n">Total</th></tr>';
-  byCust.forEach(c=>{const cr=rows.filter(r=>r.cust===c.k);
-    ch+=`<tr><td>${esc(c.k)}</td>`+types.map(t=>`<td class="n">${cr.filter(r=>r.type===t).reduce((a,r)=>a+r.qty,0)||''}</td>`).join('')+`<td class="n"><b>${c.v}</b></td></tr>`;});
-  document.getElementById('tblCust').innerHTML=ch;
-  document.getElementById('tblProd').innerHTML='<tr><th>Product</th><th>Size</th><th class="n">Units</th></tr>'+
-    byProd.map(p=>{const sz=(PRODMAP[p.k]||{}).size||'—';return `<tr><td>${esc(p.k)}</td><td>${esc(sz)}</td><td class="n">${p.v}</td></tr>`;}).join('');
-  document.getElementById('tblType').innerHTML='<tr><th>Type</th><th class="n">Units</th><th class="n">%</th></tr>'+
-    byType.map(t=>`<tr><td>${esc(t.k)}</td><td class="n">${t.v}</td><td class="n">${totalUnits?Math.round(t.v/totalUnits*100):0}%</td></tr>`).join('');
-  const codes=uniqueSorted(rows.map(r=>r.code));
-  let bh='<tr><th>Customer</th>'+codes.map(c=>`<th class="n">${esc(c)}</th>`).join('')+'<th class="n">Total</th></tr>';
-  byCust.forEach(c=>{const cr=rows.filter(r=>r.cust===c.k);
-    bh+=`<tr><td>${esc(c.k)}</td>`+codes.map(code=>`<td class="n">${cr.filter(r=>r.code===code).reduce((a,r)=>a+r.qty,0)||''}</td>`).join('')+`<td class="n"><b>${c.v}</b></td></tr>`;});
-  document.getElementById('tblBilling').innerHTML=bh;
-  const rc=recon(rows,'cust');
-  const tot=k=>rc.reduce((a,r)=>a+r[k],0);
-  document.getElementById('tblRecon').innerHTML=
-    '<tr><th>Customer</th><th class="n">Counted</th><th class="n">Amended</th>'+
-    '<th class="n">Current</th><th class="n">Billed</th><th class="n">Not billed</th></tr>'+
-    rc.map(r=>`<tr><td>${esc(r.k)}</td><td class="n">${r.counted}</td>`+
-      `<td class="n">${r.amended?(r.amended>0?'+':'')+r.amended:''}</td>`+
-      `<td class="n"><b>${r.current}</b></td><td class="n">${r.billed}</td>`+
-      `<td class="n">${r.unbilled||''}</td></tr>`).join('')+
-    `<tr><td><b>Total</b></td><td class="n"><b>${tot('counted')}</b></td>`+
-    `<td class="n"><b>${tot('amended')||''}</b></td><td class="n"><b>${tot('current')}</b></td>`+
-    `<td class="n"><b>${tot('billed')}</b></td><td class="n"><b>${tot('unbilled')||''}</b></td></tr>`;
+  paintHero(rows,cur,prior,pb);
+  /* tables (same figures as before) */
+  const types=uniqueSorted(rows.map(r=>r.type)),codes=uniqueSorted(rows.map(r=>r.code));
+  const sumBy=(cr,key,val)=>cr.filter(r=>r[key]===val).reduce((a,r)=>a+r.qty,0);
+  const pivot=(keys,key)=>{const tot={total:0};keys.forEach(k=>{tot['c_'+k]=0;});
+    const out=byCust.map(c=>{const cr=rows.filter(r=>r.cust===c.k),o={cust:c.k,total:c.v};keys.forEach(k=>{o['c_'+k]=sumBy(cr,key,k);tot['c_'+k]+=o['c_'+k];});tot.total+=c.v;return o;});
+    return {out,tot};};
+  const pc=pivot(types,'type'),pb2=pivot(codes,'code');
+  TBL.tblCust={cols:[{k:'cust',l:'Customer'}].concat(types.map(t=>({k:'c_'+t,l:t,n:true})),[{k:'total',l:'Total',n:true}]),rows:pc.out,tot:pc.tot};
+  TBL.tblBilling={cols:[{k:'cust',l:'Customer'}].concat(codes.map(c=>({k:'c_'+c,l:c,n:true})),[{k:'total',l:'Total',n:true}]),rows:pb2.out,tot:pb2.tot};
+  TBL.tblProd={cols:[{k:'p',l:'Product'},{k:'size',l:'Size'},{k:'v',l:'Units',n:true}],rows:byProd.map(p=>({p:p.k,size:(PRODMAP[p.k]||{}).size||'—',v:p.v})),tot:{v:totalUnits}};
+  TBL.tblType={cols:[{k:'t',l:'Type'},{k:'v',l:'Units',n:true},{k:'pc',l:'%',n:true,f:v=>v+'%',nt:()=>totalUnits?'100%':''}],rows:byType.map(t=>({t:t.k,v:t.v,pc:totalUnits?Math.round(t.v/totalUnits*100):0})),tot:{v:totalUnits}};
+  const rc=recon(rows,'cust'),tk=k=>rc.reduce((a,r)=>a+r[k],0);
+  TBL.tblRecon={cols:[{k:'k',l:'Customer'},{k:'counted',l:'Counted',n:true},{k:'amended',l:'Amended',n:true,f:v=>(v>0?'+':v<0?'−':'')+N(Math.abs(v))},{k:'current',l:'Current',n:true},{k:'billed',l:'Billed',n:true},{k:'unbilled',l:'Not billed',n:true}],rows:rc,
+    tot:{counted:tk('counted'),amended:tk('amended'),current:tk('current'),billed:tk('billed'),unbilled:tk('unbilled')}};
+  Object.keys(TBL).forEach(paintTable);
+  /* charts */
+  drawTime(rows,trend);drawMix(byType,totalUnits);drawCust(rows);
+  /* summary + active filter chips */
   const fr=f.from?fmtUK(f.from):'start',to=f.to?fmtUK(f.to):'today';
-  document.getElementById('metaLine').textContent=`Showing ${rows.length} collection line(s) · ${fr} → ${to}`+
-    (f.cust?` · ${f.cust}`:'')+(f.type?` · ${f.type}`:'')+(f.size?` · ${f.size}`:'')+(f.prod?` · ${f.prod}`:'');
-  drawCharts(byType,trend);
+  document.getElementById('metaLine').innerHTML=`Showing <b>${N(rows.length)}</b> of ${N(RECORDS.length)} collection lines · <b>${N(cur.collections)}</b> collections · ${fr} → ${to}`;
+  const ch=activeChips();
+  document.getElementById('rpChips').innerHTML=ch.map(([id,l,t])=>`<button type="button" class="rp-chip" onclick="clearFilter('${id}')" aria-label="Remove filter ${esc(l)}: ${esc(t)}">${esc(l)}: ${esc(t)}<span aria-hidden="true">×</span></button>`).join('');
+  document.getElementById('rpReset').disabled=!ch.length;
+  console.assert(cur.unbilled===totalUnits-cur.billed,'not yet billed must equal current minus billed');
 }
-function drawCharts(byType,trend){
-  /* Ink and slate only: the brand red is reserved for things that need doing, never a data series. */
-  const pal=['#1d1d1b','#3a536b','#575756','#6f8aa3','#8a8a88','#a9bccd','#b2b2b0','#d1d1d0'];
-  if(typeof Chart!=='undefined'){Chart.defaults.font.family="'IBM Plex Sans',system-ui,sans-serif";Chart.defaults.color='#575756';}
-  if(chartTypeRef)chartTypeRef.destroy();
-  chartTypeRef=new Chart(document.getElementById('chartTypeCanvas'),{type:'doughnut',
-    data:{labels:byType.map(t=>t.k),datasets:[{data:byType.map(t=>t.v),backgroundColor:pal}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'}}}});
-  if(chartTrendRef)chartTrendRef.destroy();
-  chartTrendRef=new Chart(document.getElementById('chartTrendCanvas'),{type:'bar',
-    data:{labels:trend.labels,datasets:[{label:'Units',data:trend.data,backgroundColor:'#1d1d1b'}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{maxRotation:60,minRotation:0}}}}});
-}
+let rpRz=null;window.addEventListener('resize',()=>{clearTimeout(rpRz);rpRz=setTimeout(()=>{if(VIEW==='reports'&&LAST.rows){drawTime(LAST.rows,LAST.trend);}},150);});
 function rangeLabel(){
   const f=LAST.f||currentFilter();
   return (f.from?fmtUK(f.from):'start')+' to '+(f.to?fmtUK(f.to):'today')+
@@ -1187,16 +1301,17 @@ async function rowInfo(){
   ROW_INFO=null;
   try{
     const r=await fetch('/api/receipt-of-waste-info'+rowQuery());const d=await r.json();
-    if(d.error){meta.textContent='';warn.textContent=d.error;return;}
-    ROW_INFO=d;
+    if(d.error){meta.textContent='';warn.textContent=d.error;rowStat('—','');return;}
+    ROW_INFO=d;rowStat(d.count?N(d.count):'0',d.count?d.files+(d.files===1?' file':' files')+' of up to '+d.rowsPerFile+' rows':'Nothing to download');
     const uk=s=>s?s.split('-').reverse().join('/'):'';
     meta.textContent=d.count
       ?d.count+' waste transfer note'+(d.count===1?'':'s')+' received '+uk(d.first)+(d.last!==d.first?' to '+uk(d.last):'')
         +' · '+d.files+' file'+(d.files===1?'':'s')+(d.files>1?' ('+d.rowsPerFile+' rows each — Defra\'s sheet holds no more)':'')
       :'No waste transfer notes in that date range.';
-    warn.textContent=d.missing.length?'Left blank until set up (not on the WTN): '+d.missing.join(' · '):'';
-  }catch(e){meta.textContent='';warn.textContent='Could not reach the server.';}
+    warn.innerHTML=d.missing.length?'<b>Left blank in the file until set up (not on the WTN)</b><span class="dm">'+d.missing.map(m=>'<i>'+esc(m)+'</i>').join('')+'</span>':'';
+  }catch(e){meta.textContent='';warn.textContent='Could not reach the server.';rowStat('—','');}
 }
+function rowStat(n,s){const a=document.getElementById('rowCount'),b=document.getElementById('rowFiles');if(a)a.textContent=n;if(b)b.textContent=s;}
 function rowAll(){document.getElementById('rowFrom').value='';document.getElementById('rowTo').value='';rowInfo();}
 async function rowDownload(){
   if(!ROW_INFO)await rowInfo();
