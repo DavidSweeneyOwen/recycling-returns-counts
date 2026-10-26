@@ -91,12 +91,16 @@ const multi = O({ id: 31, so: 'DROP-2026-0031', cust: 'Chubb', wtn: 'WTN-31', st
 const plain = O({ id: 33, so: 'SO3C', cust: 'z', wtn: 'WTN-3', counts: [ew(1, '05/10/2026, 09:00')] });
 const nowtn = O({ id: 34, so: 'SO4C', cust: 'z', status: 'open', counts: [ew(1, '05/10/2026, 09:00')] });
 const RU = [{ id: 1, wtn: 'WTN-S1', code: 'C', name: 'C' }, { id: 2, wtn: 'WTN-S2', code: 'C', name: 'C' }];
-const DF = P.defraOrders([multi, plain, nowtn], RU), last = o => o.counts[o.counts.length - 1].when.split(',')[0];
+const DF = P.defraOrders([Object.assign({ rollCode: 'CNI0222' }, multi), plain, nowtn], RU, CM), last = o => o.counts[o.counts.length - 1].when.split(',')[0];
 t('Defra: one row per order per count day, under the order\'s own WTN', DF.length === 3 && DF.filter(o => o.wtn === 'WTN-31').map(last).sort().join() === '02/10/2026,20/09/2026');
 t('Defra: every counted entry with a WTN appears exactly once', DF.reduce((n, o) => n + o.counts.length, 0) === 4);
 t('Defra: the season WTN only rides along as a reference', DF.find(o => last(o) === '20/09/2026').seasonWtn === 'WTN-S1' && DF.every(o => !/^WTN-S/.test(o.wtn)));
-t('Defra: billing does not change the rows (same rows before and after Process)', JSON.stringify(P.defraOrders([Object.assign({}, multi, { counts: multi.counts.map(c => Object.assign({}, c, { packId: undefined })) })], []).map(o => [o.wtn, last(o), o.counts.length]))
-  === JSON.stringify(P.defraOrders([multi], RU).map(o => [o.wtn, last(o), o.counts.length])));
+t('Defra: billing does not change the rows (same rows before and after Process)', JSON.stringify(P.defraOrders([Object.assign({}, multi, { cust: 'Chubb Fire and Security Ltd', counts: multi.counts.map(c => Object.assign({}, c, { packId: undefined })) })], [], CM).map(o => [o.wtn, last(o), o.counts.length]))
+  === JSON.stringify(P.defraOrders([Object.assign({}, multi, { cust: 'Chubb Fire and Security Ltd' })], RU, CM).map(o => [o.wtn, last(o), o.counts.length])));
+const perOrder = O({ id: 36, so: 'SO860036C', cust: 'Acme Ltd', wtn: 'WTN-36', counts: [ew(2, '30/09/2026, 10:00'), ew(3, '01/10/2026, 10:00')] });
+t('Defra: a per-order collection over two days stays ONE row, identical to 385cc58 (dated 01/10)', (r => r.length === 1 && r[0] === perOrder && last(r[0]) === '01/10/2026')(P.defraOrders([perOrder], RU, CM)));
+const rollTwo = Object.assign({}, perOrder, { id: 37, cust: 'Chubb Fire and Security Ltd' });
+t('Defra: a roll-up order over two days gives two dated rows', P.defraOrders([rollTwo], RU, CM).map(last).sort().join() === '01/10/2026,30/09/2026');
 t('companyNorm: Ltd and Limited match, Plc / LLP / Inc do not', P.companyNorm('Acme Ltd') === P.companyNorm('ACME LIMITED') && P.companyNorm('Acme Plc') !== P.companyNorm('Acme') && P.companyNorm('Acme LLP') !== P.companyNorm('Acme Inc'));
 const agedBilled = O({ id: 35, so: 'SO850035C', cust: 'Chubb Fire and Security Ltd', source: 'netsuite', status: 'open', date: iso(120), crates: 5, counts: [ew(3, '01/07/2026, 10:00', 1)] });
 t('blocker 1: a part-billed order never ages out into Archive', P.stageOf(agedBilled, undefined, CM) === 'monthly');

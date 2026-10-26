@@ -186,11 +186,15 @@
        seasonWtn for reference. Open orders are included as soon as they have a WTN; drop-offs
        and monthly-roll-up orders get theirs on their first counted crate. */
   function countDay(c) { return String((c && c.when) || '').split(',')[0].trim(); }
-  function defraOrders(orders, rollups) {
+  /* The per-day split applies ONLY to roll-up orders (members, billed crates, or stamped by a
+     pack). Every other collection keeps the 385cc58 row exactly: one row per WTN, dated by its
+     last count — so no filed quarter changes. */
+  function defraOrders(orders, rollups, customers) {
     const packs = new Map((rollups || []).filter(r => !r.voidedAt && r.wtn).map(r => [r.id, r.wtn]));
     const out = [];
     (orders || []).forEach(o => {
       if (!o.wtn || o.rollVoidAt || !(o.counts || []).length) return;
+      if (!(o.rollCode || hasBilled(o) || rollMatch(o, customers))) { out.push(o); return; }   // per-order: untouched
       const days = new Map();
       o.counts.forEach(c => { const d = countDay(c) || 'undated'; (days.get(d) || days.set(d, []).get(d)).push(c); });
       if (days.size === 1) { const only = [...days.values()][0]; out.push(Object.assign({}, o, { seasonWtn: packs.get(entryPack(o, only[0])) || null })); return; }

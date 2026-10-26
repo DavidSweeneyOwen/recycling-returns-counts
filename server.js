@@ -842,7 +842,7 @@ const server = http.createServer((req, res) => {
     const from = day(u.searchParams.get('from')), to = day(u.searchParams.get('to'));
     try {
       const row = require('./receipt-of-waste.js');
-      const rowOrders = Pipeline.defraOrders(db.orders, db.rollups);   // each crate entry exactly once
+      const rowOrders = Pipeline.defraOrders(db.orders, db.rollups, db.customers);   // each crate entry exactly once
       if (p === '/api/receipt-of-waste-info') return json(res, 200, row.summary(rowOrders, CONFIG, from, to));
       const out = row.build(rowOrders, CONFIG, { from, to, part: u.searchParams.get('part'), appDir: __dirname, wtnTotals });
       res.writeHead(200, {
