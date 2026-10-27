@@ -833,12 +833,13 @@ function buildRecords(){
       amends[0].before.forEach(x=>{origMap[x.p]=(origMap[x.p]||0)+(Number(x.q)||0);});
     }
     // current (post-amendment) state, plus the latest count date
-    const curMap={};
+    const curMap={},billMap={};
     let lastDate=parseWhen(o.date);
     (o.counts||[]).forEach(c=>{
       const dt=parseWhen(c.when);
       if(dt&&(!lastDate||dt>lastDate))lastDate=dt;
-      (c.lines||[]).forEach(l=>{curMap[l.p]=(curMap[l.p]||0)+(Number(l.q)||0);});
+      const bc=P.crateBilled(o,c,STATE.rollups);   // billed per crate entry (pipeline.js)
+      (c.lines||[]).forEach(l=>{curMap[l.p]=(curMap[l.p]||0)+(Number(l.q)||0);if(bc)billMap[l.p]=(billMap[l.p]||0)+(Number(l.q)||0);});
     });
     if(!amends.length)Object.assign(origMap,curMap);   // never amended -> counted === current
 
@@ -854,8 +855,9 @@ function buildRecords(){
         counted,                      // originally counted
         amended:now-counted,          // net correction (negative = counted down)
         qty:now,                      // current position = counted + amended
-        billed:invoiced?now:0,        // only what has actually been invoiced
-        status:o.status,complete,invoiced,
+        billed:Math.min(now,billMap[p]||0),   // crates billed: invoiced, Already billed, or on a processed pack
+        unbilled:now-Math.min(now,billMap[p]||0),
+        status:o.status,complete,invoiced:now>0&&(billMap[p]||0)>=now,
         wasAmended:now!==counted||amends.length>0,
         dropOff:!!o.dropOff});
     });
@@ -936,8 +938,8 @@ function applyFilter(over){
     if(f.type&&r.type!==f.type)return false;
     if(f.size&&r.size!==f.size)return false;
     if(f.prod&&r.product!==f.prod)return false;
-    if(f.stage==='billed'  && !r.invoiced)return false;
-    if(f.stage==='unbilled'&&  r.invoiced)return false;
+    if(f.stage==='billed'  && !r.billed)return false;
+    if(f.stage==='unbilled'&& !r.unbilled)return false;
     if(f.stage==='open'    &&  r.complete)return false;
     if(f.stage==='amended' && !r.wasAmended)return false;
     return true;
@@ -950,7 +952,7 @@ function recon(rows,key){
     const k=r[key];
     if(!m[k])m[k]={k,counted:0,amended:0,current:0,billed:0,unbilled:0};
     m[k].counted+=r.counted;m[k].amended+=r.amended;m[k].current+=r.qty;
-    m[k].billed+=r.billed;if(!r.invoiced)m[k].unbilled+=r.qty;
+    m[k].billed+=r.billed;m[k].unbilled+=r.unbilled;
   });
   return Object.values(m).sort((a,b)=>b.current-a.current);
 }
@@ -993,7 +995,7 @@ function priorBounds(){
 }
 function repMetrics(rows){
   const s=k=>rows.reduce((a,r)=>a+r[k],0),bb=(PRODMAP);
-  return {counted:s('counted'),amended:s('amended'),current:s('qty'),billed:s('billed'),unbilled:rows.filter(r=>!r.invoiced).reduce((a,r)=>a+r.qty,0),
+  return {counted:s('counted'),amended:s('amended'),current:s('qty'),billed:s('billed'),unbilled:rows.reduce((a,r)=>a+r.unbilled,0),
     collections:new Set(rows.map(r=>r.so)).size,customers:new Set(rows.map(r=>r.acct)).size,
     co2:rows.filter(r=>(bb[r.product]||{}).buyback).reduce((a,r)=>a+r.qty,0),drops:new Set(rows.filter(r=>r.dropOff).map(r=>r.so)).size};
 }
@@ -1010,8 +1012,8 @@ const UNB_GROUPS=[['Still being counted',['awaiting','archive'],'awaiting'],['No
 const UNB_SHADE=['#d1d5da','#a9bccd','#6f8aa3','#3a536b','#1d1d1b'];
 function paintHero(rows,cur,prior,pb){
   const base=pb?`vs ${fmtUK(pb.from)} to ${fmtUK(pb.to)}`:'';
-  const unb=rows.filter(r=>!r.invoiced);
-  const parts=UNB_GROUPS.map(([l,st,go],i)=>({l,go,v:unb.filter(r=>st.includes(r.stage)).reduce((a,r)=>a+r.qty,0),c:UNB_SHADE[i]}));
+  const unb=rows.filter(r=>r.unbilled);
+  const parts=UNB_GROUPS.map(([l,st,go],i)=>({l,go,v:unb.filter(r=>st.includes(r.stage)).reduce((a,r)=>a+r.unbilled,0),c:UNB_SHADE[i]}));
   const known=parts.reduce((a,p)=>a+p.v,0);
   if(known!==cur.unbilled)parts.push({l:'Other',go:'counted',v:cur.unbilled-known,c:'#e5e5e5'});
   const seg=parts.filter(p=>p.v>0);
@@ -1039,7 +1041,7 @@ function bucketKey(unit,d){
   return ('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear();
 }
 function trendSplit(rows,trend){
-  const b={},u={};rows.forEach(r=>{if(!r.date)return;const k=bucketKey(trend.unit,r.date);b[k]=(b[k]||0)+r.billed;u[k]=(u[k]||0)+(r.invoiced?0:r.qty);});
+  const b={},u={};rows.forEach(r=>{if(!r.date)return;const k=bucketKey(trend.unit,r.date);b[k]=(b[k]||0)+r.billed;u[k]=(u[k]||0)+r.unbilled;});
   return trend.labels.map(k=>({k,billed:b[k]||0,unbilled:u[k]||0}));
 }
 function drawTime(rows,trend){
@@ -1079,7 +1081,7 @@ function drawMix(byType,total){
 }
 function drawCust(rows){
   const box=document.getElementById('rpCust'),m={};
-  rows.forEach(r=>{const o=m[r.acct]||(m[r.acct]={k:r.acct,b:0,u:0});o.b+=r.billed;o.u+=r.invoiced?0:r.qty;});
+  rows.forEach(r=>{const o=m[r.acct]||(m[r.acct]={k:r.acct,b:0,u:0});o.b+=r.billed;o.u+=r.unbilled;});
   const all=Object.values(m).map(o=>Object.assign(o,{t:o.b+o.u})).sort((a,b)=>b.t-a.t);
   if(!all.length){box.innerHTML='<div class="rp-empty">Nothing counted in this view.</div>';return;}
   all.forEach(o=>{o.names=variantsOf(rows,o.k);});

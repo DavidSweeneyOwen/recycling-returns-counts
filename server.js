@@ -1493,7 +1493,7 @@ const server = http.createServer((req, res) => {
   if (post('/api/roll-extbill', b => {
     const ref = String(b.ref || '').trim(), note = String(b.note || '').trim(), by = String(b.by || '').trim() || 'Rec admin';
     if (!ref) return json(res, 400, { error: 'Enter the NetSuite invoice or SO number it was billed on' });
-    const ids = Array.isArray(b.orderIds) ? b.orderIds.map(Number) : [Number(b.orderId)];
+    const ids = [...new Set(Array.isArray(b.orderIds) ? b.orderIds.map(Number) : [Number(b.orderId)])];   // the same order twice = once
     const list = ids.map(i => db.orders.find(x => x.id === i));
     if (!list.length || list.some(o => !o)) return json(res, 404, { error: 'Order not found — refresh and try again' });
     const off = list.find(o => !Pipeline.rollState(o, db.customers));

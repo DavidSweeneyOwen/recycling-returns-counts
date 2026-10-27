@@ -187,6 +187,20 @@
   function extDone(o) { return !!o && (o.counts || []).length > 0 && !unbilled(o).length && (o.counts || []).some(c => isExt(c.packId)); }
   /* Billed crates (season pack or already billed) on an order that is not invoiced and not finished. */
   function partBilled(o) { return !!o && hasBilled(o) && !o.invoicedAt && !o.rollupId && !(o.status === 'done' && !unbilled(o).length); }
+  /* Is this crate entry billed? ONE rule, used by Reports and anything else that asks:
+       - its order is invoiced (per-order billing, or a processed pack stamped it), or
+       - it was marked Already billed (packId 'ext:<n>'), or
+       - it is on a season pack that is processed on NetSuite.
+     A crate on a pack that is only generated or sent is NOT billed yet — the same as the Processed
+     stage, which takes a pack only once it is processed (WTN sent is still waiting for NetSuite). */
+  function crateBilled(o, c, rollups) {
+    if (o && o.invoicedAt) return true;
+    const p = entryPack(o, c);
+    if (isExt(p)) return true;
+    if (p == null) return false;
+    const r = (rollups || []).find(x => x.id === p);
+    return !!(r && !r.voidedAt && r.processedAt);
+  }
   function lastExtBill(o) { return ((o && o.extBills) || []).filter(x => !x.undoneAt).slice(-1)[0] || null; }
   function unbilled(o) { return (o.counts || []).filter(c => !entryPack(o, c)); }
   function billedOn(o, packId) { return (o.counts || []).filter(c => entryPack(o, c) === packId); }
@@ -242,5 +256,5 @@
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
     classifyDropoff, seedCustomers, addAliases, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
-    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
+    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, crateBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });

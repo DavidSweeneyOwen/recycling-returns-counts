@@ -110,6 +110,23 @@ t('already billed: counts as billed, is done, sits in Processed, off the roll-up
   && P.stageOf(extO, undefined, CM) === 'processed' && !P.openRollup([extO], 'CNI0222', CM).members.length && !P.openRollup([extO], 'CNI0222', CM).pending.length);
 t('already billed: Defra rows are the same as before the mark', JSON.stringify(P.defraOrders([extO], [], CM).map(o => [o.wtn, o.counts.length]))
   === JSON.stringify(P.defraOrders([Object.assign({}, extO, { counts: extO.counts.map(c => Object.assign({}, c, { packId: undefined })) })], [], CM).map(o => [o.wtn, o.counts.length])));
+// Reports: billed per crate entry (Pipeline.crateBilled), the one rule Reports uses
+const RB = [{ id: 1, wtn: 'W1', processedAt: '20/10/2026, 10:00' }, { id: 2, wtn: 'W2', sentAt: '21/10/2026' }, { id: 3, wtn: 'W3', processedAt: 'x', voidedAt: 'y' }];
+const cb = (o, c) => P.crateBilled(o, c, RB);
+t('crateBilled: invoiced order, Already billed, processed pack = billed', cb({ invoicedAt: 'x' }, {}) && cb({}, { packId: 'ext:4' }) && cb({}, { packId: 1 }) && cb({ rollupId: 1 }, {}));
+t('crateBilled: unpacked, sent-only pack, voided pack = not billed', !cb({}, {}) && !cb({}, { packId: 2 }) && !cb({}, { packId: 3 }));
+{ // the real buildRecords from dashboard.js, on a mixed order
+  const src = fs.readFileSync(path.join(APP, 'public/dashboard.js'), 'utf8');
+  const grab = name => { const i = src.indexOf('function ' + name + '('); let d = 0; for (let k = src.indexOf('{', i); k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && !--d) return src.slice(i, k + 1); } };
+  const mixed = { id: 1, so: 'DROP-1', cust: 'Chubb', status: 'open', date: '2026-10-01', counts: [
+    { when: '01/10/2026, 10:00', lines: [{ p: 'Water 6L', q: 5 }], packId: 'ext:1' },
+    { when: '02/10/2026, 10:00', lines: [{ p: 'Water 6L', q: 7 }], packId: 1 },
+    { when: '03/10/2026, 10:00', lines: [{ p: 'Water 6L', q: 3 }], packId: 2 },
+    { when: '04/10/2026, 10:00', lines: [{ p: 'Water 6L', q: 4 }] }] };
+  const run = new Function('P', 'STATE', 'PRODMAP', grab('parseWhen') + '\nfunction acctOf(){return null;}\nfunction stageOf(){return "monthly";}\nlet RECORDS=[];\n' + grab('buildRecords') + '\nbuildRecords();return RECORDS;');
+  const rec = run(P, { orders: [mixed], rollups: RB }, {})[0];
+  t('Reports: billed per crate (ext 5 + processed pack 7 = 12 of 19), not yet billed 7', rec.qty === 19 && rec.billed === 12 && rec.unbilled === 7 && !rec.invoiced);
+}
 t('removed drop-off sits in no stage', P.stageOf(O({ status: 'open', rollVoidAt: 'x' }), undefined, CM) === 'removed');
 t('rollupStage', P.rollupStage({}) === 'pack' && P.rollupStage({ sentAt: 'x' }) === 'wtn' && P.rollupStage({ sentAt: 'x', processedAt: 'y' }) === 'processed' && P.rollupStage({ voidedAt: 'x' }) === 'void');
 // customers + matching
@@ -425,6 +442,9 @@ async function e2e() {
     st = (await req(port7, 'GET', '/api/state')).json;
     t('Process afterwards bills only the new crate, never the already-billed ones', pr.ok && pr.rollup.units === 2 && pr.rollup.visitIds.join() === '1'
       && by(1).counts.filter(c => c.packId === 'ext:1').length === 2 && by(1).counts.filter(c => c.packId === pr.rollup.id).length === 1);
+    t('already billed: the same order twice is marked once (no empty audit record)', await (async () => { const d0 = (await x('/api/dropoff', { cust: 'x', custCode: 'CNI0222', by: 'T', crates: 2 })).json.order.id;
+      await x('/api/count', { orderId: d0, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q: 8 }] }); const j = (await x('/api/roll-extbill', { orderIds: [d0, d0, String(d0)], ref: 'INV-DUP' })).json;
+      const o0 = (await req(port7, 'GET', '/api/state')).json.orders.find(o => o.id === d0); return j.ok && j.count === 1 && j.units === 8 && o0.extBills.length === 1; })());
     t('undo needs the admin key', (await x('/api/roll-extbill-undo', { orderId: 3 })).status === 403 && (await x('/api/roll-extbill-undo', { orderId: 3 }, { 'X-Admin-Key': 'nope' })).status === 403);
     t('undo refused once the order has crates on a pack since', (await x('/api/roll-extbill-undo', { orderId: 1 }, K)).status === 400);
     const u3 = (await x('/api/roll-extbill-undo', { orderId: 3, by: 'A' }, K)).json;
