@@ -1663,6 +1663,10 @@ const server = http.createServer((req, res) => {
     if (!ids.length) return json(res, 400, { error: 'No orders picked' });
     const bad = ids.find(i => !ok.some(o => o.id === i));
     if (bad != null) return json(res, 400, { error: `${(db.orders.find(o => o.id === bad) || {}).so || 'An order'} cannot move — refresh and try again` });
+    /* Moving splits the Defra receipt row per count day: never for waste received in an earlier quarter. */
+    const qNow = Pipeline.quarterOf(Pipeline.ukIso(day()));
+    const old = ids.map(i => db.orders.find(x => x.id === i)).find(o => (o.counts || []).some(c => Pipeline.quarterOf(Pipeline.ukIso(c.when)) !== qNow));
+    if (old) return json(res, 400, { error: `${old.so} has crates counted in an earlier quarter — its Defra return may be filed, so it stays per order` });
     const by = String(b.by || '').trim() || 'Admin', when = nowStamp();
     ids.forEach(i => { const o = db.orders.find(x => x.id === i);
       o.wtnUnsent = (o.wtnUnsent || []).concat({ was: o.wtnSentAt, wtn: o.wtn, by, when, why: 'not sent — moved to the ' + c.code + ' roll-up' });

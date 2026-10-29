@@ -746,9 +746,12 @@ function unsendDialog(code){
   const c=P.findCustomer(STATE.customers,code);if(!c)return;
   const os=P.sentOffRoll(STATE.orders,STATE.customers,code).sort(byDate);if(!os.length)return;
   let key='';try{key=sessionStorage.getItem('rrAdminKey')||'';}catch(e){}
+  /* Ticked to start with: only WTNs marked sent on or after the switch to monthly. Earlier ones most likely really went out. */
+  const since=P.monthlySince(c),after=o=>!!since&&P.ukIso(o.wtnSentAt)>=since;
   openDialog(`<h3 id="dTitle">WTNs not actually sent?</h3>
-    <p class="lead">${plural(os.length,'order')} of ${esc(c.name)} have a per-order WTN marked sent, so they are not on the monthly card. <b>Only move them if those WTNs never went to the customer</b> — they then go on the next season WTN instead.</p>
-    <ul style="list-style:none;padding:0;margin:8px 0;max-height:220px;overflow:auto">${os.map(o=>`<li><label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="checkbox" class="unsPick" value="${o.id}" checked> <span class="mono">${esc(o.so)}</span> · ${esc(o.wtn||'')} · marked sent ${esc(o.wtnSentAt)}</label></li>`).join('')}</ul>
+    <p class="lead">${plural(os.length,'order')} of ${esc(c.name)} have a per-order WTN marked sent, so they are not on the monthly card. <b>Only move the ones whose WTN never went to the customer</b> — they then go on the next season WTN instead.</p>
+    <p class="d-note">${since?`Ticked: the ones marked sent on or after ${esc(ukDate(since))}, when ${esc(c.name)} went monthly. Tick others only if you are sure their WTN was not sent.`:'None ticked — tick only the ones you are sure were not sent.'}</p>
+    <ul style="list-style:none;padding:0;margin:8px 0;max-height:220px;overflow:auto">${os.map(o=>`<li><label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="checkbox" class="unsPick" value="${o.id}" ${after(o)?'checked':''}> <span class="mono">${esc(o.so)}</span> · ${esc(o.wtn||'')} · marked sent ${esc(o.wtnSentAt)}</label></li>`).join('')}</ul>
     <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
     <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
     <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="unsendSave(${jsq(code)})">Not sent — move to monthly</button></div>`);

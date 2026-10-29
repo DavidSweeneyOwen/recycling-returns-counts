@@ -275,6 +275,11 @@
   }
   /* Orders of an account kept off its roll-up only because a per-order WTN is marked sent
      (e.g. marked before the name matched the account). Not invoiced, nothing billed. */
+  function ukIso(s) { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(s || '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : ''; }
+  function quarterOf(isoDay) { return isoDay ? isoDay.slice(0, 4) + 'Q' + (Math.floor((Number(isoDay.slice(5, 7)) - 1) / 3) + 1) : ''; }
+  /* The day an account last switched to monthly (ISO), or '' — a WTN marked sent before it was
+     most likely really sent; one marked after it most likely went per order by mistake. */
+  function monthlySince(c) { const h = ((c && c.history) || []).find(x => x.to === 'monthly'); return h ? ukIso(h.when) : ''; }
   function sentOffRoll(orders, customers, code, now) {
     return (orders || []).filter(o => o && o.wtnSentAt && o.status === 'done' && !o.invoicedAt && !o.rollupId && !o.rollVoidAt && !hasBilled(o)
       && (rollMatch(Object.assign({}, o, { wtnSentAt: null }), customers, now) || {}).code === code);
@@ -290,5 +295,5 @@
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
     classifyDropoff, seedCustomers, addAliases, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
-    movesOnToggle, aliasProblem, aliasMoves, sentOffRoll, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, crateBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
+    movesOnToggle, aliasProblem, aliasMoves, sentOffRoll, ukIso, quarterOf, monthlySince, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, crateBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });
