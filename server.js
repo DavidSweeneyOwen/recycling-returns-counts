@@ -1663,10 +1663,14 @@ const server = http.createServer((req, res) => {
     if (!ids.length) return json(res, 400, { error: 'No orders picked' });
     const bad = ids.find(i => !ok.some(o => o.id === i));
     if (bad != null) return json(res, 400, { error: `${(db.orders.find(o => o.id === bad) || {}).so || 'An order'} cannot move — refresh and try again` });
-    /* Moving splits the Defra receipt row per count day: never for waste received in an earlier quarter. */
+    /* Moving onto a roll-up splits the Defra receipt row per count day. Refused only when that
+       would change a row for waste received in an earlier quarter (its return may be filed); an
+       order counted on one day keeps exactly the same row. */
     const qNow = Pipeline.quarterOf(Pipeline.ukIso(day()));
-    const old = ids.map(i => db.orders.find(x => x.id === i)).find(o => (o.counts || []).some(c => Pipeline.quarterOf(Pipeline.ukIso(c.when)) !== qNow));
-    if (old) return json(res, 400, { error: `${old.so} has crates counted in an earlier quarter — its Defra return may be filed, so it stays per order` });
+    const rows = o => JSON.stringify(Pipeline.defraOrders([o], db.rollups, db.customers).map(r => [r.wtn, r.defraDay || null, r.crates, (r.counts || []).length]));
+    const old = ids.map(i => db.orders.find(x => x.id === i)).find(o => (o.counts || []).some(c => Pipeline.quarterOf(Pipeline.ukIso(c.when)) !== qNow)
+      && rows(o) !== rows(Object.assign({}, o, { wtnSentAt: null })));
+    if (old) return json(res, 400, { error: `${old.so} was counted over several days, some in an earlier quarter — moving it would change a Defra return that may be filed, so it stays per order. Untick it and move the rest.` });
     const by = String(b.by || '').trim() || 'Admin', when = nowStamp();
     ids.forEach(i => { const o = db.orders.find(x => x.id === i);
       o.wtnUnsent = (o.wtnUnsent || []).concat({ was: o.wtnSentAt, wtn: o.wtn, by, when, why: 'not sent — moved to the ' + c.code + ' roll-up' });

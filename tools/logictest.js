@@ -299,7 +299,8 @@ async function e2e() {
       { id: 3, so: 'DROP-2026-0901', cust: 'Chubb fire and security ltd', date: iso(2), by: 'T', crates: 1, counts: cl(4), status: 'done', wtn: 'WTN-2026-0902', finalSo: null, source: 'dropoff', dropOff: true },
       { id: 4, so: 'SO860003C', cust: 'Griffin Fire', date: iso(2), by: 'NS', crates: 1, counts: cl(2), status: 'done', wtn: 'WTN-2026-0903', finalSo: null, source: 'netsuite' },
       { id: 5, so: 'SO860004C', cust: 'Chubb Fire and Security Ltd', date: iso(2), by: 'NS', crates: 1, counts: cl(3).map(c => Object.assign(c, { when: new Date().toLocaleDateString('en-GB', { timeZone: 'Europe/London' }) + ', 10:00' })), status: 'done', wtn: 'WTN-2026-0904', finalSo: null, source: 'netsuite', wtnSentAt: '22/10/2026' },
-      { id: 6, so: 'SO860005C', cust: 'Chubb Fire and Security Ltd', date: '2025-01-10', by: 'NS', crates: 1, counts: cl(2).map(c => Object.assign(c, { when: '10/01/2025, 10:00' })), status: 'done', wtn: 'WTN-2025-0001', finalSo: null, source: 'netsuite', wtnSentAt: '11/01/2025' }] };
+      { id: 6, so: 'SO860005C', cust: 'Chubb Fire and Security Ltd', date: '2025-01-10', by: 'NS', crates: 1, counts: cl(2).map(c => Object.assign(c, { when: '10/01/2025, 10:00' })).concat(cl(1).map(c => Object.assign(c, { crateFrom: 2, crateTo: 2, when: '13/01/2025, 10:00' }))), status: 'done', wtn: 'WTN-2025-0001', finalSo: null, source: 'netsuite', wtnSentAt: '14/01/2025' },
+      { id: 7, so: 'SO860006C', cust: 'Chubb Fire and Security Ltd', date: '2025-02-10', by: 'NS', crates: 1, counts: cl(2).map(c => Object.assign(c, { when: '10/02/2025, 10:00' })), status: 'done', wtn: 'WTN-2025-0002', finalSo: null, source: 'netsuite', wtnSentAt: '11/02/2025' }] };
   const s3 = await boot(port3, 'k3', seed);
   try {
     const K = { 'X-Admin-Key': 'k3' };
@@ -331,7 +332,7 @@ async function e2e() {
     const off = (await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'per-order', by: 'T' }, K)).json;
     st = (await req(port3, 'GET', '/api/state')).json;
     t('revert: members go back to Awaiting / No SO yet, the sent pack stays', off.ok && off.split === 2 && stg(2) === 'awaiting' && stg(3) === 'noso' && stg(1) === 'rolled');
-    t('revert: nothing lost or duplicated', st.orders.length === 6 && new Set(st.orders.map(o => o.id)).size === 6);
+    t('revert: nothing lost or duplicated', st.orders.length === 7 && new Set(st.orders.map(o => o.id)).size === 7);
     /* ---- aliases (Customers tab) and WTNs marked sent that never went out ---- */
     t('alias: Firemark NetSuite name added on boot', st.customers.find(c => c.code === 'FP704').aliases.includes('Firemark Scrap Warehouse'));
     await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'monthly', by: 'T' }, K);
@@ -346,15 +347,18 @@ async function e2e() {
     st = (await req(port3, 'GET', '/api/state')).json;
     t('alias: remove puts it back in its own stage', rm.ok && rm.moved.out === 1 && stg(4) === 'counted' && !st.customers[0].aliases.includes('Griffin Fire'));
     const un = (b, h) => req(port3, 'POST', '/api/customer-wtn-unsend', Object.assign({ code: 'CNI0222', by: 'T' }, b), h);
-    t('not sent: only orders kept off the roll-up by a sent WTN are offered', P.sentOffRoll(st.orders, st.customers, 'CNI0222').map(o => o.id).sort().join() === '5,6');
+    t('not sent: only orders kept off the roll-up by a sent WTN are offered', P.sentOffRoll(st.orders, st.customers, 'CNI0222').map(o => o.id).sort().join() === '5,6,7');
     t('not sent: refused without the admin key', (await un({ orderIds: [5] })).status === 403);
     t('not sent: an order not on offer is refused', (await un({ orderIds: [1] }, K)).status === 400);
     const q = await un({ orderIds: [5, 6] }, K);
     st = (await req(port3, 'GET', '/api/state')).json;
-    t('not sent: crates counted in an earlier quarter refused (filed Defra return), nothing moved', q.status === 400 && /earlier quarter/.test(q.json.error) && stg(5) === 'wtn' && stg(6) === 'wtn');
-    const u = (await un({ orderIds: [5] }, K)).json;
+    t('not sent: counted over several days in an earlier quarter refused (filed Defra row would split), nothing moved', q.status === 400 && /earlier quarter/.test(q.json.error) && stg(5) === 'wtn' && stg(6) === 'wtn');
+    const defraRows = () => JSON.stringify(P.defraOrders(st.orders, st.rollups, st.customers).filter(r => r.id === 7).map(r => [r.wtn, r.defraDay || null, r.crates]));
+    const rows7 = defraRows();
+    const u = (await un({ orderIds: [5, 7] }, K)).json;
     st = (await req(port3, 'GET', '/api/state')).json;
-    t('not sent: order joins the roll-up, its WTN number and the sent date kept on record', u.ok && u.count === 1 && stg(5) === 'monthly' && P.rollState(by(5), st.customers) === 'member'
+    t('not sent: counted on one day in an earlier quarter moves, its Defra row unchanged', u.ok && stg(7) === 'monthly' && defraRows() === rows7);
+    t('not sent: order joins the roll-up, its WTN number and the sent date kept on record', u.ok && u.count === 2 && stg(5) === 'monthly' && P.rollState(by(5), st.customers) === 'member'
       && by(5).wtn === 'WTN-2026-0904' && by(5).wtnUnsent[0].was === '22/10/2026');
   } finally { s3.child.kill(); fs.rmSync(s3.dir, { recursive: true, force: true }); }
 
