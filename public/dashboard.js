@@ -751,10 +751,17 @@ function unsendDialog(code){
   openDialog(`<h3 id="dTitle">WTNs not actually sent?</h3>
     <p class="lead">${plural(os.length,'order')} of ${esc(c.name)} have a per-order WTN marked sent, so they are not on the monthly card. <b>Only move the ones whose WTN never went to the customer</b> — they then go on the next season WTN instead.</p>
     <p class="d-note">${since?`Ticked: the ones marked sent on or after ${esc(ukDate(since))}, when ${esc(c.name)} went monthly. Tick others only if you are sure their WTN was not sent.`:'None ticked — tick only the ones you are sure were not sent.'}</p>
-    <ul style="list-style:none;padding:0;margin:8px 0;max-height:220px;overflow:auto">${os.map(o=>`<li><label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="checkbox" class="unsPick" value="${o.id}" ${after(o)?'checked':''}> <span class="mono">${esc(o.so)}</span> · ${esc(o.wtn||'')} · marked sent ${esc(o.wtnSentAt)}</label></li>`).join('')}</ul>
+    <p style="display:flex;gap:14px;margin:6px 0 0"><button class="lbtn" onclick="unsendTick(true)">Tick all ${os.length}</button><button class="lbtn" onclick="unsendTick(false)">Untick all</button><span class="meta" id="unsN" aria-live="polite"></span></p>
+    <ul style="list-style:none;padding:0;margin:8px 0;max-height:220px;overflow:auto">${os.map(o=>`<li><label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="checkbox" class="unsPick" value="${o.id}" ${after(o)?'checked':''} onchange="unsendTick()"> <span class="mono">${esc(o.so)}</span> · ${esc(o.wtn||'')} · marked sent ${esc(o.wtnSentAt)}</label></li>`).join('')}</ul>
     <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
     <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
     <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="unsendSave(${jsq(code)})">Not sent — move to monthly</button></div>`);
+  unsendTick();
+}
+/* Tick all / untick all (on undefined: just recount), and show how many are ticked. */
+function unsendTick(on){
+  const bs=[...document.querySelectorAll('.unsPick')];if(on!==undefined)bs.forEach(b=>{b.checked=on;});
+  const n=document.getElementById('unsN');if(n)n.textContent=`${bs.filter(b=>b.checked).length} of ${bs.length} ticked`;
 }
 async function unsendSave(code){
   const ids=[...document.querySelectorAll('.unsPick:checked')].map(x=>Number(x.value));
