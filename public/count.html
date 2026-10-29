@@ -418,6 +418,7 @@ function groupsFromProducts(){
 const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
 
 function startCount(){
+  if(!photoId){toast('No photo saved — take the photo again first');document.getElementById('photoCard').scrollIntoView({block:'start'});return;}
   document.getElementById('crateLabel').textContent=`${active.so} — ${active.cust} — ${active.counted} of ${active.crates} counted`;
   const remaining=active.crates-active.counted;
   const sel=document.getElementById('batchSel');
@@ -506,3 +507,4 @@ init();
 </script>
 </body>
 </html>
+
