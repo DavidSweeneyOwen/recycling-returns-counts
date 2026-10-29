@@ -77,10 +77,13 @@
   }
   /* Aliases added after the store was seeded. Applied once, additively, to the live record:
      an alias only ever widens 'needs Confirm' matching, it never makes an order trusted. */
-  const ALIAS_ADDS = [{ code: 'CNI0222', alias: 'chubby fire and security ltd', why: 'David confirmed DROP-2026-0002 is Chubb (26/10/2026)' }];
+  const ALIAS_ADDS = [{ code: 'CNI0222', alias: 'chubby fire and security ltd', why: 'David confirmed DROP-2026-0002 is Chubb (26/10/2026)' },
+    { code: 'FP704', alias: 'Firemark Scrap Warehouse', why: 'NetSuite name for Firemark orders; David asked (29/10/2026)' }];
+  /* An alias removed on the Customers tab stays removed: it is never re-added here. */
   function addAliases(customers) {
     let n = 0;
     ALIAS_ADDS.forEach(a => { const c = findCustomer(customers, a.code);
+      if (c && (c.aliasLog || []).some(x => x.action === 'remove' && norm(x.alias) === norm(a.alias))) return;
       if (c && !(c.aliases || []).some(x => norm(x) === norm(a.alias))) { c.aliases = (c.aliases || []).concat(a.alias); (c.aliasLog = c.aliasLog || []).push({ alias: a.alias, why: a.why }); n++; } });
     return n;
   }
@@ -245,6 +248,37 @@
     });
     return { total, by };
   }
+  /* ---------- aliases (admin key) ----------
+     An alias only widens 'needs Confirm' matching. Refused when it would also match another
+     account (bills the wrong customer) or is too short to mean anything. */
+  function aliasProblem(customers, code, alias) {
+    const a = norm(alias), ca = companyNorm(alias), c = findCustomer(customers, code);
+    if (!c) return 'Customer not found';
+    if (a.length < 3 || !ca) return 'Type at least 3 letters of the name';
+    const hits = x => norm(x.code) === a || norm(x.name) === a || companyNorm(x.name) === ca
+      || (x.aliases || []).some(y => norm(y) === a || companyNorm(y) === ca);
+    if (hits(c)) return `${c.name} already matches “${String(alias).trim()}”`;
+    const other = (customers || []).find(x => x !== c && hits(x));
+    return other ? `“${String(alias).trim()}” already matches ${other.name}${other.code ? ' (' + other.code + ')' : ''}` : null;
+  }
+  /* What changing one account's aliases would move on or off its roll-up, by stage. */
+  function aliasMoves(orders, customers, code, aliases, now) {
+    const after = (customers || []).map(c => c.code === code ? Object.assign({}, c, { aliases }) : c);
+    const res = { into: 0, out: 0, by: {} };
+    (orders || []).forEach(o => {
+      const was = stageOf(o, now, customers), will = stageOf(o, now, after);
+      if (was === will || (was !== 'monthly' && will !== 'monthly')) return;
+      const k = will === 'monthly' ? was : will; res.by[k] = (res.by[k] || 0) + 1;
+      if (will === 'monthly') res.into++; else res.out++;
+    });
+    return res;
+  }
+  /* Orders of an account kept off its roll-up only because a per-order WTN is marked sent
+     (e.g. marked before the name matched the account). Not invoiced, nothing billed. */
+  function sentOffRoll(orders, customers, code, now) {
+    return (orders || []).filter(o => o && o.wtnSentAt && o.status === 'done' && !o.invoicedAt && !o.rollupId && !o.rollVoidAt && !hasBilled(o)
+      && (rollMatch(Object.assign({}, o, { wtnSentAt: null }), customers, now) || {}).code === code);
+  }
 
   /* ---------- admin key ---------- */
   function adminCheck(adminKey, supplied, safeEqual) {
@@ -256,5 +290,5 @@
 
   return { AGED_DAYS, STAGES, isPlaceholder, noSo, ageDays, isAged, norm, findCustomer, matchTyped, suggest,
     classifyDropoff, seedCustomers, addAliases, companyNorm, rollMatch, rollState, stageOf, rollupStage, openRollup,
-    movesOnToggle, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, crateBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
+    movesOnToggle, aliasProblem, aliasMoves, sentOffRoll, countedCrates, orderUnits, entryPack, unbilled, billedOn, hasBilled, isExt, extDone, lastExtBill, partBilled, crateBilled, entriesCrates, entriesUnits, defraOrders, adminCheck };
 });

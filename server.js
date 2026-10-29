@@ -1626,6 +1626,50 @@ const server = http.createServer((req, res) => {
     saveDb(); json(res, 200, { ok: true, code: c.code, billing: to, split, moved });
   })) return;
 
+  /* Aliases (admin key). An alias only widens 'needs Confirm' matching, so what it catches waits
+     for Rec Admin to confirm. Every add and remove is logged on the customer record. */
+  if (post('/api/customer-alias', b => {
+    const chk = admin();
+    if (!chk.ok) return json(res, chk.status, { error: chk.error });
+    const c = Pipeline.findCustomer(db.customers, b.code);
+    if (!c) return json(res, 404, { error: 'Customer not found' });
+    const alias = String(b.alias || '').trim().replace(/\s+/g, ' '), by = String(b.by || '').trim() || 'Admin';
+    const action = b.action === 'remove' ? 'remove' : 'add';
+    let next;
+    if (action === 'remove') {
+      const i = (c.aliases || []).findIndex(x => Pipeline.norm(x) === Pipeline.norm(alias));
+      if (i < 0) return json(res, 400, { error: `“${alias}” is not an alias of ${c.name}` });
+      next = c.aliases.filter((_, j) => j !== i);
+    } else {
+      const bad = Pipeline.aliasProblem(db.customers, c.code, alias);
+      if (bad) return json(res, 400, { error: bad });
+      next = (c.aliases || []).concat(alias);
+    }
+    const moved = Pipeline.aliasMoves(db.orders, db.customers, c.code, next);
+    c.aliases = next;
+    (c.aliasLog = c.aliasLog || []).push({ alias, action, by, when: nowStamp() });
+    saveDb(); json(res, 200, { ok: true, code: c.code, aliases: c.aliases, moved });
+  })) return;
+
+  /* Per-order WTNs marked sent that never went out (admin key): the same as "Not sent — back to
+     Counted" on each order, in one go. Only orders that then join this account's roll-up. */
+  if (post('/api/customer-wtn-unsend', b => {
+    const chk = admin();
+    if (!chk.ok) return json(res, chk.status, { error: chk.error });
+    const c = Pipeline.findCustomer(db.customers, b.code);
+    if (!c) return json(res, 404, { error: 'Customer not found' });
+    const ok = Pipeline.sentOffRoll(db.orders, db.customers, c.code);
+    const ids = [...new Set((Array.isArray(b.orderIds) ? b.orderIds : []).map(Number))];
+    if (!ids.length) return json(res, 400, { error: 'No orders picked' });
+    const bad = ids.find(i => !ok.some(o => o.id === i));
+    if (bad != null) return json(res, 400, { error: `${(db.orders.find(o => o.id === bad) || {}).so || 'An order'} cannot move — refresh and try again` });
+    const by = String(b.by || '').trim() || 'Admin', when = nowStamp();
+    ids.forEach(i => { const o = db.orders.find(x => x.id === i);
+      o.wtnUnsent = (o.wtnUnsent || []).concat({ was: o.wtnSentAt, wtn: o.wtn, by, when, why: 'not sent — moved to the ' + c.code + ' roll-up' });
+      o.wtnSentAt = null; });
+    saveDb(); json(res, 200, { ok: true, code: c.code, count: ids.length });
+  })) return;
+
   json(res, 404, { error: 'Not found' });
 });
 

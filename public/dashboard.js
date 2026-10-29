@@ -479,7 +479,7 @@ const VIEWS={
   return head('s-neutral','Customers',`${lock}`,'How each customer is billed. Switching a customer to monthly pulls their open orders into one roll-up. Reverting splits it back out. It is refused while a pack is unsent, or while an open order still has billed crates (Finish it first).',searchBox('customers','Search name, code or alias'),null,'customers')
    +`<div class="tablewrap"><table class="stack"><thead><tr><th>Customer</th><th>Aliases typed on /count</th><th class="num">Visits picked on /count</th><th>Billing</th></tr></thead><tbody>${l.map(c=>{const h=(c.history||[])[0];return `<tr>
       <td data-label="Customer"><b style="font-weight:600">${esc(c.name)}</b><div class="mono" style="font-size:12px;color:var(--ink-3)">${esc(c.code||'no code')}</div>${c.note?`<div class="meta">${esc(c.note)}</div>`:''}${h?`<div class="meta">Changed by ${esc(h.by)}, ${esc(h.when)}</div>`:''}</td>
-      <td data-label="Aliases">${(c.aliases||[]).map(a=>`<span class="alias">${esc(a)}</span>`).join('')||'—'}</td>
+      <td data-label="Aliases">${(c.aliases||[]).map(a=>`<span class="alias">${esc(a)}</span>`).join('')||'—'}${STATE.adminEnabled&&c.code?` <button class="lbtn" onclick="aliasDialog(${jsq(c.code)})">Edit aliases</button>`:''}</td>
       <td class="num" data-label="Visits">${STATE.orders.filter(o=>o.custCode&&o.custCode===c.code).length}</td>
       <td data-label="Billing"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="badge ${c.billing==='monthly'?'s-monthly':'s-neutral'}">${c.billing==='monthly'?'Monthly rolling':'Per order'}</span>${btn(c)}</div></td></tr>`;}).join('')}</tbody></table></div>`
    +`<div class="sec-title">Change history</div>`+(hist.length?`<ul class="hist-list">${hist.map(h=>`<li><b>${esc(h.cust)}</b><span>${h.from==='monthly'?'Monthly rolling':'Per order'} → ${h.to==='monthly'?'Monthly rolling':'Per order'}</span><span>${esc(h.by)}</span><span>${esc(h.when)}</span></li>`).join('')}</ul>`:'<p class="meta">No billing changes yet.</p>');
@@ -495,7 +495,9 @@ function rollSection(c){
   const revert=c.billing==='monthly'?(STATE.adminEnabled?`<button class="btn quiet sm" onclick="billingDialog(${jsq(c.code)},'per-order')">Revert to per order</button>`:`<span class="lock-line">${ICON.lock}Revert needs the admin key</span>`):'';
   const oldestO=all.slice().sort(byDate)[0];
   const top=`<div><span class="badge">Monthly rolling · billed by the crate</span><h3>${esc(c.name)}</h3><div class="meta"><span class="mono">${esc(c.code)}</span>${all.length?` · open since ${esc(ukDate(oldestO.date))} · no SO until you process`:' · nothing open since the last Process'}</div></div>`;
-  if(!all.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div><div class="roll-foot"><span class="hint">Every new ${esc(c.name)} order — NetSuite SO or drop-off — joins this roll-up.</span>${revert}</div></section>`;
+  const sentN=P.sentOffRoll(STATE.orders,STATE.customers,c.code).length;
+  const sentNote=sentN?`<div class="warn-box" style="margin:12px 0">${plural(sentN,'order')} of ${esc(c.name)} ${sentN===1?'has':'have'} a per-order WTN marked sent, so ${sentN===1?'it is':'they are'} not on this card. ${STATE.adminEnabled?`<button class="btn quiet sm" onclick="unsendDialog(${jsq(c.code)})">Not sent? Move to monthly…</button>`:`<span class="lock-line">${ICON.lock}Moving them needs the admin key</span>`}</div>`:'';
+  if(!all.length)return `<section class="roll s-monthly"><div class="roll-head">${top}</div>${sentNote}<div class="roll-foot"><span class="hint">Every new ${esc(c.name)} order — NetSuite SO or drop-off — joins this roll-up.</span>${revert}</div></section>`;
   const ub=o=>P.unbilled(o),uc=o=>P.entriesCrates(ub(o)),uu=o=>P.entriesUnits(ub(o));
   const sum=(l,f)=>l.reduce((a,o)=>a+f(o),0);
   const groups=[
@@ -541,7 +543,7 @@ function rollSection(c){
       +`<div class="kv total"><span>Total</span><span class="cols">${col(Object.values(a).reduce((p,q)=>p+q,0),'c1')}${col(Object.values(b).reduce((p,q)=>p+q,0),'c2')}</span></div>`;};
   return `<section class="roll s-monthly"><div class="roll-head">${top}
      <div class="stats"><div class="stat big1"><div class="v">${N(P.entriesUnits(readyE))}</div><div class="k">Units ready to bill</div></div><div class="stat"><div class="v">${N(all.length)}</div><div class="k">Orders</div></div><div class="stat"><div class="v">${N(P.entriesCrates(allE))}</div><div class="k">Crates not billed</div></div><div class="stat"><div class="v">${N(P.entriesUnits(allE))}</div><div class="k">Units not billed</div></div></div></div>
-    ${steps}
+    ${sentNote}${steps}
     <div class="bulk s-monthly" id="extBar-${esc(c.code)}" ${[...extPicks].some(id=>all.some(o=>o.id===id))?'':'hidden'}><span class="msg"><b>${[...extPicks].filter(id=>all.some(o=>o.id===id)).length} ticked</b> — already invoiced outside the app?</span><button class="btn" onclick="extBillDialog([...extPicks].filter(id=>openRoll(${jsq(c.code)}).members.concat(openRoll(${jsq(c.code)}).pending).some(o=>o.id===id)),${jsq(c.code)})">Mark selected as already billed</button><button class="btn quiet" onclick="extPicks.clear();render()">Clear</button></div>
     <div class="visits"><div class="vh"><span>Photo</span><span>Ref and date</span><span>Account</span><span class="r">Crates</span><span class="r">Units</span><span>Counted by</span></div>${groups.map(grp).join('')}</div>
     <div class="roll-cols"><div><h4>Units by product</h4>${both(sumProductsE)}</div><div><h4>Units by charge code</h4>${both(sumCodesE)}</div></div>
@@ -697,6 +699,69 @@ async function doBilling(code,to){
   if(j.error){if(/not accepted/i.test(j.error)){try{sessionStorage.removeItem('rrAdminKey');}catch(e){}}toast(j.error);return;}
   try{sessionStorage.setItem('rrAdminKey',key);localStorage.setItem('recAdmin',by);}catch(e){}
   closeDialog();toast(to==='monthly'?`Monthly rolling — ${plural((j.moved||{}).total||0,'order')} moved onto the roll-up`:`Back to per order — ${plural(j.split||0,'order')} back in their own stages`);refresh();
+}
+/* Aliases: the other names an account's orders come in under (NetSuite or typed on /count).
+   Orders an alias catches wait for Confirm on the monthly card. */
+function movedText(mv){return Object.entries(mv.by).map(([k,v])=>v+' '+(STAGE_NAME[k]||k)).join(', ');}
+function aliasDialog(code){
+  const c=P.findCustomer(STATE.customers,code);if(!c)return;
+  let key='';try{key=sessionStorage.getItem('rrAdminKey')||'';}catch(e){}
+  const rows=(c.aliases||[]).map(a=>`<li style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:4px 0"><span class="alias">${esc(a)}</span><button class="lbtn" onclick="aliasSave(${jsq(code)},'remove',${jsq(a)})">Remove</button></li>`).join('');
+  openDialog(`<h3 id="dTitle">Aliases for ${esc(c.name)}</h3>
+    <p class="lead">Other names this account's orders come in under, from NetSuite or typed on /count. Must match the whole name (case and punctuation ignored).${c.billing==='monthly'?' Orders an alias catches join the monthly card and wait for Confirm.':''}</p>
+    ${rows?`<ul style="list-style:none;padding:0;margin:8px 0">${rows}</ul>`:'<p class="meta">No aliases yet.</p>'}
+    <label for="alNew">Add an alias</label><input class="in" id="alNew" style="font-family:var(--sans)" placeholder="e.g. ${esc(c.name)} Warehouse" oninput="aliasPreview(${jsq(code)})">
+    <p class="d-note" id="alPrev" aria-live="polite"></p>
+    <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
+    <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Close</button><button class="btn" onclick="aliasSave(${jsq(code)},'add')">Add alias</button></div>`);
+}
+function aliasPreview(code){
+  const c=P.findCustomer(STATE.customers,code),v=document.getElementById('alNew').value.trim(),out=document.getElementById('alPrev');
+  if(!c||!out)return;if(!v){out.textContent='';return;}
+  const bad=P.aliasProblem(STATE.customers,code,v);if(bad){out.textContent=bad;return;}
+  const mv=P.aliasMoves(STATE.orders,STATE.customers,code,(c.aliases||[]).concat(v));
+  const left=P.sentOffRoll(STATE.orders,STATE.customers.map(x=>x.code===code?Object.assign({},x,{aliases:(c.aliases||[]).concat(v)}):x),code).length;
+  out.textContent=c.billing!=='monthly'?'Account is billed per order: nothing moves now.'
+    :(mv.into?`${plural(mv.into,'order')} will join the monthly card (${movedText(mv)}), waiting for Confirm.`:'No open orders match this name yet.')
+     +(left?` ${plural(left,'more order')} with a WTN marked sent stay out — the card offers to move them.`:'');
+}
+async function aliasSave(code,action,alias){
+  const c=P.findCustomer(STATE.customers,code);if(!c)return;
+  const by=document.getElementById('bkBy').value.trim(),key=document.getElementById('bkKey').value;
+  if(action==='add')alias=document.getElementById('alNew').value.trim();
+  if(!alias){toast('Type the alias first');return;}
+  if(!by){toast('Enter your name');return;}
+  if(action==='remove'){const mv=P.aliasMoves(STATE.orders,STATE.customers,code,(c.aliases||[]).filter(a=>a!==alias));
+    if(!confirm(`Remove “${alias}” from ${c.name}?`+(mv.out?` ${plural(mv.out,'order')} will leave the monthly card and go back to ${movedText(mv)}.`:'')))return;}
+  const j=await api('/api/customer-alias',{code,action,alias,by},{'X-Admin-Key':key});
+  if(j.error){if(/not accepted/i.test(j.error)){try{sessionStorage.removeItem('rrAdminKey');}catch(e){}}toast(j.error);return;}
+  try{sessionStorage.setItem('rrAdminKey',key);localStorage.setItem('recAdmin',by);}catch(e){}
+  const m=j.moved||{};
+  toast(action==='add'?`Alias added — ${plural(m.into||0,'order')} joined the monthly card`:`Alias removed${m.out?` — ${plural(m.out,'order')} back in their own stages`:''}`);
+  await refresh();aliasDialog(code);
+}
+/* Per-order WTNs marked sent that never went out: move them onto the account's roll-up in one go. */
+function unsendDialog(code){
+  const c=P.findCustomer(STATE.customers,code);if(!c)return;
+  const os=P.sentOffRoll(STATE.orders,STATE.customers,code).sort(byDate);if(!os.length)return;
+  let key='';try{key=sessionStorage.getItem('rrAdminKey')||'';}catch(e){}
+  openDialog(`<h3 id="dTitle">WTNs not actually sent?</h3>
+    <p class="lead">${plural(os.length,'order')} of ${esc(c.name)} have a per-order WTN marked sent, so they are not on the monthly card. <b>Only move them if those WTNs never went to the customer</b> — they then go on the next season WTN instead.</p>
+    <ul style="list-style:none;padding:0;margin:8px 0;max-height:220px;overflow:auto">${os.map(o=>`<li><label style="display:flex;gap:8px;align-items:center;padding:3px 0"><input type="checkbox" class="unsPick" value="${o.id}" checked> <span class="mono">${esc(o.so)}</span> · ${esc(o.wtn||'')} · marked sent ${esc(o.wtnSentAt)}</label></li>`).join('')}</ul>
+    <label for="bkBy">Your name</label><input class="in" id="bkBy" value="${esc(adminName())}" style="font-family:var(--sans)">
+    <label for="bkKey">Admin key</label><input class="in" id="bkKey" type="password" value="${esc(key)}" autocomplete="off">
+    <div class="d-actions"><button class="btn quiet" onclick="closeDialog()">Cancel</button><button class="btn" onclick="unsendSave(${jsq(code)})">Not sent — move to monthly</button></div>`);
+}
+async function unsendSave(code){
+  const ids=[...document.querySelectorAll('.unsPick:checked')].map(x=>Number(x.value));
+  const by=document.getElementById('bkBy').value.trim(),key=document.getElementById('bkKey').value;
+  if(!ids.length){toast('Tick at least one order');return;}
+  if(!by){toast('Enter your name');return;}
+  const j=await api('/api/customer-wtn-unsend',{code,orderIds:ids,by},{'X-Admin-Key':key});
+  if(j.error){if(/not accepted/i.test(j.error)){try{sessionStorage.removeItem('rrAdminKey');}catch(e){}}toast(j.error);return;}
+  try{sessionStorage.setItem('rrAdminKey',key);localStorage.setItem('recAdmin',by);}catch(e){}
+  closeDialog();toast(`${plural(j.count,'order')} moved to the monthly card`);refresh();
 }
 
 /* ============ per-order actions (redesign) ============ */

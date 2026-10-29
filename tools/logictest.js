@@ -62,6 +62,20 @@ const CS = P.seedCustomers({ monthlyCustomers: [] }), CL = [{ code: 'CNI0222', n
 t('alias added: "Chubby fire and security ltd" joins CNI0222 as needs Confirm, never trusted', P.rollState(typo, CS) === 'pending' && P.rollMatch(typo, CS).code === 'CNI0222'
   && P.rollState(Object.assign({}, typo, { source: 'netsuite', dropOff: false }), CS) === 'pending');
 t('alias added to an existing live record once, additively', P.addAliases(CL) === 1 && P.addAliases(CL) === 0 && CL[0].aliases.length === 3 && CL[0].aliasLog.length === 1);
+t('alias edit: another account\'s name or alias, too short, or already matched is refused; a new name is fine',
+  /CNI0222/.test(P.aliasProblem(CM, 'FP704', 'Chubb Fire')) && /CNI0222/.test(P.aliasProblem(CM, 'FP704', 'chubb fire & security limited'))
+  && /3 letters/.test(P.aliasProblem(CM, 'FP704', 'ab')) && /already matches/.test(P.aliasProblem(CM, 'FP704', 'Firemark Ltd'))
+  && P.aliasProblem(CM, 'FP704', 'Firemark Scrap Warehouse') === null);
+const CR = [{ code: 'FP704', name: 'Firemark Limited', aliases: ['firemark'], billing: 'monthly', aliasLog: [{ alias: 'firemark scrap warehouse', action: 'remove' }] }];
+t('alias edit: an alias removed on Customers is never re-added on boot', P.addAliases(CR) === 0 && CR[0].aliases.length === 1);
+const fmOpen = O({ id: 30, so: 'TFO1C', cust: 'Firemark Scrap Warehouse', source: 'netsuite-tfo', status: 'open', crates: 1 });
+const fmSent = O({ id: 31, so: 'TFO2C', cust: 'Firemark Scrap Warehouse', source: 'netsuite-tfo', counts: cnt(2), crates: 1, wtn: 'WTN-2026-0001', wtnSentAt: '06/10/2026' });
+const CF = [{ code: 'FP704', name: 'Firemark Limited', aliases: ['firemark'], billing: 'monthly' }], CF2 = [Object.assign({}, CF[0], { aliases: ['firemark', 'Firemark Scrap Warehouse'] })];
+const am = P.aliasMoves([fmOpen, fmSent], CF, 'FP704', CF2[0].aliases);
+t('alias edit: preview counts the open order joining, not the WTN-sent one', am.into === 1 && am.out === 0 && am.by.awaiting === 1 && P.rollState(fmOpen, CF2) === 'pending');
+t('not sent: a WTN-sent order of the account is offered, only once its name matches', P.sentOffRoll([fmOpen, fmSent], CF, 'FP704').length === 0
+  && P.sentOffRoll([fmOpen, fmSent], CF2, 'FP704').map(o => o.id).join() === '31'
+  && P.sentOffRoll([Object.assign({}, fmSent, { invoicedAt: '07/10/2026' })], CF2, 'FP704').length === 0);
 t('strict: per-order account never rolls', P.rollState(other, CM) === null);
 t('not members: WTN sent, archived, on a pack', P.rollState(sent, CM) === null && P.stageOf(aged, undefined, CM) === 'archive' && P.rollState(Object.assign({}, nsDone, { rollupId: 3 }), CM) === null);
 t('pull-in: Counted, Awaiting and No SO yet orders all move to monthly', [nsDone, nsOpen, dropName].every(o => P.stageOf(o, undefined, CM) === 'monthly')
@@ -275,7 +289,8 @@ async function e2e() {
   const port3 = port + 2;
   const cl = q => [{ crateFrom: 1, crateTo: 1, by: 'T', when: '20/10/2026, 10:00', lines: [{ p: 'Water 6L', q }, { p: 'Foam 6L', q: 1 }] }];
   const seed = { seq: 5, wtnSeq: {}, lastSync: null, rollups: [],
-    customers: [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire'], billing: 'per-order', history: [], note: '' }],
+    customers: [{ code: 'CNI0222', name: 'Chubb Fire and Security Ltd', aliases: ['chubb', 'chubb fire'], billing: 'per-order', history: [], note: '' },
+      { code: 'FP704', name: 'Firemark Limited', aliases: ['firemark'], billing: 'per-order', history: [], note: '' }],
     orders: [
       { id: 1, so: 'SO860001C', cust: 'Chubb Fire & Security Limited', date: iso(5), by: 'NS', crates: 1, counts: cl(8), status: 'done', wtn: 'WTN-2026-0901', finalSo: null, source: 'netsuite' },
       { id: 2, so: 'SO860002C', cust: 'Chubb Fire and Security Ltd', date: iso(3), by: 'NS', crates: 2, counts: [], status: 'open', wtn: null, finalSo: null, source: 'netsuite' },
@@ -314,6 +329,27 @@ async function e2e() {
     st = (await req(port3, 'GET', '/api/state')).json;
     t('revert: members go back to Awaiting / No SO yet, the sent pack stays', off.ok && off.split === 2 && stg(2) === 'awaiting' && stg(3) === 'noso' && stg(1) === 'rolled');
     t('revert: nothing lost or duplicated', st.orders.length === 5 && new Set(st.orders.map(o => o.id)).size === 5);
+    /* ---- aliases (Customers tab) and WTNs marked sent that never went out ---- */
+    t('alias: Firemark NetSuite name added on boot', st.customers.find(c => c.code === 'FP704').aliases.includes('Firemark Scrap Warehouse'));
+    await req(port3, 'POST', '/api/customer-billing', { code: 'CNI0222', billing: 'monthly', by: 'T' }, K);
+    const al = (body, h) => req(port3, 'POST', '/api/customer-alias', Object.assign({ code: 'CNI0222', by: 'T' }, body), h);
+    t('alias: refused without the admin key', (await al({ alias: 'Griffin Fire' })).status === 403);
+    t('alias: one that matches another account is refused', (await al({ alias: 'firemark' }, K)).status === 400);
+    const ad = (await al({ alias: 'Griffin Fire' }, K)).json;
+    st = (await req(port3, 'GET', '/api/state')).json;
+    t('alias: add pulls the matching order in as needs Confirm, and logs it', ad.ok && ad.moved.into === 1 && P.rollState(by(4), st.customers) === 'pending'
+      && st.customers[0].aliasLog.some(x => x.action === 'add' && x.alias === 'Griffin Fire' && x.by === 'T'));
+    const rm = (await al({ alias: 'griffin fire', action: 'remove' }, K)).json;
+    st = (await req(port3, 'GET', '/api/state')).json;
+    t('alias: remove puts it back in its own stage', rm.ok && rm.moved.out === 1 && stg(4) === 'counted' && !st.customers[0].aliases.includes('Griffin Fire'));
+    const un = (b, h) => req(port3, 'POST', '/api/customer-wtn-unsend', Object.assign({ code: 'CNI0222', by: 'T' }, b), h);
+    t('not sent: only orders kept off the roll-up by a sent WTN are offered', P.sentOffRoll(st.orders, st.customers, 'CNI0222').map(o => o.id).join() === '5');
+    t('not sent: refused without the admin key', (await un({ orderIds: [5] })).status === 403);
+    t('not sent: an order not on offer is refused', (await un({ orderIds: [1] }, K)).status === 400);
+    const u = (await un({ orderIds: [5] }, K)).json;
+    st = (await req(port3, 'GET', '/api/state')).json;
+    t('not sent: order joins the roll-up, its WTN number and the sent date kept on record', u.ok && u.count === 1 && stg(5) === 'monthly' && P.rollState(by(5), st.customers) === 'member'
+      && by(5).wtn === 'WTN-2026-0904' && by(5).wtnUnsent[0].was === '22/10/2026');
   } finally { s3.child.kill(); fs.rmSync(s3.dir, { recursive: true, force: true }); }
 
   /* ---- per-crate billing on one drop-off across two packs ---- */
