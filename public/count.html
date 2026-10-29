@@ -277,6 +277,7 @@ function showDropOff(){
 }
 async function startDropOff(){
   const err=document.getElementById('dropErr');err.style.display='none';
+  if(!photoId){needPhoto(err);return;}
   const cust=document.getElementById('dropCust').value.trim();
   if(!cust){err.textContent='Enter the customer name — Sarah needs it to send the WTN and invoice.';err.style.display='block';return;}
   const crates=parseInt(document.getElementById('dropCrates').value,10)||1;
@@ -341,6 +342,11 @@ async function tryAutoRead(dataUrl){
     return m?m[0].replace(/[\s-]/g,''):null;
   }catch(e){return null;}
 }
+/* Every collection needs a photo of its paperwork, drop-offs included — the office has nothing else to check a count against. */
+function needPhoto(err){
+  err.textContent="Take a photo of the paperwork first (top of the screen) — every collection needs one.";err.style.display='block';
+  toast('Take the photo first');document.getElementById('photoCard').scrollIntoView({block:'start'});
+}
 async function onPhotoChosen(ev){
   const file=ev.target.files&&ev.target.files[0];
   if(!file)return;
@@ -357,7 +363,7 @@ async function onPhotoChosen(ev){
     setTimeout(()=>soBox.focus(),100);
   }catch(e){
     toast('Could not save the photo — try again');
-    photoId=null;
+    photoId=null;document.getElementById('photoPreviewWrap').style.display='none';
   }
   btn.textContent=orig;btn.disabled=false;
 }
@@ -464,6 +470,7 @@ async function submitCount(){
     if(d&&q>0)lines.push({p:'Other: '+d,q,other:true});
   });
   if(!lines.length){toast('Enter at least one count');return;}
+  if(!photoId){toast('No photo saved for this count — go Back and take the photo first');return;}
   const crates=parseInt(document.getElementById('batchSel').value,10)||1;
   const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines,crates,photoId})});
   const j=await r.json();
