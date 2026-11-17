@@ -99,6 +99,13 @@
   .ev-thumb.saving img{opacity:.4}
   .ev-thumb .st{position:absolute;left:0;right:0;bottom:0;background:rgba(28,31,35,.75);color:#fff;font-family:var(--mono);font-size:11px;padding:3px 6px;text-align:center}
   .ev-thumb .rm{position:absolute;top:0;right:0;width:36px;height:36px;border:none;background:var(--ink);color:#fff;font-size:20px;font-weight:700;cursor:pointer;line-height:1}
+  /* what's new: one screen after an update, shown once to each counter on this tablet */
+  .news{position:fixed;inset:0;background:rgba(28,31,35,.72);z-index:120;display:none;align-items:center;justify-content:center;padding:16px;overflow:auto}
+  .news-card{background:var(--card);border-top:6px solid var(--red);box-shadow:var(--shadow);padding:26px;max-width:520px;width:100%;margin:auto}
+  .news-card .tag{font-family:var(--mono);font-size:12px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+  .news-card h2{font-family:var(--display);font-size:24px;text-transform:uppercase;margin:6px 0 14px;line-height:1.15}
+  .news-card li{font-size:16px;line-height:1.5;margin:0 0 10px 20px}
+  .news-card .when{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:14px}
   .toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
     padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--red)}
 </style>
@@ -229,6 +236,15 @@
   <button class="btn" onclick="submitCount()">Save Crate Count</button>
 </div>
 <div class="toast" id="toast"></div>
+<div class="news" id="news" role="dialog" aria-modal="true" aria-labelledby="newsTitle">
+  <div class="news-card">
+    <div class="tag">New on the count sheet</div>
+    <h2 id="newsTitle"></h2>
+    <ul id="newsPoints"></ul>
+    <div class="when" id="newsWhen"></div>
+    <button class="btn block" id="newsOk" onclick="closeNews()">OK, got it</button>
+  </div>
+</div>
 
 <script src="/pipeline.js"></script>
 <script>/* "How to" shows only when the guide is really served and not behind the access-key gate */
@@ -258,11 +274,51 @@ function show(id){
   ['stepLogin','stepFind','stepCount','stepDone'].forEach(x=>document.getElementById(x).style.display=x===id?'block':'none');
 }
 
+/* ---- what's new: when the count sheet changes, each counter sees one screen about it the next
+   time they open the sheet on this tablet, taps OK and never sees it again. To announce the next
+   update, add an entry to the END of NEWS with a new id. `needs` ties an entry to a dashboard
+   switch, so nobody is told about something that is switched off. A counter new to this tablet
+   only sees the latest entry. Remembered per name, per tablet (the tablet is shared). */
+const NEWS=[
+  {id:'2026-11-17-crate-photos',date:'17 November 2026',needs:'extraPhotos',title:'You can now add photos of the crate',points:[
+    'On the count screen there is a new box: <b>More photos of the crate</b>.',
+    'Use it when you see something the office should know about: items that should not be there, damage, a dodgy delivery, or proof of your count.',
+    'Add up to 10 photos and a short note. They go to the office with your count.',
+    'It is optional. If there is nothing to show, count as normal. The paperwork photo is still needed every time.']}
+];
+function newsKey(){return 'recNewsSeen:'+String(counter||'').trim().toLowerCase();}
+function newsSeen(){try{const v=JSON.parse(localStorage.getItem(newsKey())||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}}
+function newsOn(x){return !x.needs||!!(STATE&&STATE[x.needs]);}
+let newsShowing=null;
+/* while the screen is up, the sheet behind it takes no keys or taps */
+function newsInert(on){document.querySelectorAll('header,.wrap,#submitBar').forEach(el=>{if(on)el.setAttribute('inert','');else el.removeAttribute('inert');});}
+function showNews(){
+  if(!counter||!STATE)return;
+  const seen=newsSeen(),n=NEWS.filter(x=>!seen.includes(x.id)&&newsOn(x)).pop();
+  if(!n)return;
+  newsShowing=n;
+  document.getElementById('newsTitle').textContent=n.title;
+  document.getElementById('newsPoints').innerHTML=n.points.map(p=>'<li>'+p+'</li>').join('');
+  document.getElementById('newsWhen').textContent='Added '+n.date;
+  document.getElementById('news').style.display='flex';newsInert(true);
+  /* No focus on the OK button: someone who presses Enter after typing their name would dismiss
+     the screen with the same key press before reading it. Dropping focus also closes the keyboard. */
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+}
+function closeNews(){
+  document.getElementById('news').style.display='none';newsInert(false);
+  /* OK covers everything up to this entry, so an older one does not pop up next. One whose
+     switch is off is left alone, so it is still announced if it is switched on later. */
+  if(newsShowing){const upTo=NEWS.indexOf(newsShowing),seen=newsSeen();NEWS.slice(0,upTo+1).forEach(x=>{if(newsOn(x)&&!seen.includes(x.id))seen.push(x.id);});
+    try{localStorage.setItem(newsKey(),JSON.stringify(seen));}catch(e){}}
+  newsShowing=null;
+}
+
 async function init(){
   const r=await fetch('/api/counter-config');STATE=await r.json();
   loadCustomers();
   counter=localStorage.getItem('recCounter')||null;
-  if(counter){setWho();show('stepFind');}
+  if(counter){setWho();show('stepFind');showNews();}
   else show('stepLogin');
 }
 function setWho(){
@@ -276,7 +332,8 @@ function doLogin(){
   counter=name;
   localStorage.setItem('recCounter',counter);
   setWho();show('stepFind');
-  setTimeout(()=>document.getElementById('soInput').focus(),100);
+  setTimeout(()=>{if(!newsShowing)document.getElementById('soInput').focus();},100);
+  showNews();
 }
 function logout(){
   localStorage.removeItem('recCounter');counter=null;
