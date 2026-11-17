@@ -92,6 +92,13 @@
   .picked.free{background:var(--amber-soft);border-color:#ecc98a}
   .picked small{display:block;font-size:12px;color:var(--ink-soft)}
   .picked button{border:1px solid var(--line-dark);background:#fff;padding:8px 12px;font-family:var(--display);font-size:11px;font-weight:700;text-transform:uppercase;cursor:pointer}
+  .ev-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+  .ev-thumbs:not(:empty){margin-bottom:10px}
+  .ev-thumb{position:relative;border:1px solid var(--line-dark);background:#f7f5f0;aspect-ratio:1}
+  .ev-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .ev-thumb.saving img{opacity:.4}
+  .ev-thumb .st{position:absolute;left:0;right:0;bottom:0;background:rgba(28,31,35,.75);color:#fff;font-family:var(--mono);font-size:11px;padding:3px 6px;text-align:center}
+  .ev-thumb .rm{position:absolute;top:0;right:0;width:36px;height:36px;border:none;background:var(--ink);color:#fff;font-size:20px;font-weight:700;cursor:pointer;line-height:1}
   .toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
     padding:12px 22px;font-family:var(--mono);font-size:13px;z-index:99;display:none;border-left:4px solid var(--red)}
 </style>
@@ -187,6 +194,16 @@
       <label style="margin-top:0">How many crates are you counting now?</label>
       <select id="batchSel" onchange="updateHint()" style="width:100%;padding:13px;border:1px solid var(--line-dark);font-family:var(--mono);font-size:17px;background:#fff"></select>
       <p class="find-hint" style="margin-top:8px">If more than one crate from this collection has arrived together, count them as one go — enter the totals across all of them.</p>
+    </div>
+    <!-- evidence photos: optional, any number up to 10, on every count (switched on/off from the dashboard) -->
+    <div class="find-card" id="evCard" style="display:none;margin:14px 0 4px">
+      <label style="margin-top:0">More photos of the crate (optional)</label>
+      <input type="file" id="evInput" accept="image/*" capture="environment" style="display:none" onchange="onEvidenceChosen(event)">
+      <div class="ev-thumbs" id="evThumbs"></div>
+      <button class="btn secondary block" id="evBtn" style="margin-top:0" onclick="document.getElementById('evInput').click()">+ Add photo of the crate</button>
+      <p class="find-hint" style="margin-top:8px">Use this for anything the office should see: what was in the crate, proof of your count, damage, or items that should not be there. Add up to 10, at any point before you save.</p>
+      <label>Note for the office (optional)</label>
+      <input id="evNote" maxlength="500" placeholder="e.g. 3 lithium batteries in the crate" autocomplete="off">
     </div>
     <div id="grid"></div>
     <div class="cgroup otherg">
@@ -368,6 +385,40 @@ async function onPhotoChosen(ev){
   btn.textContent=orig;btn.disabled=false;
 }
 
+/* ---- evidence photos: optional extra pictures of the crate on any count (odd items, damage,
+   proof of the count). Each one uploads as soon as it is taken, the same way as the paperwork
+   photo; the count then saves the list of ids with it. Never blocks a count: a photo that
+   fails to save is dropped with a message and the counter carries on. */
+const EV_MAX=10;let evidence=[],evSeq=0,evGen=0;   // evGen moves on whenever a count starts, saves or is left
+function resetEvidence(){
+  evidence=[];evGen++;document.getElementById('evNote').value='';document.getElementById('evInput').value='';renderEvidence();
+  showEvCard();readSwitch().then(showEvCard);
+}
+function renderEvidence(){
+  document.getElementById('evThumbs').innerHTML=evidence.map(e=>`<div class="ev-thumb${e.id?'':' saving'}"><img src="${e.url}" alt="Photo of the crate">${e.id?`<button type="button" class="rm" onclick="removeEvidence(${e.k})" aria-label="Remove this photo">&times;</button>`:'<span class="st">Saving…</span>'}</div>`).join('');
+  const b=document.getElementById('evBtn'),full=evidence.length>=EV_MAX;
+  b.disabled=full;b.style.opacity=full?.5:1;
+  b.textContent=full?`${EV_MAX} photos added (the most for one count)`:evidence.length?'+ Add another photo':'+ Add photo of the crate';
+}
+/* the dashboard's crate-photos switch, re-read at the start of every count so the tablet never needs a reload */
+function readSwitch(){return fetch('/api/counter-config').then(r=>r.json()).then(j=>{if(STATE&&typeof j.extraPhotos==='boolean')STATE.extraPhotos=j.extraPhotos;}).catch(()=>{});}
+function showEvCard(){document.getElementById('evCard').style.display=STATE&&STATE.extraPhotos?'block':'none';}
+function removeEvidence(k){evidence=evidence.filter(e=>e.k!==k);renderEvidence();}
+async function onEvidenceChosen(ev){
+  const file=ev.target.files&&ev.target.files[0];ev.target.value='';
+  if(!file||evidence.length>=EV_MAX)return;
+  const item={k:++evSeq,url:'',id:null},gen=evGen;
+  try{
+    item.url=await fileToCompressedDataUrl(file);
+    if(gen!==evGen)return;   // Back or Save happened while it was compressing: not this count's photo any more
+    evidence.push(item);renderEvidence();
+    item.id=await uploadPhoto(item.url);
+  }catch(e){
+    evidence=evidence.filter(x=>x!==item);if(gen===evGen)toast('Could not save that photo — try again');
+  }
+  renderEvidence();
+}
+
 async function findOrder(){
   const err=document.getElementById('findErr');err.style.display='none';
   document.getElementById('matchCard').style.display='none';
@@ -435,6 +486,7 @@ function startCount(){
       </div>`);
   });
   document.getElementById('otherLines').innerHTML='';
+  resetEvidence();
   updateHint();
   show('stepCount');document.getElementById('submitBar').style.display='flex';
   window.scrollTo(0,0);
@@ -472,10 +524,13 @@ async function submitCount(){
   });
   if(!lines.length){toast('Enter at least one count');return;}
   if(!photoId){toast('No photo saved for this count — go Back and take the photo first');return;}
+  if(evidence.some(e=>!e.id)){toast('A photo is still saving — wait a moment, then save again');return;}
   const crates=parseInt(document.getElementById('batchSel').value,10)||1;
-  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines,crates,photoId})});
+  const extraPhotos=evidence.map(e=>e.id),note=document.getElementById('evNote').value.trim();
+  const r=await fetch('/api/count',{method:'POST',body:JSON.stringify({orderId:active.id,by:counter,lines,crates,photoId,extraPhotos,note})});
   const j=await r.json();
   if(j.error){toast(j.error);return;}
+  evidence=[];evGen++;
   document.getElementById('submitBar').style.display='none';
   if(j.completed){
     document.getElementById('doneTitle').textContent='Order Complete';
@@ -500,7 +555,7 @@ function backToFind(){
   document.getElementById('soCard').style.display='none';
   document.getElementById('photoPreviewWrap').style.display='none';
   document.getElementById('photoInput').value='';
-  photoId=null;
+  photoId=null;evidence=[];evGen++;
   show('stepFind');window.scrollTo(0,0);
 }
 init();

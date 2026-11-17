@@ -75,7 +75,7 @@ function detailBlock(o,inv){
     <div class="detail-grid">
       <div><h4>Total counted</h4><table>${o.totals.map(t=>`<tr><td>${esc(t.p)}</td><td>${t.q}</td></tr>`).join('')}</table></div>
       <div><h4>NetSuite lines (Phase 3 SO)</h4><table>${(o.nsLines||[]).map(l=>`<tr><td>${esc(l.code)}</td><td>${l.q}</td></tr>`).join('')}</table></div>
-      <div><h4>Crate log</h4><div class="crate-log">${o.counts.map((c,ci)=>`<div class="entry-l">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}${o.invoicedAt?'':` <a href="#" onclick="event.preventDefault();event.stopPropagation();moveCrate(${o.id},${ci})" style="font-size:11px;margin-left:6px">move to another SO</a>`}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}</div>`).join('')}</div></div>
+      <div><h4>Crate log</h4><div class="crate-log">${o.counts.map((c,ci)=>`<div class="entry-l">${crateLabel(c)} — ${esc(c.by)} — ${esc(c.when)}${o.invoicedAt?'':` <a href="#" onclick="event.preventDefault();event.stopPropagation();moveCrate(${o.id},${ci})" style="font-size:11px;margin-left:6px">move to another SO</a>`}<br>${c.lines.map(l=>esc(l.p)+' ×'+l.q).join(', ')}${c.note?`<br><b>Note:</b> ${esc(c.note)}`:''}${(c.extraPhotos||[]).length?`<br>${c.extraPhotos.map((id,i)=>`<a href="/api/photo/${encodeURIComponent(id)}" target="_blank" onclick="event.stopPropagation()" style="margin-right:8px">Crate photo ${i+1}</a>`).join('')}`:''}</div>`).join('')}</div></div>
     </div>
     ${photos.length?`<div style="margin-top:10px">${photos.map(id=>`<a class="btn small ghost" href="/api/photo/${encodeURIComponent(id)}" target="_blank" style="margin:0 6px 6px 0;display:inline-block">View photo</a>`).join('')}</div>`:''}
     <div class="actions">
@@ -276,6 +276,8 @@ function renderNav(){
 /* The sync status line and the store warning banner — same wording as live. */
 function renderChrome(){
   const st=STATE.store||{},warn=document.getElementById('storeWarn');
+  const ev=document.getElementById('evToggle');
+  if(ev){const on=STATE.extraPhotos!==false;ev.hidden=false;ev.setAttribute('aria-checked',on);const s=document.getElementById('evState');s.textContent=on?'On':'Off';s.style.color=on?'#067647':'#b42318';s.style.fontWeight='600';}
   if(st.ready){warn.style.display='none';}
   else if(st.state==='starting'){warn.style.display='block';warn.style.background='#b45309';
     warn.textContent='Connecting to the data store — the figures below are not live yet.';}
@@ -323,11 +325,27 @@ function empty(t,s){return `<div class="empty"><b>${t}</b>${s}</div>`;}
 /* ============ cards ============ */
 function photoLinks(o,compact){
   const ids=[...new Set([o.photoId,...(o.counts||[]).map(c=>c.photoId)].filter(Boolean))];
-  return ids.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('');
+  return ids.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">View photo${ids.length>1?' '+(i+1):''}</a>`).join('')+evidenceLinks(o);
+}
+/* Evidence photos: the extra pictures of the crate the rec team add on /count, kept apart from the paperwork photo. */
+function evidenceIds(o){return [...new Set([].concat(...(o.counts||[]).map(c=>c.extraPhotos||[])))];}
+function evidenceNotes(o){return (o.counts||[]).filter(c=>c.note).map(c=>`${c.by}: ${c.note}`);}
+function evidenceLinks(o){
+  const ids=evidenceIds(o);
+  return ids.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank" title="Photo of the crate taken on the tablet">Crate photo${ids.length>1?' '+(i+1):''}</a>`).join('');
+}
+async function toggleEvidence(){
+  const on=!STATE.extraPhotos;
+  const j=await api('/api/settings',{extraPhotos:on,by:adminName()});
+  if(j.error){toast(j.error);return;}
+  STATE.extraPhotos=j.extraPhotos;renderChrome();
+  toast(j.extraPhotos?'Crate photos are on — the tablet offers them on every count':'Crate photos are off — the tablet stops offering them once the count it has open is saved');
 }
 function tagsFor(o,stage){
   const t=[];
   if(o.dropOff)t.push('<span class="badge s-noso">Drop-off</span>');
+  const evN=evidenceIds(o).length,evT=evidenceNotes(o);
+  if(evN||evT.length)t.push(`<span class="badge s-awaiting" title="${esc(evT.join(' | ')||'Extra photos of the crate from the rec team — open Details')}">${evN?plural(evN,'crate photo'):''}${evN&&evT.length?' · ':''}${evT.length?'Note from rec team':''}</span>`);
   if(o.needsReview)t.push(`<span class="badge s-noso" title="Photographed on the tablet but the number didn't match a live collection">Needs review${o.claimedRef?' — tried '+esc(o.claimedRef):''}</span>`);
   if(stage==='noso'){const d=likelyDuplicate(o);if(d)t.push(`<span class="badge s-awaiting" title="Same customer, counted within a fortnight — check this is not the same delivery twice">Possible duplicate of ${esc(d.so)}</span>`);}
   const m=monthlyInfo(o);if(m)t.push(`<span class="badge s-monthly" title="Tagged monthly in config">Monthly · ${esc(m.code||m.name)}</span>`);
@@ -512,7 +530,7 @@ function rollSection(c){
     const match=pend?`<b>“${esc(o.typedCust||o.cust)}” — matched to ${esc(c.code)}, confirm</b><small>${kind}${o.dropOff?' typed on the tablet':' matched by alias'}</small>`
       :`<span class="tick"></span> ${esc(o.cust)}<small>${kind} · ${o.custMatch==='picked'?'picked from the list':o.rollConfirmedAt?'confirmed by '+esc(o.rollConfirmedBy||'Rec admin'):'name matches the account'}${billedC?` · ${plural(billedC,'crate')} already billed`:''}</small>`;
     const soNote=P.isPlaceholder(o.so)?'':`<span class="soNote">Has NetSuite SO ${esc(o.so)} — close it in NetSuite when the pack is invoiced</span>`;
-    const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ');
+    const photos=ph.map((id,i)=>`<a class="lbtn" href="/api/photo/${encodeURIComponent(id)}" target="_blank">Photo${ph.length>1?' '+(i+1):''}</a>`).join(' ')+' '+evidenceLinks(o);
     const canExt=ub(o).length>0,tick=canExt?`<label class="pick" title="Select for Mark selected as already billed"><input type="checkbox" ${extPicks.has(o.id)?'checked':''} onchange="extPick(${o.id},this.checked,${jsq(c.code)})" aria-label="Select ${esc(o.so)}"></label> `:'';
     const extBtn=canExt?` <button class="btn quiet sm" onclick="extBillDialog([${o.id}],${jsq(c.code)})">Already billed</button>`:'';
     const act=pend?`<button class="btn amber sm" onclick="rollConfirm(${o.id},true)">Confirm</button><button class="lbtn" onclick="rollConfirm(${o.id},false)">Not ${esc(c.code)}</button>`

@@ -528,7 +528,10 @@ function startSync() {
 }
 
 /* ---------------- counting / completion ---------------- */
-function addCount(orderId, by, lines, crates, photoId) {
+/* Evidence photos: extra pictures of the crate the rec team can add to any count (odd items,
+   damage, proof of the count). On unless Rec Admin switches it off from the dashboard. */
+function extraPhotosOn() { return !(db.settings && db.settings.extraPhotos === false); }
+function addCount(orderId, by, lines, crates, photoId, extraPhotos, note) {
   const o = db.orders.find(x => x.id === Number(orderId));
   if (!o) return { error: 'Order not found' };
   if (o.status !== 'open') return { error: 'Order already completed' };
@@ -541,7 +544,10 @@ function addCount(orderId, by, lines, crates, photoId) {
      paperwork for this batch, kept alongside it so the office can check a claimed
      SO/TFO number against the label later. */
   const clean = photoId ? String(photoId).replace(/[^\w.-]/g, '') : null;
-  o.counts.push({ crateFrom: already + 1, crateTo: already + n, by, when: nowStamp(), lines, ...(clean ? { photoId: clean } : {}) });
+  const extra = [...new Set((Array.isArray(extraPhotos) ? extraPhotos : []).map(x => String(x || '').replace(/[^\w.-]/g, '')).filter(x => x && x !== clean))].slice(0, 12);
+  const said = String(note || '').trim().slice(0, 500);
+  o.counts.push({ crateFrom: already + 1, crateTo: already + n, by, when: nowStamp(), lines, ...(clean ? { photoId: clean } : {}),
+    ...(extra.length ? { extraPhotos: extra } : {}), ...(said ? { note: said } : {}) });
   /* An order on a monthly roll-up can stay open for months while its crates are billed, so it
      takes its own WTN on its first counted crate: the Defra receipt of waste export reports
      every crate under it, by the day it came in. Per-order collections keep theirs for completion. */
@@ -816,7 +822,7 @@ const server = http.createServer((req, res) => {
   /* api */
   if (req.method === 'GET' && p === '/api/ping') return json(res, 200, { ok: true });
   if (req.method === 'GET' && p === '/api/counter-config') {
-    return json(res, 200, { products: CONFIG.products, maxCrates: CONFIG.maxCrates });
+    return json(res, 200, { products: CONFIG.products, maxCrates: CONFIG.maxCrates, extraPhotos: extraPhotosOn() });
   }
   if (req.method === 'GET' && p === '/api/state') {
     return json(res, 200, {
@@ -829,7 +835,8 @@ const server = http.createServer((req, res) => {
       apiEnabled: CONFIG.netsuite.api.enabled,
       customers: db.customers || [],      // redesign: billing list (per order / monthly rolling)
       rollups: db.rollups || [],          // redesign: season WTNs raised from monthly roll-ups
-      adminEnabled: !!ADMIN_KEY           // false = Customers is read-only
+      adminEnabled: !!ADMIN_KEY,          // false = Customers is read-only
+      extraPhotos: extraPhotosOn()        // evidence photos offered on /count
     });
   }
   /* The /count drop-off picker: just enough to suggest an account. Open like /count. */
@@ -973,11 +980,22 @@ const server = http.createServer((req, res) => {
         if (!reason || !String(reason).trim()) return json(res, 400, { error: 'A reason is required to amend a count' });
         const before = aggregate(o);
         if (Array.isArray(counts)) {
+          /* An amendment corrects quantities; the photos and note taken with the crate are the
+             evidence for it, so they stay on the entry they were taken with (matched on who, when
+             and which crate). An entry the office adds or removes has none to keep. */
+          const old = (o.counts || []).slice();
+          const keep = c => {
+            const i = old.findIndex(x => x && x.when === c.when && x.by === c.by && x.crateFrom === c.crateFrom);
+            if (i < 0) return {};
+            const x = old[i]; old[i] = null;
+            return { ...(x.photoId ? { photoId: x.photoId } : {}), ...(x.extraPhotos ? { extraPhotos: x.extraPhotos } : {}), ...(x.note ? { note: x.note } : {}) };
+          };
           o.counts = counts.map(c => ({
             crateFrom: c.crateFrom, crateTo: c.crateTo,
             by: c.by || 'amended', when: c.when || nowStamp(),
             lines: (c.lines || []).filter(l => l && l.p != null && Number(l.q) > 0)
-                     .map(l => ({ p: l.p, q: Number(l.q), ...(l.other ? { other: true } : {}) }))
+                     .map(l => ({ p: l.p, q: Number(l.q), ...(l.other ? { other: true } : {}) })),
+            ...keep(c)
           })).filter(c => c.lines.length);
         }
         if (crates != null) o.crates = Math.max(1, Math.min(CONFIG.maxCrates, parseInt(crates, 10) || o.crates));
@@ -1000,7 +1018,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && p === '/api/sync') return syncFromNetSuite(r => json(res, 200, r));
   if (req.method === 'POST' && p === '/api/count') {
     return readBody(req, body => {
-      try { const { orderId, by, lines, crates, photoId } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines, crates, photoId)); }
+      try { const { orderId, by, lines, crates, photoId, extraPhotos, note } = JSON.parse(body); json(res, 200, addCount(orderId, by, lines, crates, photoId, extraPhotos, note)); }
       catch (e) { json(res, 400, { error: 'Bad request' }); }
     });
   }
@@ -1428,6 +1446,15 @@ const server = http.createServer((req, res) => {
     : false;
   const day = () => nowStamp().split(',')[0];
   const admin = () => Pipeline.adminCheck(ADMIN_KEY, req.headers['x-admin-key'], safeEqual);
+
+  /* Dashboard switch for the evidence photos step on /count. Behind the access key like the
+     rest of the dashboard; photos already saved stay on their counts either way. */
+  if (post('/api/settings', b => {
+    if (typeof b.extraPhotos !== 'boolean') return json(res, 400, { error: 'Nothing to change' });
+    db.settings = Object.assign({}, db.settings, { extraPhotos: b.extraPhotos, extraPhotosAt: nowStamp(), extraPhotosBy: String(b.by || '').trim() || 'Rec admin' });
+    if (!saveDb()) return json(res, 503, { error: 'Data store not ready — nothing was saved' });
+    json(res, 200, { ok: true, extraPhotos: extraPhotosOn() });
+  })) return;
 
   /* Processed on NetSuite — the per-order end of the pipeline. Sets the same
      invoicedAt the classic Invoiced tick sets, plus the NetSuite number. */

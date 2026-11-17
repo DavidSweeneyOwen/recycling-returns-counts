@@ -563,6 +563,42 @@ async function e2e() {
     t('invariant: its later crate is billed exactly once, then nothing is left', pr.ok && pr.rollup.units === 6 && !P.unbilled(st.orders[0]).length
       && (await req(port9, 'POST', '/api/rollup-process', { code: 'CNI0222' })).status === 400);
   } finally { s9.child.kill(); fs.rmSync(s9.dir, { recursive: true, force: true }); }
+
+  /* ---- Evidence photos: extra crate photos and a note on a count, and the dashboard switch ---- */
+  const port10 = port + 9;
+  const s10 = await boot(port10, 'k10');
+  try {
+    const open = { Cookie: null };   // the tablet has no access key
+    const cfg = async () => (await req(port10, 'GET', '/api/counter-config', null, open)).json;
+    t('evidence: offered on the tablet by default', (await cfg()).extraPhotos === true && (await req(port10, 'GET', '/api/state')).json.extraPhotos === true);
+    const o = (await req(port10, 'POST', '/api/dropoff', { cust: 'Evidence Ltd', by: 'T', crates: 3, photoId: 'p1.jpg' }, open)).json.order;
+    const c1 = (await req(port10, 'POST', '/api/count', { orderId: o.id, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q: 2 }], photoId: 'p1.jpg',
+      extraPhotos: ['e1.jpg', '../e2.jpg', 'e1.jpg', 'p1.jpg', '', null], note: '  3 lithium batteries  ' }, open)).json;
+    await req(port10, 'POST', '/api/count', { orderId: o.id, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q: 1 }], photoId: 'p1.jpg' }, open);
+    await req(port10, 'POST', '/api/count', { orderId: o.id, by: 'T', crates: 1, lines: [{ p: 'Water 6L', q: 1 }], extraPhotos: 'nope', note: 'x'.repeat(900) }, open);
+    let st = (await req(port10, 'GET', '/api/state')).json; const k = st.orders.find(x => x.id === o.id).counts;
+    t('evidence: photos saved on the count, cleaned, no duplicates, paperwork photo not repeated', c1.ok && JSON.stringify(k[0].extraPhotos) === '["e1.jpg","..e2.jpg"]' && k[0].photoId === 'p1.jpg');
+    t('evidence: note saved trimmed and capped', k[0].note === '3 lithium batteries' && k[2].note.length === 500);
+    t('evidence: a count without any is unchanged (no empty fields)', !('extraPhotos' in k[1]) && !('note' in k[1]) && !('extraPhotos' in k[2]));
+    const am = (await req(port10, 'POST', '/api/amend', { orderId: o.id, reason: 'recount', by: 'A',
+      counts: k.map((c, i) => ({ crateFrom: c.crateFrom, crateTo: c.crateTo, by: c.by, when: c.when, lines: [{ p: 'Water 6L', q: i ? 1 : 9 }] })) })).json;
+    const k2 = (await req(port10, 'GET', '/api/state')).json.orders.find(x => x.id === o.id).counts;
+    t('evidence: amending a count keeps its photos and note', am.ok && k2[0].lines[0].q === 9 && JSON.stringify(k2[0].extraPhotos) === '["e1.jpg","..e2.jpg"]'
+      && k2[0].note === '3 lithium batteries' && k2[0].photoId === 'p1.jpg' && k2[1].photoId === 'p1.jpg' && !('extraPhotos' in k2[1]));
+    t('evidence: the switch needs the access key', (await req(port10, 'POST', '/api/settings', { extraPhotos: false }, open)).status === 401 && (await cfg()).extraPhotos === true);
+    t('evidence: a bad switch value changes nothing', (await req(port10, 'POST', '/api/settings', { extraPhotos: 'off' })).status === 400 && (await cfg()).extraPhotos === true);
+    const off = (await req(port10, 'POST', '/api/settings', { extraPhotos: false, by: 'A' })).json;
+    t('evidence: switched off from the dashboard, the tablet stops offering it', off.ok && off.extraPhotos === false && (await cfg()).extraPhotos === false);
+    st = (await req(port10, 'GET', '/api/state')).json;
+    t('evidence: switching off keeps the photos already saved', st.extraPhotos === false && st.orders.find(x => x.id === o.id).counts[0].extraPhotos.length === 2);
+    t('evidence: switched back on', (await req(port10, 'POST', '/api/settings', { extraPhotos: true })).json.extraPhotos === true && (await cfg()).extraPhotos === true);
+    const am2 = (await req(port10, 'POST', '/api/amend', { orderId: o.id, reason: 'entry removed, one added', by: 'A',
+      counts: [{ crateFrom: k2[1].crateFrom, crateTo: k2[1].crateTo, by: k2[1].by, when: k2[1].when, lines: [{ p: 'Water 6L', q: 1 }] },
+               { crateFrom: 1, crateTo: 1, by: 'Rec admin', when: '', lines: [{ p: 'Water 6L', q: 2 }] }] })).json;
+    const k3 = (await req(port10, 'GET', '/api/state')).json.orders.find(x => x.id === o.id).counts;
+    t('evidence: an entry the office adds takes no photos from a removed one', am2.ok && k3.length === 2 && k3[0].photoId === 'p1.jpg' && !('extraPhotos' in k3[0])
+      && !('extraPhotos' in k3[1]) && !('note' in k3[1]) && !('photoId' in k3[1]));
+  } finally { s10.child.kill(); fs.rmSync(s10.dir, { recursive: true, force: true }); }
   console.log('     done');
 }
 
