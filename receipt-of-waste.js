@@ -205,7 +205,7 @@ const isoDay = t => t ? `${t.y}-${String(t.mo).padStart(2, '0')}-${String(t.d).p
 const excelSerial = t => Number((Date.UTC(t.y, t.mo - 1, t.d, t.h, t.mi, t.s) / 86400000 + 25569).toFixed(10));
 
 /* Section E of the WTN, in words. */
-const BOX_LABELS = [['water', 'Water'], ['powder', 'Powder'], ['foam', 'Foam'], ['co2alu5', '5KG CO2 Aluminium'],
+const BOX_LABELS = [['water', 'Water'], ['powder', 'Powder'], ['foam', 'Foam'], ['wetchem', 'Wet Chemical'], ['co2alu5', '5KG CO2 Aluminium'],
   ['co2tall', '2KG CO2 Tall'], ['co2squat', '2KG CO2 Squat'], ['co2steel2', '2KG CO2 Steel'], ['co2steel5', '5KG CO2 Steel']];
 function describe(o, wtnTotals) {
   const { t, others } = wtnTotals(o);

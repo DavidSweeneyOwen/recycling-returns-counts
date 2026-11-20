@@ -577,7 +577,7 @@ function createNetSuiteSalesOrder(order) {
 
 /* ---------------- WTN HTML ---------------- */
 function wtnTotals(o) {
-  const t = { water: 0, powder: 0, foam: 0, co2alu5: 0, co2tall: 0, co2squat: 0, co2steel2: 0, co2steel5: 0 };
+  const t = { water: 0, powder: 0, foam: 0, wetchem: 0, co2alu5: 0, co2tall: 0, co2squat: 0, co2steel2: 0, co2steel5: 0 };
   const others = [];
   o.counts.forEach(c => c.lines.forEach(l => {
     if (l.other) { others.push(`${String(l.p).replace(/^Other:\s*/, '')} x${l.q}`); return; }
@@ -659,7 +659,7 @@ function wtnHtml(o) {
     </tr>
     <tr><td colspan="4" class="sec">Section E - Details of Items</td></tr>
     <tr>
-      <td style="width:25%">Water Extinguishers&nbsp; <b>${v(t.water)}</b><br>Powder Extinguishers&nbsp; <b>${v(t.powder)}</b><br>Foam Extinguishers&nbsp; <b>${v(t.foam)}</b><br>5KG C02 Aluminium&nbsp; <b>${v(t.co2alu5)}</b></td>
+      <td style="width:25%">Water Extinguishers&nbsp; <b>${v(t.water)}</b><br>Powder Extinguishers&nbsp; <b>${v(t.powder)}</b><br>Foam Extinguishers&nbsp; <b>${v(t.foam)}</b><br>Wet Chemical Extinguishers&nbsp; <b>${v(t.wetchem)}</b><br>5KG C02 Aluminium&nbsp; <b>${v(t.co2alu5)}</b></td>
       <td style="width:25%">2KG CO2 Tall&nbsp; <b>${v(t.co2tall)}</b><br>2KG CO2 Squat&nbsp; <b>${v(t.co2squat)}</b><br>2KG CO2 Steel&nbsp; <b>${v(t.co2steel2)}</b><br>5KG CO2 Steel&nbsp; <b>${v(t.co2steel5)}</b></td>
       <td colspan="2"><span class="lbl">Other:</span><br>${others.map(esc).join('<br>')}</td>
     </tr>

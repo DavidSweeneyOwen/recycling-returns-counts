@@ -227,6 +227,27 @@
       "code": "SC-CO2-030",
       "wtnBox": "co2trolley",
       "buyback": true
+    },
+    {
+      "p": "Wet Chem 2L",
+      "group": "Wet Chem",
+      "size": "2L",
+      "code": "SC-WCH-002",
+      "wtnBox": "wetchem"
+    },
+    {
+      "p": "Wet Chem 3L",
+      "group": "Wet Chem",
+      "size": "3L",
+      "code": "SC-WCH-003",
+      "wtnBox": "wetchem"
+    },
+    {
+      "p": "Wet Chem 6L",
+      "group": "Wet Chem",
+      "size": "6L",
+      "code": "SC-WCH-006",
+      "wtnBox": "wetchem"
     }
   ],
   "otherCode": "D/S cylinder Other",

@@ -56,6 +56,7 @@
   .ghead{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;padding:8px 14px}
   .water .ghead{background:#b02318}.foam .ghead{background:#b29a6b}.powder .ghead{background:#3a536b}
   .co2steel .ghead{background:#1c1f23}.alu .ghead{background:#5e6670}.otherg .ghead{background:#6b6f75}
+  .wetchem .ghead{background:#e8c21a;color:#1c1f23}
   .gcells{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
   .gcell{border-right:1px solid var(--line);border-top:1px solid var(--line);padding:10px;text-align:center}
   .gcell .sz{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;display:block}
@@ -284,7 +285,11 @@ const NEWS=[
     'On the count screen there is a new box: <b>More photos of the crate</b>.',
     'Use it when you see something the office should know about: items that should not be there, damage, a dodgy delivery, or proof of your count.',
     'Add up to 10 photos and a short note. They go to the office with your count.',
-    'It is optional. If there is nothing to show, count as normal. The paperwork photo is still needed every time.']}
+    'It is optional. If there is nothing to show, count as normal. The paperwork photo is still needed every time.']},
+  {id:'2026-11-20-wet-chem',date:'20 November 2026',title:'Wet chem now has its own boxes',points:[
+    'Near the bottom of the count screen, just above Other, there is a new yellow <b>Wet Chem</b> section: <b>2L</b>, <b>3L</b> and <b>6L</b>.',
+    'Count wet chemical extinguishers there. Please do not type them under Other any more.',
+    'Any other wet chem size (for example 9L) still goes under Other, as before.']}
 ];
 function newsKey(){return 'recNewsSeen:'+String(counter||'').trim().toLowerCase();}
 function newsSeen(){try{const v=JSON.parse(localStorage.getItem(newsKey())||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}}
@@ -523,7 +528,7 @@ function groupsFromProducts(){
   });
   return order;
 }
-const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu'};
+const GCLS={'Water':'water','Foam':'foam','Powder':'powder','CO2 Steel':'co2steel','Aluminium':'alu','Wet Chem':'wetchem'};
 
 function startCount(){
   if(!photoId){toast('No photo saved — take the photo again first');document.getElementById('photoCard').scrollIntoView({block:'start'});return;}
